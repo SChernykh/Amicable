@@ -422,6 +422,25 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 	}
 
 	// Here p^4 > n2, so n2 can have at most 3 factors
+	if (n2TargetSum & 1)
+	{
+		// if sum of divisors is odd, then it must be a perfect square
+		if (!IsPerfectSquareCandidate(n2))
+			return;
+
+		p = static_cast<number>(sqrt(n2));
+		p2 = p * p;
+		if (p2 != n2)
+			return;
+
+		// a perfect square which has at most 3 factors can be only of the form "n=p^2"
+		// so we can just check this case and exit
+		if (p2 + p + 1 == n2TargetSum)
+			NumberFound(n1, targetSum);
+
+		return;
+	}
+
 	while (p * p * p <= n2)
 	{
 		number q;
@@ -523,24 +542,6 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 			// If n2 + 1 != n2TargetSum then n2 must be composite to satisfy S(N) = target sum
 			if (n2 + 1 != n2TargetSum)
 			{
-				// If N is a perfect square, then N mod 64 must be one of the following: 0, 1, 4, 9, 16, 17, 25, 33, 36, 41, 49, 57
-				enum Modulo64SquareCheck : number
-				{
-					value =
-						(number(1) << 0) |
-						(number(1) << 1) |
-						(number(1) << 4) |
-						(number(1) << 9) |
-						(number(1) << 16) |
-						(number(1) << 17) |
-						(number(1) << 25) |
-						(number(1) << 33) |
-						(number(1) << 36) |
-						(number(1) << 41) |
-						(number(1) << 49) |
-						(number(1) << 57)
-				};
-
 				// 1) Check the case n2 = p*q, p < q
 				// A=n2
 				// B=n2TargetSum-n2-1
@@ -549,8 +550,7 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 				// q=(B+sqrt(D))/2
 				const number B = n2TargetSum - n2 - 1;
 				const number D = B * B - n2 * 4;
-				// 1 << (D % 64) is equivalent to 1 << D on x86-64
-				if ((number(1) << D) & Modulo64SquareCheck::value)
+				if (IsPerfectSquareCandidate(D))
 				{
 					// Using floating point arithmetic gives 52 bits of precision
 					// 1 or 2 bits will be lost because of rounding errors
@@ -585,7 +585,7 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 				}
 
 				// 2) Check the case n2 = p^2
-				if ((number(1) << n2) & Modulo64SquareCheck::value)
+				if (IsPerfectSquareCandidate(n2))
 				{
 					p = static_cast<number>(sqrt(static_cast<double>(n2)));
 					const number p_squared = p * p;
@@ -646,6 +646,18 @@ FORCEINLINE bool InitialCheck(const number n1, const number targetSum, number& n
 		if ((minSum << (bitIndex + 1)) - minSum > targetSum)
 			return false;
 		sum = (number(1) << (bitIndex + 1)) - 1;
+		switch (bitIndex)
+		{
+			#define X(N) case N: { const number q = targetSum / ((1 << (N + 1)) - 1); if (q * ((1 << (N + 1)) - 1) != targetSum) { return false; } } break;
+			X(3)
+			X(4)
+			X(5)
+			X(6)
+			X(7)
+			X(8)
+			X(9)
+			#undef X
+		}
 	}
 
 	return true;
