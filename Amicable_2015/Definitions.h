@@ -340,3 +340,25 @@ number MaximumSumOfDivisors3(const number a, const number p, const number q);
 #endif
 
 extern unsigned __int64(__fastcall *udiv128)(unsigned __int64 numhi, unsigned __int64 numlo, unsigned __int64 den, unsigned __int64* rem);
+
+FORCEINLINE bool IsPerfectSquareCandidate(const number n)
+{
+	// If N is a perfect square, then N mod 64 must be one of the following: 0, 1, 4, 9, 16, 17, 25, 33, 36, 41, 49, 57
+	enum Modulo64SquareCheck : number
+	{
+		value =
+		(number(1) << 0) |
+		(number(1) << 1) |
+		(number(1) << 4) |
+		(number(1) << 9) |
+		(number(1) << 16) |
+		(number(1) << 17) |
+		(number(1) << 25) |
+		(number(1) << 33) |
+		(number(1) << 36) |
+		(number(1) << 41) |
+		(number(1) << 49) |
+		(number(1) << 57)
+	};
+	return (((number(1) << n) & Modulo64SquareCheck::value) != 0);
+}
