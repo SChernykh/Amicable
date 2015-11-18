@@ -260,6 +260,7 @@ template<> struct CompileTimePrimes<60> { enum { value = 283 }; };
 template<> struct CompileTimePrimes<61> { enum { value = 293 }; };
 template<> struct CompileTimePrimes<62> { enum { value = 307 }; };
 template<> struct CompileTimePrimes<63> { enum { value = 311 }; };
+template<> struct CompileTimePrimes<64> { enum { value = 313 }; };
 
 enum { CompileTimePrimesCount = 64 };
 
