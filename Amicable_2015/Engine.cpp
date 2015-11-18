@@ -265,8 +265,9 @@ FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetS
 		}
 		sumA *= curSum;
 
-		if (a == 1)
-			return (sumA == targetSum);
+		// If a number is fully factored, then exit immediately
+		if (a < CompileTimePrimes<PrimeIndex + 1>::value * CompileTimePrimes<PrimeIndex + 1>::value)
+			return true;
 
 		// found new prime factor, let's check that N is not abundant yet
 		if (sumA * (a + 1) > targetSum)
@@ -344,11 +345,7 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 	if (!CheckDivisibility<1>(n2, sum, targetSum, indexForMaximumSumOfDivisorsN))
 		return;
 
-	const byte* shift = NextPrimeShifts + CompileTimePrimesCount - 1;
-	number p = static_cast<number>(CompileTimePrimes<CompileTimePrimesCount - 1>::value) + *(shift++) * SearchLimit::ShiftMultiplier;
-	number p2 = p * p;
- 
-	if (p2 > n2)
+	if (n2 < CompileTimePrimes<CompileTimePrimesCount>::value * CompileTimePrimes<CompileTimePrimesCount>::value)
 	{
 		if (n2 > 1)
 			sum *= n2 + 1;
@@ -377,6 +374,8 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 		return;
 	number n2_sqrt4 = Root4(n2);
 
+	const byte* shift = NextPrimeShifts + CompileTimePrimesCount;
+	number p = CompileTimePrimes<CompileTimePrimesCount>::value;
 	while (p <= n2_sqrt4)
 	{
 		number q;
@@ -429,7 +428,7 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 			return;
 
 		p = static_cast<number>(sqrt(n2));
-		p2 = p * p;
+		const number p2 = p * p;
 		if (p2 != n2)
 			return;
 
