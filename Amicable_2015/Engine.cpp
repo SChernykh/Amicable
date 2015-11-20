@@ -248,20 +248,23 @@ FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetS
 			return false;
 	}
 
-	number q = a / p;
-	if (q * p == a)
+	// M / N = (M * value) mod 2^64
+	// This means that (M * value) must be <= (number(-1) / N)
+	// Otherwise it's not divisible by N
+	number q = a * MultiplicativeInverse<p>::value;
+	if (q <= (number(-1) / p))
 	{
+		a = q;
 		number n = p;
 		number curSum = p + 1;
-		a = q;
 		for (;;)
 		{
-			q = a / p;
-			if (q * p != a)
+			q = a * MultiplicativeInverse<p>::value;
+			if (q > (number(-1) / p))
 				break;
+			a = q;
 			n *= p;
 			curSum += n;
-			a = q;
 		}
 		sumA *= curSum;
 

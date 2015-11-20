@@ -363,3 +363,40 @@ FORCEINLINE bool IsPerfectSquareCandidate(const number n)
 	};
 	return (((number(1) << n) & Modulo64SquareCheck::value) != 0);
 }
+
+#pragma warning(push)
+
+// Disable this warning here because number overflows are the essence of this algorithm: it computes everything modulo 2^64.
+#pragma warning(disable : 4307) // warning C4307: '*' : integral constant overflow
+
+template<number x1, number x2, number v1, number v2>
+struct ExtendedEuclidCompileTime
+{
+	enum Variables : number
+	{
+		q = v1 / v2,
+		x3 = x1 - q * x2,
+		v3 = v1 - q * v2,
+		value = ExtendedEuclidCompileTime<x2, x3, v2, v3>::value,
+	};
+};
+
+template<number x1, number x2, number v1>
+struct ExtendedEuclidCompileTime<x1, x2, v1, 1>
+{
+	enum Variables : number
+	{
+		value = x2,
+	};
+};
+
+template<number N>
+struct MultiplicativeInverse
+{
+	enum Variables : number
+	{
+		value = ExtendedEuclidCompileTime<number(-1), 1, ~N + 1, N>::value,
+	};
+};
+
+#pragma warning(pop)
