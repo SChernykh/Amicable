@@ -291,26 +291,26 @@ FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetS
 			s4 = number(p) * p * p * p + s3,
 			s5 = number(p) * p * p * p * p + s4,
 		};
-		if ((curSum == s1) && ((targetSum / s1) * s1 != targetSum))
+		if ((curSum == s1) && (_rotr64(targetSum * MultiplicativeInverseEven<s1>::value, MultiplicativeInverseEven<s1>::shift) > number(-1) / s1))
 			return false;
 		IF_CONSTEXPR(PrimeIndex <= 32)
 		{
-			if ((curSum == s2) && ((targetSum / s2) * s2 != targetSum))
+			if ((curSum == s2) && (targetSum * MultiplicativeInverse<s2>::value > number(-1) / s2))
 				return false;
 		}
 		IF_CONSTEXPR(PrimeIndex <= 16)
 		{
-			if ((curSum == s3) && ((targetSum / s3) * s3 != targetSum))
+			if ((curSum == s3) && (_rotr64(targetSum * MultiplicativeInverseEven<s3>::value, MultiplicativeInverseEven<s3>::shift) > number(-1) / s3))
 				return false;
 		}
 		IF_CONSTEXPR(PrimeIndex <= 8)
 		{
-			if ((curSum == s4) && ((targetSum / s4) * s4 != targetSum))
+			if ((curSum == s4) && (targetSum * MultiplicativeInverse<s4>::value > number(-1) / s4))
 				return false;
 		}
 		IF_CONSTEXPR(PrimeIndex <= 4)
 		{
-			if ((curSum == s5) && ((targetSum / s5) * s5 != targetSum))
+			if ((curSum == s5) && (_rotr64(targetSum * MultiplicativeInverseEven<s5>::value, MultiplicativeInverseEven<s5>::shift) > number(-1) / s5))
 				return false;
 		}
 	}

@@ -399,4 +399,35 @@ struct MultiplicativeInverse
 	};
 };
 
+// For even numbers
+template<number N, number K, bool IsEven>
+struct MultiplicativeInverseEvenImpl
+{
+	enum Variables : number
+	{
+		value = MultiplicativeInverseEvenImpl<N / 2, K + 1, ((N / 2) % 2) == 0>::value,
+		shift = MultiplicativeInverseEvenImpl<N / 2, K + 1, ((N / 2) % 2) == 0>::shift,
+	};
+};
+
+template<number N, number K>
+struct MultiplicativeInverseEvenImpl<N, K, false>
+{
+	enum Variables : number
+	{
+		value = MultiplicativeInverse<N>::value,
+		shift = K,
+	};
+};
+
+template<number N>
+struct MultiplicativeInverseEven
+{
+	enum Variables : number
+	{
+		value = MultiplicativeInverseEvenImpl<N, 0, (N % 2) == 0>::value,
+		shift = MultiplicativeInverseEvenImpl<N, 0, (N % 2) == 0>::shift,
+	};
+};
+
 #pragma warning(pop)
