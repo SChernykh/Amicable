@@ -643,17 +643,20 @@ NOINLINE void CheckPairInternalNoInline(const number n1, const number targetSum,
 	CheckPairInternal(n1, targetSum, n2TargetSum, n2, sum);
 }
 
-// Cache-aligned. Fits exactly in 2 cache lines.
-__declspec(align(64)) static const number locPowersOf2DivisibilityData[8][2] = {
-	{MultiplicativeInverse<3>::value, number(-1) / 3},
-	{MultiplicativeInverse<7>::value, number(-1) / 7},
-	{MultiplicativeInverse<15>::value, number(-1) / 15},
-	{MultiplicativeInverse<31>::value, number(-1) / 31},
-	{MultiplicativeInverse<63>::value, number(-1) / 63},
-	{MultiplicativeInverse<127>::value, number(-1) / 127},
-	{MultiplicativeInverse<255>::value, number(-1) / 255},
-	{MultiplicativeInverse<511>::value, number(-1) / 511},
+#define X(N) {MultiplicativeInverse<(number(1) << (N + 2)) - 1>::value, number(-1) / ((number(1) << (N + 2)) - 1)}
+
+// Cache aligned
+__declspec(align(64)) static const number locPowersOf2DivisibilityData[63][2] = {
+	X(0), X(1), X(2), X(3), X(4), X(5), X(6), X(7), X(8), X(9),
+	X(10), X(11), X(12), X(13), X(14), X(15), X(16), X(17), X(18), X(19),
+	X(20), X(21), X(22), X(23), X(24), X(25), X(26), X(27), X(28), X(29),
+	X(30), X(31), X(32), X(33), X(34), X(35), X(36), X(37), X(38), X(39),
+	X(40), X(41), X(42), X(43), X(44), X(45), X(46), X(47), X(48), X(49),
+	X(50), X(51), X(52), X(53), X(54), X(55), X(56), X(57), X(58), X(59),
+	X(60), X(61), {number(-1), 1},
 };
+
+#undef X
 
 FORCEINLINE number InitialCheck(const number n1, const number targetSum, number& n2, number& sum)
 {
@@ -678,12 +681,9 @@ FORCEINLINE number InitialCheck(const number n1, const number targetSum, number&
 			return 0;
 
 		sum = (number(1) << (bitIndex + 1)) - 1;
-		if (bitIndex <= 8)
-		{
-			n2TargetSum = targetSum * locPowersOf2DivisibilityData[bitIndex - 1][0];
-			if (n2TargetSum > locPowersOf2DivisibilityData[bitIndex - 1][1])
-				return 0;
-		}
+		n2TargetSum = targetSum * locPowersOf2DivisibilityData[bitIndex - 1][0];
+		if (n2TargetSum > locPowersOf2DivisibilityData[bitIndex - 1][1])
+			return 0;
 	}
 
 	return n2TargetSum;
