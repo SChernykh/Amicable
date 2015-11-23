@@ -238,7 +238,7 @@ template<> FORCEINLINE bool IsNumEligible<IS_NUM_ELIGIBLE_BEGIN>(const number a,
 }
 
 template<int PrimeIndex>
-FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetSum, number& j)
+FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetSum, number& n2TargetSum, number& j)
 {
 	enum {p = CompileTimePrimes<PrimeIndex>::value};
 
@@ -252,7 +252,7 @@ FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetS
 	// This means that (M * value) must be <= (number(-1) / N)
 	// Otherwise it's not divisible by N
 	number q = a * MultiplicativeInverse<p>::value;
-	if (q <= (number(-1) / p))
+	if (q <= number(-1) / p)
 	{
 		a = q;
 		number n = p;
@@ -260,7 +260,7 @@ FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetS
 		for (;;)
 		{
 			q = a * MultiplicativeInverse<p>::value;
-			if (q > (number(-1) / p))
+			if (q > number(-1) / p)
 				break;
 			a = q;
 			n *= p;
@@ -291,38 +291,54 @@ FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetS
 			s4 = number(p) * p * p * p + s3,
 			s5 = number(p) * p * p * p * p + s4,
 		};
-		if ((curSum == s1) && (_rotr64(targetSum * MultiplicativeInverseEven<s1>::value, MultiplicativeInverseEven<s1>::shift) > number(-1) / s1))
-			return false;
+		if (curSum == s1)
+		{
+			n2TargetSum = _rotr64(n2TargetSum * MultiplicativeInverseEven<s1>::value, MultiplicativeInverseEven<s1>::shift);
+			if (n2TargetSum > number(-1) / s1)
+				return false;
+		}
 		IF_CONSTEXPR(PrimeIndex <= 32)
 		{
-			if ((curSum == s2) && (targetSum * MultiplicativeInverse<s2>::value > number(-1) / s2))
-				return false;
+			if (curSum == s2)
+			{
+				n2TargetSum *= MultiplicativeInverse<s2>::value;
+				if (n2TargetSum > number(-1) / s2)
+					return false;
+			}
 		}
 		IF_CONSTEXPR(PrimeIndex <= 16)
 		{
-			if ((curSum == s3) && (_rotr64(targetSum * MultiplicativeInverseEven<s3>::value, MultiplicativeInverseEven<s3>::shift) > number(-1) / s3))
-				return false;
+			if (curSum == s3)
+			{
+				n2TargetSum = _rotr64(n2TargetSum * MultiplicativeInverseEven<s3>::value, MultiplicativeInverseEven<s3>::shift);
+				if (n2TargetSum > number(-1) / s3)
+					return false;
+			}
 		}
 		IF_CONSTEXPR(PrimeIndex <= 8)
 		{
-			if ((curSum == s4) && (targetSum * MultiplicativeInverse<s4>::value > number(-1) / s4))
-				return false;
+			if (curSum == s4)
+			{
+				n2TargetSum *= MultiplicativeInverse<s4>::value;
+				if (n2TargetSum > number(-1) / s4)
+					return false;
+			}
 		}
 		IF_CONSTEXPR(PrimeIndex <= 4)
 		{
-			if ((curSum == s5) && (_rotr64(targetSum * MultiplicativeInverseEven<s5>::value, MultiplicativeInverseEven<s5>::shift) > number(-1) / s5))
-				return false;
+			if (curSum == s5)
+			{
+				n2TargetSum = _rotr64(n2TargetSum * MultiplicativeInverseEven<s5>::value, MultiplicativeInverseEven<s5>::shift);
+				if (n2TargetSum > number(-1) / s5)
+					return false;
+			}
 		}
 	}
 
-	IF_CONSTEXPR(PrimeIndex == 32)
-		if ((targetSum % sumA) != 0)
-			return false;
-
-	return CheckDivisibility<PrimeIndex + 1>(a, sumA, targetSum, j);
+	return CheckDivisibility<PrimeIndex + 1>(a, sumA, targetSum, n2TargetSum, j);
 }
 
-template<> FORCEINLINE bool CheckDivisibility<CompileTimePrimesCount>(number&, number&, const number, number&) { return true; }
+template<> FORCEINLINE bool CheckDivisibility<CompileTimePrimesCount>(number&, number&, const number, number&, number&) { return true; }
 
 __declspec(thread) number NumFoundPairs = 0;
 number TotalCPUcycles = 0;
@@ -342,10 +358,10 @@ FORCEINLINE number Root4(const number n)
 	return static_cast<number>(sqrt(sqrt(n)));
 }
 
-FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, number n2, number sum)
+FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, number n2TargetSum, number n2, number sum)
 {
 	number indexForMaximumSumOfDivisorsN;
-	if (!CheckDivisibility<1>(n2, sum, targetSum, indexForMaximumSumOfDivisorsN))
+	if (!CheckDivisibility<1>(n2, sum, targetSum, n2TargetSum, indexForMaximumSumOfDivisorsN))
 		return;
 
 	if (n2 < CompileTimePrimes<CompileTimePrimesCount>::value * CompileTimePrimes<CompileTimePrimesCount>::value)
@@ -372,7 +388,7 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 	//
 	// so if targetSum is not divisible by sum, we'll have this: sum * x == targetSum where x is not integer
 	// which means we can stop right now
-	number n2TargetSum = targetSum / sum;
+	n2TargetSum = targetSum / sum;
 	if ((targetSum % sum) != 0)
 		return;
 	number n2_sqrt4 = Root4(n2);
@@ -622,54 +638,63 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 		NumberFound(n1, targetSum);
 }
 
-NOINLINE void CheckPairInternalNoInline(const number n1, const number targetSum, number n2, number sum)
+NOINLINE void CheckPairInternalNoInline(const number n1, const number targetSum, number n2TargetSum, number n2, number sum)
 {
-	CheckPairInternal(n1, targetSum, n2, sum);
+	CheckPairInternal(n1, targetSum, n2TargetSum, n2, sum);
 }
 
-FORCEINLINE bool InitialCheck(const number n1, const number targetSum, number& n2, number& sum)
+// Cache-aligned. Fits exactly in 2 cache lines.
+__declspec(align(64)) static const number locPowersOf2DivisibilityData[8][2] = {
+	{MultiplicativeInverse<3>::value, number(-1) / 3},
+	{MultiplicativeInverse<7>::value, number(-1) / 7},
+	{MultiplicativeInverse<15>::value, number(-1) / 15},
+	{MultiplicativeInverse<31>::value, number(-1) / 31},
+	{MultiplicativeInverse<63>::value, number(-1) / 63},
+	{MultiplicativeInverse<127>::value, number(-1) / 127},
+	{MultiplicativeInverse<255>::value, number(-1) / 255},
+	{MultiplicativeInverse<511>::value, number(-1) / 511},
+};
+
+FORCEINLINE number InitialCheck(const number n1, const number targetSum, number& n2, number& sum)
 {
 	if (n1 <= SearchLimit::value / 10)
-		return false;
+		return 0;
 
 	// n1 must be a smaller member of a pair
 	n2 = targetSum - n1;
 	if (n1 >= n2)
-		return false;
+		return 0;
 
 	sum = 1;
 
 	unsigned long bitIndex;
 	_BitScanForward64(&bitIndex, n2);
+	number n2TargetSum = targetSum;
 	if (bitIndex > 0)
 	{
 		n2 >>= bitIndex;
 		const number minSum = n2 + 1;
 		if ((minSum << (bitIndex + 1)) - minSum > targetSum)
-			return false;
+			return 0;
+
 		sum = (number(1) << (bitIndex + 1)) - 1;
-		switch (bitIndex)
+		if (bitIndex <= 8)
 		{
-			#define X(N) case N: { const number q = targetSum / ((1 << (N + 1)) - 1); if (q * ((1 << (N + 1)) - 1) != targetSum) { return false; } } break;
-			X(3)
-			X(4)
-			X(5)
-			X(6)
-			X(7)
-			X(8)
-			X(9)
-			#undef X
+			n2TargetSum = targetSum * locPowersOf2DivisibilityData[bitIndex - 1][0];
+			if (n2TargetSum > locPowersOf2DivisibilityData[bitIndex - 1][1])
+				return 0;
 		}
 	}
 
-	return true;
+	return n2TargetSum;
 }
 
 FORCEINLINE void CheckPair(const number n1, const number targetSum)
 {
 	number n2, sum;
-	if (InitialCheck(n1, targetSum, n2, sum))
-		CheckPairInternalNoInline(n1, targetSum, n2, sum);
+	const number n2TargetSum = InitialCheck(n1, targetSum, n2, sum);
+	if (n2TargetSum)
+		CheckPairInternalNoInline(n1, targetSum, n2TargetSum, n2, sum);
 }
 
 template<number Index>
@@ -994,8 +1019,9 @@ NOINLINE void Search<0>(const number aRangeStart0, const number aRangeEnd0, cons
 						break;
 					const number targetSum = (curPrime + 1) * p.second;
 					number n2, sum;
-					if (InitialCheck(n1, targetSum, n2, sum))
-						CheckPairInternal(n1, targetSum, n2, sum);
+					const number n2TargetSum = InitialCheck(n1, targetSum, n2, sum);
+					if (n2TargetSum)
+						CheckPairInternal(n1, targetSum, n2TargetSum, n2, sum);
 				}
 			}
 			else
