@@ -242,7 +242,7 @@ FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetS
 {
 	enum {p = CompileTimePrimes<PrimeIndex>::value};
 
-	IF_CONSTEXPR(((PrimeIndex & 7) == 0) && (PrimeIndex != 56))
+	IF_CONSTEXPR(((PrimeIndex & 7) == 0) && (PrimeIndex != 56) && (PrimeIndex != 72))
 	{
 		if (!IsNumEligible<PrimeIndex>(a, sumA, targetSum, j))
 			return false;
@@ -297,7 +297,7 @@ FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetS
 			if (n2TargetSum > number(-1) / s1)
 				return false;
 		}
-		IF_CONSTEXPR(PrimeIndex <= 32)
+		IF_CONSTEXPR(PrimeIndex <= CompileTimePrimesCount / 2)
 		{
 			if (curSum == s2)
 			{
@@ -306,7 +306,7 @@ FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetS
 					return false;
 			}
 		}
-		IF_CONSTEXPR(PrimeIndex <= 16)
+		IF_CONSTEXPR(PrimeIndex <= CompileTimePrimesCount / 4)
 		{
 			if (curSum == s3)
 			{
@@ -315,7 +315,7 @@ FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetS
 					return false;
 			}
 		}
-		IF_CONSTEXPR(PrimeIndex <= 8)
+		IF_CONSTEXPR(PrimeIndex <= CompileTimePrimesCount / 8)
 		{
 			if (curSum == s4)
 			{
@@ -324,7 +324,7 @@ FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetS
 					return false;
 			}
 		}
-		IF_CONSTEXPR(PrimeIndex <= 4)
+		IF_CONSTEXPR(PrimeIndex <= CompileTimePrimesCount / 16)
 		{
 			if (curSum == s5)
 			{
