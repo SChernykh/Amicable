@@ -11,7 +11,7 @@ NOINLINE void Factorize(number a, number& sumA, std::vector<std::pair<number, nu
 		a >>= bitIndex;
 		sumA = (number(1) << (bitIndex + 1)) - 1;
 		aFactorization.push_back(std::make_pair(2, bitIndex));
-		if ((a <= SearchLimit::PrimesUpToSqrtLimitValue) && IsPrime(a))
+		if (IsPrime(a))
 		{
 			aFactorization.push_back(std::make_pair(a, 1));
 			sumA *= a + 1;

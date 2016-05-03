@@ -3,9 +3,9 @@
 #include "Factorize.h"
 #include <algorithm>
 #include <process.h>
+#include "sprp64.h"
 
 SReciprocal privPrimeReciprocals[ReciprocalsTableSize];
-unsigned int privPrimesUpToSqrtLimitSorted[ShiftTableSize];
 number privPrimesUpToSqrtLimitSortedCount;
 byte privNextPrimeShifts[ShiftTableSize];
 const SumEstimateData* privSumEstimates[SumEstimatesSize];
@@ -155,6 +155,11 @@ number CalculatePrimes(number aLowerBound, number anUpperBound, std::vector<byte
 
 bool IsPrime(number n)
 {
+	if (n >= SearchLimit::PrimesUpToSqrtLimitValue)
+	{
+		return efficient_mr64(n);
+	}
+
 	if (n <= 63)
 	{
 		const number mask = 
@@ -186,103 +191,6 @@ bool IsPrime(number n)
 		return false;
 
 	return (PrimesUpToSqrtLimit[k / Byte::Bits] & (1 << (k % Byte::Bits))) != 0;
-}
-
-class PrimesUpToSqrtLimitIterator
-{
-public:
-	FORCEINLINE PrimesUpToSqrtLimitIterator(number aStartPrime = 2)
-		: mySieveChunk(0xfafd7bbef7ffffffULL & ~number(3))
-		, mySieveData((const number*)(PrimesUpToSqrtLimit.data()))
-		, myPossiblePrimesForModuloPtr(NumbersCoprimeToModulo)
-		, myModuloIndex(0)
-		, myBitIndexShift(0)
-		, myCurrentPrime(1)
-	{
-		while (myCurrentPrime != aStartPrime)
-			operator++();
-	}
-
-	FORCEINLINE number Get() const { return myCurrentPrime; }
-
-	FORCEINLINE PrimesUpToSqrtLimitIterator& operator++()
-	{
-		if (myCurrentPrime < 11)
-		{
-			myCurrentPrime = (0xB0705320UL >> (myCurrentPrime * 4)) & 15;
-			return *this;
-		}
-
-		while (!mySieveChunk)
-		{
-			mySieveChunk = *(++mySieveData);
-
-			const number NewValues =	(PrimeTableParameters::Modulo / 2)	| (number(PrimeTableParameters::Modulo / 2) << 16)	| (number(PrimeTableParameters::Modulo) << 32) |
-										(16 << 8)							| (32 << 24)										| (number(0) << 40);
-
-			myModuloIndex += ((NewValues >> myBitIndexShift) & 255) * 2;
-			myBitIndexShift = (NewValues >> (myBitIndexShift + 8)) & 255;
-
-			myPossiblePrimesForModuloPtr = NumbersCoprimeToModulo + myBitIndexShift;
-		}
-
-		unsigned long bitIndex;
-		_BitScanForward64(&bitIndex, mySieveChunk);
-		mySieveChunk &= (mySieveChunk - 1);
-
-		myCurrentPrime = myModuloIndex + myPossiblePrimesForModuloPtr[bitIndex];
-
-		return *this;
-	}
-
-private:
-	number mySieveChunk;
-	const number* mySieveData;
-	const unsigned int* myPossiblePrimesForModuloPtr;
-	number myModuloIndex;
-	number myBitIndexShift;
-	number myCurrentPrime;
-};
-
-struct CalculateLargestFactorsData
-{
-	number myThreadIndex;
-	number myNumThreads;
-	std::pair<unsigned int, unsigned int> *myLargestFactors;
-};
-
-unsigned int __stdcall CalculateLargestFactorsThread(void* aData)
-{
-	CalculateLargestFactorsData* data = reinterpret_cast<CalculateLargestFactorsData*>(aData);
-
-	std::vector<std::pair<number, number>> f;
-
-	number i = 0;
-	number j = 0;
-	for (PrimesUpToSqrtLimitIterator p(CompileTimePrimes<InlinePrimesInSearch + 1>::value); p.Get() <= SearchLimit::PrimesUpToSqrtLimitValue; ++p, ++i)
-	{
-		if (j == data->myThreadIndex)
-		{
-			number tmp;
-			f.clear();
-			Factorize(p.Get() + 1, tmp, f);
-
-			std::pair<unsigned int, unsigned int>& cur = data->myLargestFactors[i];
-			cur.first = static_cast<unsigned int>(p.Get());
-			cur.second = static_cast<unsigned int>(f.back().first);
-		}
-		++j;
-		if (j == data->myNumThreads)
-			j = 0;
-	}
-
-	if (i > privPrimesUpToSqrtLimitSortedCount)
-	{
-		std::cerr << "ShiftTableSize must be >= " << (i + InlinePrimesInSearch + 1);
-		__debugbreak();
-	}
-
-	return 0;
 }
 
 SmallFactorNumbers g_SmallFactorNumbersData;
@@ -353,68 +261,6 @@ FORCEINLINE void CalculateSmallFactorNumbersInternal<0>(number D, number sumD, n
 	}
 }
 
-static std::vector<std::pair<number, number>> locTmpFactorization;
-
-template<>
-NOINLINE void CalculateSmallFactorNumbersInternal<InlinePrimesInSearch + 1>(number D, number sumD, number smallestFactorInM1)
-{
-	// Check for overflow when calculating S(D)
-	if (sumD < D)
-		__debugbreak();
-
-#if USE_CONJECTURES
-	// If a number is divisible by 2^3, then it must not be divisible by 5 or 7
-	// This is not proved, but true for all known amicable pairs
-	if ((D % 8) == 0)
-		if (((D % 5) == 0) || ((D % 7) == 0))
-			return;
-#endif
-
-	// Numbers <= SearchLimit::value are represented as N = D*M where D=2^k0 * ... * 31^k10 * M1
-	// D is given, M can be anything satisfying with these restrictions:
-	// 1) M is coprime to D
-	// 2) All prime factors in M are > 31 and < than all prime factors in M1
-	// 3) D * M <= SearchLimit::value
-	//
-	// If N is a smaller member of an amicable pair, then S(N) = S(D*M) = S(D)*S(M) must be > 2 * N
-	// S(D) * S(M) > 2 * N
-	// S(D) * S(M) > 2 * D * M
-	// S(D) / D > 2 * M / S(M) for at least one M such that D * M <= SearchLimit::value
-	// S(D) / D > 2 * min(M / S(M))
-	// Since all FP calculations round up here, we must transform it to this: f(...) > C
-	// where f(...) are a series of calculations which will be rounded up
-	// Thus we neutralize rounding errors
-	// Calculating minimum is not correct when FP calculations round up
-	// So we also change minimum to maximum
-	//
-	// S(D) > D * 2 * min(M / S(M))
-	// S(D) > D * 2 / max(S(M) / M)
-	// S(D) * max(S(M) / M) > D * 2
-	// S(D) * max(S(M) / M) / 2 > D
-	if ((sumD - D > D) || (GetMaxSumMDiv2(D, sumD, smallestFactorInM1) >= D))
-	{
-		// The partial factorization must be deficient in order for the bigger number to be deficient too
-		const unsigned int gcd = static_cast<unsigned int>(GCD(D, sumD));
-		number sumGCD;
-		locTmpFactorization.clear();
-		Factorize(gcd, sumGCD, locTmpFactorization);
-		if (sumGCD - gcd < gcd)
-		{
-			// It must be not just deficient, but "deficient enough"
-			// "sumGCD * (sumD - D) < gcd * sumD" must be true
-			// See comments for privLinearSearchData below
-			number sum1[2];
-			sum1[0] = _umul128(sumGCD, sumD - D, &sum1[1]);
-
-			number sum2[2];
-			sum2[0] = _umul128(gcd, sumD, &sum2[1]);
-
-			if ((sum1[1] < sum2[1]) || ((sum1[1] == sum2[1]) && (sum1[0] < sum2[0])))
-				g_SmallFactorNumbersData.myNumbers.push_back(std::make_pair(D, sumD));
-		}
-	}
-}
-
 struct NumberAndSumOfDivisors
 {
 	NumberAndSumOfDivisors() : N(1), sumLow(1), sumHigh(0), q(1), r(0) {}
@@ -476,6 +322,79 @@ NOINLINE void GetSuperAbundantNumber(PrimesUpToSqrtLimitIterator p, const number
 	}
 }
 
+static std::vector<std::pair<number, number>> locTmpFactorization;
+
+template<>
+NOINLINE void CalculateSmallFactorNumbersInternal<InlinePrimesInSearch + 1>(number D, number sumD, number /*smallestFactorInM1*/)
+{
+	// Check for overflow when calculating S(D)
+	if (sumD < D)
+		__debugbreak();
+
+#if USE_CONJECTURES
+	// If a number is divisible by 2^3, then it must not be divisible by 5 or 7
+	// This is not proved, but true for all known amicable pairs
+	if ((D % 8) == 0)
+		if (((D % 5) == 0) || ((D % 7) == 0))
+			return;
+#endif
+
+	// Numbers <= SearchLimit::value are represented as N = D*M where D=2^k0 * ... * 31^k10 * M1
+	// D is given, M can be anything satisfying with these restrictions:
+	// 1) M is coprime to D
+	// 2) All prime factors in M are > 31 and < than all prime factors in M1
+	// 3) D * M <= SearchLimit::value
+	//
+	// If N is a smaller member of an amicable pair, then S(N) = S(D*M) = S(D)*S(M) must be > 2 * N
+	// S(D) * S(M) > 2 * N
+	// S(D) * S(M) > 2 * D * M
+	// S(D) / D > 2 * M / S(M) for at least one M such that D * M <= SearchLimit::value
+	// S(D) / D > 2 * min(M / S(M))
+	// Since all FP calculations round up here, we must transform it to this: f(...) > C
+	// where f(...) are a series of calculations which will be rounded up
+	// Thus we neutralize rounding errors
+	// Calculating minimum is not correct when FP calculations round up
+	// So we also change minimum to maximum
+	//
+	// S(D) > D * 2 * min(M / S(M))
+	// S(D) > D * 2 / max(S(M) / M)
+	// S(D) * max(S(M) / M) > D * 2
+	// S(D) * max(S(M) / M) / 2 > D
+	bool is_abundant = sumD - D > D;
+	if (!is_abundant)
+	{
+		PrimesUpToSqrtLimitIterator p(CompileTimePrimes<InlinePrimesInSearch>::value);
+		NumberAndSumOfDivisors cur;
+		NumberAndSumOfDivisors result;
+		GetSuperAbundantNumber(p, number(-1), (SearchLimit::value / D) + 1, cur, result);
+		const number D1 = D * result.N;
+		const number sumD1 = sumD * result.sumLow;
+		is_abundant = sumD1 - D1 > D1;
+	}
+	if (is_abundant)
+	{
+		// The partial factorization must be deficient in order for the bigger number to be deficient too
+		const unsigned int gcd = static_cast<unsigned int>(GCD(D, sumD));
+		number sumGCD;
+		locTmpFactorization.clear();
+		Factorize(gcd, sumGCD, locTmpFactorization);
+		if (sumGCD - gcd < gcd)
+		{
+			// It must be not just deficient, but "deficient enough"
+			// "sumGCD * (sumD - D) < gcd * sumD" must be true
+			// See comments for privLinearSearchData below
+			number sum1[2];
+			sum1[0] = _umul128(sumGCD, sumD - D, &sum1[1]);
+
+			number sum2[2];
+			sum2[0] = _umul128(gcd, sumD, &sum2[1]);
+
+			if ((sum1[1] < sum2[1]) || ((sum1[1] == sum2[1]) && (sum1[0] < sum2[0])))
+				g_SmallFactorNumbersData.myNumbers.push_back(std::make_pair(D, sumD));
+		}
+	}
+}
+
 NOINLINE number GetMaxSumRatio(const PrimesUpToSqrtLimitIterator& p, const number limit, number* numberWihMaxSumRatio = nullptr)
 {
 	NumberAndSumOfDivisors cur;
@@ -492,7 +411,7 @@ NOINLINE number GetMaxSumRatio(const PrimesUpToSqrtLimitIterator& p, const numbe
 	return udiv128(r, 0, result.N, &r) + 1;
 }
 
-number g_MaxSumRatios[MaxSearchDepth<SearchLimit::value>::value + 1];
+number g_MaxSumRatios[64];
 
 void PrimeTablesInit(bool isSubmit)
 {
@@ -508,39 +427,39 @@ void PrimeTablesInit(bool isSubmit)
 	// Make sure all floating point calculations round up
 	_control87(_RC_UP, _MCW_RC);
 
+	{
+		PrimesUpToSqrtLimitIterator p(CompileTimePrimes<InlinePrimesInSearch>::value);
+		number limit = SearchLimit::value;
+		while (limit > CompileTimePrimes<InlinePrimesInSearch + 1>::value)
+		{
+			NumberAndSumOfDivisors cur;
+			NumberAndSumOfDivisors result;
+			GetSuperAbundantNumber(p, number(-1), limit, cur, result);
+			const number D = SearchLimit::value / result.N;
+			long index;
+			_BitScanReverse64(reinterpret_cast<unsigned long*>(&index), D);
+			number r;
+			const number ratio = udiv128(result.sumLow, 0, result.N * 2, &r) + 1;
+			while ((index >= 0) && !g_MaxSumRatios[index])
+			{
+				g_MaxSumRatios[index] = ratio;
+				--index;
+			}
+			limit = result.N;
+		}
+		for (long index = ARRAYSIZE(g_MaxSumRatios) - 1; (index >= 0) && !g_MaxSumRatios[index]; --index)
+		{
+			g_MaxSumRatios[index] = number(1) << 63;
+		}
+	}
+
 	number nPrimes = 0;
-	g_MaxSumRatios[0] = 0x8000000000000000ULL;
-	number sumFirstPrimes = 1;
-	number firstPrimes = 1;
-	for (PrimesUpToSqrtLimitIterator it; it.Get() <= PrimesUpToSqrtLimitValue;)
+	for (PrimesUpToSqrtLimitIterator it(2); it.Get() <= PrimesUpToSqrtLimitValue;)
 	{
 		const number p = it.Get();
 
 		if ((p > 2) && (nPrimes < ReciprocalsTableSize))
 			privPrimeReciprocals[nPrimes].Init(p);
-
-		if ((nPrimes > InlinePrimesInSearch) && (nPrimes < ARRAYSIZE(g_MaxSumRatios) + InlinePrimesInSearch))
-		{
-			bool isFirst = (sumFirstPrimes == 1);
-			number h;
-			sumFirstPrimes = _umul128(sumFirstPrimes, p + 1, &h);
-			if (h)
-			{
-				std::cerr << "Overflow when calculating g_MaxSumRatios";
-				__debugbreak();
-			}
-			if (isFirst)
-				sumFirstPrimes >>= 1;
-			firstPrimes *= p;
-			const number gcd = GCD(firstPrimes, sumFirstPrimes);
-			if (gcd > 1)
-			{
-				firstPrimes /= gcd;
-				sumFirstPrimes /= gcd;
-			}
-			number remainder;
-			g_MaxSumRatios[nPrimes - InlinePrimesInSearch] = udiv128(sumFirstPrimes, 0, firstPrimes, &remainder) + 1;
-		}
 
 		++it;
 		const number q = it.Get();
@@ -562,41 +481,6 @@ void PrimeTablesInit(bool isSubmit)
 
 	{
 		privPrimesUpToSqrtLimitSortedCount = nPrimes - InlinePrimesInSearch - 1;
-
-		std::pair<unsigned int, unsigned int>* largestFactors = reinterpret_cast<std::pair<unsigned int, unsigned int>*>(VirtualAlloc(0, privPrimesUpToSqrtLimitSortedCount * sizeof(std::pair<unsigned int, unsigned int>), MEM_COMMIT, PAGE_READWRITE));
-
-		DWORD_PTR processAffinity;
-		DWORD_PTR systemAffinity;
-		GetProcessAffinityMask(GetCurrentProcess(), &processAffinity, &systemAffinity);
-		DWORD nThreads = 0;
-		for (DWORD_PTR k = processAffinity; k; k &= (k - 1))
-			++nThreads;
-
-		HANDLE handles[64];
-		CalculateLargestFactorsData data[64];
-		for (number i = 0; i < nThreads; ++i)
-		{
-			CalculateLargestFactorsData& cur = data[i];
-			cur.myThreadIndex = i;
-			cur.myNumThreads = nThreads;
-			cur.myLargestFactors = largestFactors;
-
-			handles[i] = (HANDLE) _beginthreadex(0, 0, CalculateLargestFactorsThread, (void*)(data + i), 0, 0);
-		}
-
-		WaitForMultipleObjects(nThreads, handles, true, INFINITE);
-		for (number i = 0; i < nThreads; ++i)
-			CloseHandle(handles[i]);
-
-		std::sort(largestFactors, largestFactors + privPrimesUpToSqrtLimitSortedCount, [](const std::pair<unsigned int, unsigned int>& a, const std::pair<unsigned int, unsigned int>& b)
-		{
-			return reinterpret_cast<const number&>(a) < reinterpret_cast<const number&>(b);
-		});
-
-		for (number i = 0; i < privPrimesUpToSqrtLimitSortedCount; ++i)
-			privPrimesUpToSqrtLimitSorted[i] = largestFactors[i].first;
-
-		VirtualFree(largestFactors, 0, MEM_RELEASE);
 
 		if (isSubmit)
 			return;
@@ -684,7 +568,7 @@ void PrimeTablesInit(bool isSubmit)
 		const number result = _umul128(a, b, &h);
 		return h ? number(-1) : result;
 	};
-	for (number i = 0; (i < maxI) && (p.Get() <= SearchLimit::PrimesUpToSqrtLimitValue); ++i, ++p)
+	for (number i = 0; (i < maxI) && (p.Get() <= max(SearchLimit::PrimesUpToSqrtLimitValue, CompileTimePrimes<CompileTimePrimesCount>::value)); ++i, ++p)
 	{
 		number j = 1;
 		PrimesUpToSqrtLimitIterator q(p);
@@ -693,7 +577,7 @@ void PrimeTablesInit(bool isSubmit)
 		PQ[0][i].first = p.Get();
 		PQ[0][i].second = GetMaxSumRatio(prevP, MultiplyWithSaturation(p.Get(), q.Get()));
 
-		for (; (j < SumEstimatesSize) && (q.Get() <= SearchLimit::PrimesUpToSqrtLimitValue); ++j)
+		for (; (j < SumEstimatesSize) && (q.Get() <= max(SearchLimit::PrimesUpToSqrtLimitValue, CompileTimePrimes<CompileTimePrimesCount>::value)); ++j)
 		{
 			number highProductP;
 			const number mulP = _umul128(PQ[j - 1][i].first, q.Get(), &highProductP);
@@ -734,4 +618,5 @@ void PrimeTablesInit(bool isSubmit)
 			++data;
 		}
 	}
+	// cppcheck-suppress memleak
 }

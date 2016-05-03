@@ -228,6 +228,11 @@ template<> FORCEINLINE bool IsNumEligible<IS_NUM_ELIGIBLE_BEGIN>(const number a,
 		const SumEstimateData* data = SumEstimates[j] + IS_NUM_ELIGIBLE_BEGIN;
 		if (a <= data->P)
 		{
+			// Code analysis thinks we can read from index -1 here
+			// PQ[0][16] is 58, so "a" must be <= 58 for this to happen
+			// CompileTimePrimes<16>::value is 59, so we've already checked all primes < 59 here
+			// if some number is <= 58, then it was already fully factored before getting here
+#pragma warning(suppress: 6385)
 			data = SumEstimates[--j] + IS_NUM_ELIGIBLE_BEGIN;
 			number highProduct;
 			_umul128(a, data->Q, &highProduct);
@@ -355,7 +360,7 @@ NOINLINE void NumberFound(const number n1, const number targetSum)
 
 FORCEINLINE number Root4(const number n)
 {
-	return static_cast<number>(sqrt(sqrt(n)));
+	return static_cast<number>(static_cast<__int64>(sqrt(sqrt(static_cast<__int64>(n)))));
 }
 
 FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, number n2TargetSum, number n2, number sum)
@@ -446,7 +451,7 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 		if (!IsPerfectSquareCandidate(n2))
 			return;
 
-		p = static_cast<number>(sqrt(n2));
+		p = static_cast<number>(static_cast<__int64>(sqrt(static_cast<__int64>(n2))));
 		const number p2 = p * p;
 		if (p2 != n2)
 			return;
@@ -503,7 +508,6 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 	}
 
 	// Here p^3 > n2, so n2 can have at most 2 factors
-	bool firstIteration = true;
 	while (p * p <= n2)
 	{
 		number q;
@@ -555,80 +559,70 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 		if (MaximumSumOfDivisors2(n2, p, q) < n2TargetSum)
 			return;
 
-		if (firstIteration)
+		// If n2 + 1 != n2TargetSum then n2 must be composite to satisfy S(N) = target sum
+		if (n2 + 1 != n2TargetSum)
 		{
-			// If n2 + 1 != n2TargetSum then n2 must be composite to satisfy S(N) = target sum
-			if (n2 + 1 != n2TargetSum)
+			// 1) Check the case n2 = p*q, p < q
+			// A=n2
+			// B=n2TargetSum-n2-1
+			// D=B^2-4*A
+			// p=(B-sqrt(D))/2
+			// q=(B+sqrt(D))/2
+			const number B = n2TargetSum - n2 - 1;
+			const number D = B * B - n2 * 4;
+			if (IsPerfectSquareCandidate(D))
 			{
-				// 1) Check the case n2 = p*q, p < q
-				// A=n2
-				// B=n2TargetSum-n2-1
-				// D=B^2-4*A
-				// p=(B-sqrt(D))/2
-				// q=(B+sqrt(D))/2
-				const number B = n2TargetSum - n2 - 1;
-				const number D = B * B - n2 * 4;
-				if (IsPerfectSquareCandidate(D))
+				// Using floating point arithmetic gives 52 bits of precision
+				// 1 or 2 bits will be lost because of rounding errors
+				// but even if 4 bits are lost, this will be correct if sqrt_D < 2^48
+				//
+				// p and q here must be > cuberoot(N).
+				// q - p = sqrt_D, so if q > 2^48 then this code might work incorrectly.
+				//
+				// Let's try to get a lower bound for such number.
+				// N > p * q > p * 2^48 > cuberoot(N) * 2^48
+				// N / cuberoot(N) > 2^48
+				// N^(2/3) > 2^48
+				// N > 2^(48*3/2) = 2^72
+				// N must be > 2^72 (which is a very conservative estimate) to break this code
+				// Since N is always < 2^64 here, it'll be safe
+				//
+				// sqrt is rounded up here, so for example sqrt(15241383936) will give 123456.00000000000001
+				// static_cast<number>(...) will round it down to a correct integer
+				const double D1 = static_cast<double>(B) * B - n2 * 4.0;
+				if (D1 > 0)
 				{
-					// Using floating point arithmetic gives 52 bits of precision
-					// 1 or 2 bits will be lost because of rounding errors
-					// but even if 4 bits are lost, this will be correct if sqrt_D < 2^48
-					//
-					// p and q here must be > cuberoot(N).
-					// q - p = sqrt_D, so if q > 2^48 then this code might work incorrectly.
-					//
-					// Let's try to get a lower bound for such number.
-					// N > p * q > p * 2^48 > cuberoot(N) * 2^48
-					// N / cuberoot(N) > 2^48
-					// N^(2/3) > 2^48
-					// N > 2^(48*3/2) = 2^72
-					// N must be > 2^72 (which is a very conservative estimate) to break this code
-					// Since N is always < 2^64 here, it'll be safe
-					//
-					// sqrt is rounded up here, so for example sqrt(15241383936) will give 123456.00000000000001
-					// static_cast<number>(...) will round it down to a correct integer
-					const double D1 = static_cast<double>(B) * B - n2 * 4.0;
-					if (D1 > 0)
+					const number sqrt_D = static_cast<number>(sqrt(D1));
+					if (sqrt_D * sqrt_D == D)
 					{
-						const number sqrt_D = static_cast<number>(sqrt(D1));
-						if (sqrt_D * sqrt_D == D)
-						{
-							p = (B - sqrt_D) / 2;
-							q = (B + sqrt_D) / 2;
-							if (p * q == n2)
-								NumberFound(n1, targetSum);
-							return;
-						}
+						p = (B - sqrt_D) / 2;
+						q = (B + sqrt_D) / 2;
+						if (p * q == n2)
+							NumberFound(n1, targetSum);
+						return;
 					}
 				}
-
-				// 2) Check the case n2 = p^2
-				if (IsPerfectSquareCandidate(n2))
-				{
-					p = static_cast<number>(sqrt(static_cast<double>(n2)));
-					const number p_squared = p * p;
-					if (p_squared == n2)
-						if (p_squared + p + 1 == n2TargetSum)
-							NumberFound(n1, targetSum);
-				}
-
-				// There are no other cases, so just exit now
-				return;
 			}
 
-			// n2 + 1 == n2TargetSum, n2 must be a prime number
-			if (n2 <= SearchLimit::PrimesUpToSqrtLimitValue)
+			// 2) Check the case n2 = p^2
+			if (IsPerfectSquareCandidate(n2))
 			{
-				if (IsPrime(n2))
-					NumberFound(n1, targetSum);
-				return;
+				p = static_cast<number>(sqrt(static_cast<double>(n2)));
+				const number p_squared = p * p;
+				if (p_squared == n2)
+					if (p_squared + p + 1 == n2TargetSum)
+						NumberFound(n1, targetSum);
 			}
-
-			// We have to continue the loop to verify that n2 is a prime number
-			firstIteration = false;
+		}
+		else
+		{
+			// n2 + 1 == n2TargetSum, n2 must be a prime number
+			if (IsPrime(n2))
+				NumberFound(n1, targetSum);
 		}
 
-		p += *(shift++) * SearchLimit::ShiftMultiplier;
+		// There are no other cases, so just exit now
+		return;
 	}
 
 	if (n2 > 1)
@@ -697,81 +691,17 @@ FORCEINLINE void CheckPair(const number n1, const number targetSum)
 		CheckPairInternalNoInline(n1, targetSum, n2TargetSum, n2, sum);
 }
 
-template<number Index>
-FORCEINLINE bool IsValidCandidate(const number D, const number sumD, number gcd, number sumGCD)
-{
-	enum { p = CompileTimePrimes<Index>::value };
-	number qa = D / p;
-	if (qa * p == D)
-	{
-		number qb = sumD / p;
-		if (qb * p == sumD)
-		{
-			number n = p;
-			number curSum = p + 1;
-			number a = qa;
-			number b = qb;
-			for (;;)
-			{
-				qa = a / p;
-				if (qa * p != a)
-					break;
-				qb = b / p;
-				if (qb * p != b)
-					break;
-				n *= p;
-				curSum += n;
-				a = qa;
-				b = qb;
-			}
-			gcd *= n;
-			sumGCD *= curSum;
-		}
-	}
-	return IsValidCandidate<Index + 1>(D, sumD, gcd, sumGCD);
-}
+template<bool active> FORCEINLINE bool GetMaxSumMDiv2_Filter(const number aValue, const number aSumOfDivisors);
 
-template<> FORCEINLINE bool IsValidCandidate<InlinePrimesInSearch + 1>(const number D, const number sumD, number gcd, number sumGCD)
-{
-	// "sumGCD * (sumD - D) < gcd * sumD" must be true
-	number sum1[2];
-	sum1[0] = _umul128(sumGCD, sumD - D, &sum1[1]);
-
-	number sum2[2];
-	sum2[0] = _umul128(gcd, sumD, &sum2[1]);
-
-	return ((sum1[1] < sum2[1]) || ((sum1[1] == sum2[1]) && (sum1[0] < sum2[0])));
-}
-
-FORCEINLINE bool IsValidCandidate(const number D, const number sumD)
-{
-	// If one of numbers is odd, then it's very unlikely for it to not be a candidate
-	// Such numbers exist, but they're very rare, so it's better to skip factorization and exit
-	// My tests show that this check speeds up the search
-	const number allBitsCombined = D | sumD;
-	if (allBitsCombined & 1)
-		return true;
-
-	unsigned long index;
-	_BitScanForward64(&index, allBitsCombined);
-
-	const number gcd = number(1) << index;
-	const number sumGCD = gcd * 2 - 1;
-	return IsValidCandidate<1>(D, sumD, gcd, sumGCD);
-}
+template<> FORCEINLINE bool GetMaxSumMDiv2_Filter<false>(const number, const number) { return true; }
+template<> FORCEINLINE bool GetMaxSumMDiv2_Filter<true>(const number aValue, const number aSumOfDivisors) { return (GetMaxSumMDiv2(aValue, aSumOfDivisors) >= aValue); }
 
 template<int NumDistinctOddPrimeFactors>
 FORCEINLINE void Search(const number aValue, const number aSumOfDivisors, const number aPreviousPrimeFactor)
 {
-	IF_CONSTEXPR(NumDistinctOddPrimeFactors <= 3)
-	{
-		if ((aSumOfDivisors / 2 <= aValue) && (GetMaxSumMDiv2(aValue, aSumOfDivisors, aPreviousPrimeFactor) < aValue))
-			return;
-	}
-
 	IF_CONSTEXPR(NumDistinctOddPrimeFactors == 1)
 	{
-		if (!IsValidCandidate(aValue, aSumOfDivisors))
+		if ((GetMaxSumMDiv2(aValue, aSumOfDivisors) < aValue) || !IsValidCandidate(aValue, aSumOfDivisors))
 			return;
 	}
 
@@ -797,11 +727,23 @@ FORCEINLINE void Search(const number aValue, const number aSumOfDivisors, const 
 		if ((nextValue > SearchLimit::value) || highProductNextValue)
 			break;
 
+		number numRecursiveCalls;
+		IF_CONSTEXPR(NumDistinctOddPrimeFactors <= 2)
+		{
+			numRecursiveCalls = 0;
+		}
 		number n = aSumOfDivisors * curPrime;
 		number sumN = aSumOfDivisors + n;
 		for (;;)
 		{
-			Search<NumDistinctOddPrimeFactors + 1>(nextValue, sumN, curPrime);
+			if (GetMaxSumMDiv2_Filter<NumDistinctOddPrimeFactors <= 2>(nextValue, sumN))
+			{
+				Search<NumDistinctOddPrimeFactors + 1>(nextValue, sumN, curPrime);
+				IF_CONSTEXPR(NumDistinctOddPrimeFactors <= 2)
+				{
+					++numRecursiveCalls;
+				}
+			}
 
 			nextValue = _umul128(nextValue, curPrime, &highProductNextValue);
 			if ((nextValue > SearchLimit::value) || highProductNextValue)
@@ -809,6 +751,11 @@ FORCEINLINE void Search(const number aValue, const number aSumOfDivisors, const 
 
 			n *= curPrime;
 			sumN += n;
+		}
+		IF_CONSTEXPR(NumDistinctOddPrimeFactors <= 2)
+		{
+			if (!numRecursiveCalls)
+				return;
 		}
 
 		curPrime += *(shift++) * SearchLimit::ShiftMultiplier;
@@ -820,7 +767,6 @@ template<> FORCEINLINE void Search<MaxSearchDepth<SearchLimit::value>::value>(co
 	CheckPair(aValue, aSumOfDivisors);
 }
 
-template<int NumDistinctOddPrimeFactors>
 NOINLINE void SearchNoInline(const number aValue, const number aSumOfDivisors, const number aPreviousPrimeFactor)
 {
 	for (const std::pair<number, number>& n : g_SmallFactorNumbersData.myNumbers)
@@ -831,7 +777,7 @@ NOINLINE void SearchNoInline(const number aValue, const number aSumOfDivisors, c
 			break;
 
 		const number sumD = n.second * aSumOfDivisors;
-		Search<NumDistinctOddPrimeFactors>(D, sumD, aPreviousPrimeFactor);
+		Search<1>(D, sumD, aPreviousPrimeFactor);
 	}
 }
 
@@ -882,32 +828,39 @@ NOINLINE number GetCacheSizePerThread()
 	return 1024 * 1024;
 }
 
+FORCEINLINE void FixRanges(number& aRangeStart, number& aRangeEnd)
+{
+	if (aRangeEnd > SearchLimit::SafeLimit)
+		aRangeEnd = SearchLimit::SafeLimit;
+
+	if (aRangeStart > aRangeEnd)
+		aRangeStart = aRangeEnd;
+}
+
 template<>
 NOINLINE void Search<0>(const number aRangeStart0, const number aRangeEnd0, const number)
 {
 	number aRangeStart = aRangeStart0;
 	number aRangeEnd = aRangeEnd0;
 
-	if (aRangeEnd > SearchLimit::SafeLimit)
-		aRangeEnd = SearchLimit::SafeLimit;
+	FixRanges(aRangeStart, aRangeEnd);
 
-	if (aRangeStart > aRangeEnd)
-		aRangeStart = aRangeEnd;
-
-	volatile number* sharedCounterForSearch = SharedCounterForSearch;
-
-	// First iterate up to PrimesUpToSqrtLimitSortedCount using the fast way (precomputed table of primes)
+	// First iterate up to PrimesUpToSqrtLimitValue using the fast way (precomputed table of primes)
 	number curPrime;
-	if (aRangeStart < PrimesUpToSqrtLimitSortedCount)
+	if (aRangeStart <= SearchLimit::PrimesUpToSqrtLimitValue)
 	{
-		const number limit = min(aRangeEnd, PrimesUpToSqrtLimitSortedCount - 1) - aRangeStart;
-		for (;;)
-		{
-			const number sharedCounterValue = _InterlockedIncrement(&sharedCounterForSearch[0]) - 1;
-			if (sharedCounterValue > limit)
-				break;
+		const number limit = min(aRangeEnd, SearchLimit::PrimesUpToSqrtLimitValue);
 
-			const number p = PrimesUpToSqrtLimitSorted[sharedCounterValue + aRangeStart];
+		number sharedCounterValue = _InterlockedIncrement(&SharedCounterForSearch[0]) - 1;
+		number localCounterValue = 0;
+		for (PrimesUpToSqrtLimitIterator it(aRangeStart); it.Get() <= limit; ++it, ++localCounterValue)
+		{
+			if (localCounterValue != sharedCounterValue)
+				continue;
+
+			sharedCounterValue = _InterlockedIncrement(&SharedCounterForSearch[0]) - 1;
+
+			const number p = it.Get();
 			if (p >= SearchLimit::LinearLimit)
 			{
 				for (auto p2 : LinearSearchData)
@@ -924,7 +877,7 @@ NOINLINE void Search<0>(const number aRangeStart0, const number aRangeEnd0, cons
 				number sumN = 1 + p;
 				do
 				{
-					SearchNoInline<1>(n, sumN, p);
+					SearchNoInline(n, sumN, p);
 					number highProduct;
 					n = _umul128(n, p, &highProduct);
 					if (highProduct)
@@ -957,7 +910,7 @@ NOINLINE void Search<0>(const number aRangeStart0, const number aRangeEnd0, cons
 
 	do
 	{
-		const number sharedCounterValue = _InterlockedIncrement(&sharedCounterForSearch[1]);
+		const number sharedCounterValue = static_cast<number>(_InterlockedIncrement(SharedCounterForSearch + 1));
 
 		number curRangeBegin;
 		do
@@ -1030,7 +983,7 @@ NOINLINE void Search<0>(const number aRangeStart0, const number aRangeEnd0, cons
 				number sumN = 1 + curPrime;
 				do
 				{
-					SearchNoInline<1>(n, sumN, curPrime);
+					SearchNoInline(n, sumN, curPrime);
 					number highProduct;
 					n = _umul128(n, curPrime, &highProduct);
 					if (highProduct)
@@ -1068,7 +1021,7 @@ unsigned int __stdcall SearchThreadFunc(void* aData)
 	if (threadIndex == 0)
 		for (const std::pair<number, number>& n : g_SmallFactorNumbersData.myNumbers)
 			CheckPair(n.first, n.second);
-	Search<0>(0, SearchLimit::SafeLimit, 0);
+	Search<0>(CompileTimePrimes<InlinePrimesInSearch + 1>::value, SearchLimit::SafeLimit, threadIndex);
 	return static_cast<unsigned int>(NumFoundPairs);
 }
 

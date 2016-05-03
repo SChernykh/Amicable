@@ -11,13 +11,33 @@ int main(int argc, char* argv[])
 	{
 		if (!TestCheckPair())
 		{
-			std::cerr << "CheckPair test failed" << std::endl;
+			std::cerr << "TestCheckPair() failed" << std::endl;
 			return 1;
+		}
+		if (!TestLinearSearchData())
+		{
+			std::cerr << "TestLinearSearchData() failed" << std::endl;
+			return 2;
+		}
+		if (!TestSmallFactorNumbersData())
+		{
+			std::cerr << "TestSmallFactorNumbersData() failed" << std::endl;
+			return 3;
+		}
+		if (!TestIsValidCandidate())
+		{
+			std::cerr << "TestIsValidCandidate() failed" << std::endl;
+			return 4;
+		}
+		if (!TestGetMaxSumMDiv2())
+		{
+			std::cerr << "TestGetMaxSumMDiv2() failed" << std::endl;
+			return 5;
 		}
 		if (!TestMaximumSumOfDivisors3())
 		{
 			std::cerr << "MaximumSumOfDivisors3 test failed" << std::endl;
-			return 2;
+			return 6;
 		}
 		std::cout << "All tests passed" << std::endl;
 		return 0;

@@ -41,7 +41,7 @@ FORCEINLINE void FactorizeInternal(number a, number& sumA, std::vector<std::pair
 		}
 		sumA *= curSum;
 		aFactorization.push_back(factor);
-		if ((a <= SearchLimit::PrimesUpToSqrtLimitValue) && IsPrime(a))
+		if (IsPrime(a))
 		{
 			aFactorization.push_back(std::make_pair(a, 1));
 			sumA *= a + 1;
@@ -88,7 +88,7 @@ template<> FORCEINLINE void FactorizeInternal<CompileTimePrimesCount>(number a, 
 			}
 			sumA *= curSum;
 			aFactorization.push_back(factor);
-			if ((a <= SearchLimit::PrimesUpToSqrtLimitValue) && IsPrime(a))
+			if (IsPrime(a))
 			{
 				aFactorization.push_back(std::make_pair(a, 1));
 				sumA *= a + 1;

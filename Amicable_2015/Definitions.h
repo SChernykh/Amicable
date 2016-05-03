@@ -357,6 +357,7 @@ number MaximumSumOfDivisors3(const number a, const number p, const number q);
 #endif
 
 extern unsigned __int64(__fastcall *udiv128)(unsigned __int64 numhi, unsigned __int64 numlo, unsigned __int64 den, unsigned __int64* rem);
+extern unsigned __int64(__fastcall *mulmod64)(number a, number b, number n);
 
 FORCEINLINE bool IsPerfectSquareCandidate(const number n)
 {
