@@ -277,10 +277,26 @@ template<> struct CompileTimePrimes<77> { enum { value = 397 }; };
 template<> struct CompileTimePrimes<78> { enum { value = 401 }; };
 template<> struct CompileTimePrimes<79> { enum { value = 409 }; };
 template<> struct CompileTimePrimes<80> { enum { value = 419 }; };
+template<> struct CompileTimePrimes<81> { enum { value = 421 }; };
+template<> struct CompileTimePrimes<82> { enum { value = 431 }; };
+template<> struct CompileTimePrimes<83> { enum { value = 433 }; };
+template<> struct CompileTimePrimes<84> { enum { value = 439 }; };
+template<> struct CompileTimePrimes<85> { enum { value = 443 }; };
+template<> struct CompileTimePrimes<86> { enum { value = 449 }; };
+template<> struct CompileTimePrimes<87> { enum { value = 457 }; };
+template<> struct CompileTimePrimes<88> { enum { value = 461 }; };
+template<> struct CompileTimePrimes<89> { enum { value = 463 }; };
+template<> struct CompileTimePrimes<90> { enum { value = 467 }; };
+template<> struct CompileTimePrimes<91> { enum { value = 479 }; };
+template<> struct CompileTimePrimes<92> { enum { value = 487 }; };
+template<> struct CompileTimePrimes<93> { enum { value = 491 }; };
+template<> struct CompileTimePrimes<94> { enum { value = 499 }; };
+template<> struct CompileTimePrimes<95> { enum { value = 503 }; };
+template<> struct CompileTimePrimes<96> { enum { value = 509 }; };
 
-enum { CompileTimePrimesCount = 80 };
+enum { CompileTimePrimesCount = 96 };
 
-enum { InlinePrimesInSearch = 10 };
+enum { InlinePrimesInSearch = 12 };
 
 #pragma warning(push)
 #pragma warning(disable : 4307)
