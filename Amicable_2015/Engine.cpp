@@ -272,8 +272,8 @@ FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetS
 	// M / N = (M * value) mod 2^64
 	// This means that (M * value) must be <= (number(-1) / N)
 	// Otherwise it's not divisible by N
-	number q = a * PrimeInverses[PrimeIndex][0];
-	if (q <= PrimeInverses[PrimeIndex][1])
+	number q = a * (*((volatile number*) &PrimeInverses[PrimeIndex][0]));
+	if (q <= (*((volatile number*) &PrimeInverses[PrimeIndex][1])))
 	{
 		a = q;
 		number n = p;
