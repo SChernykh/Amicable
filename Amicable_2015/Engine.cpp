@@ -658,6 +658,7 @@ FORCEINLINE number InitialCheck(const number n1, const number targetSum, number&
 	unsigned long bitIndex;
 	_BitScanForward64(&bitIndex, n2);
 	number n2TargetSum = targetSum;
+	__assume(n2TargetSum > 0);
 	if (bitIndex > 0)
 	{
 		n2 >>= bitIndex;
@@ -667,6 +668,7 @@ FORCEINLINE number InitialCheck(const number n1, const number targetSum, number&
 
 		sum = (number(1) << (bitIndex + 1)) - 1;
 		n2TargetSum = targetSum * locPowersOf2DivisibilityData[bitIndex - 1][0];
+		__assume(n2TargetSum > 0);
 		if (n2TargetSum > locPowersOf2DivisibilityData[bitIndex - 1][1])
 			return 0;
 	}
