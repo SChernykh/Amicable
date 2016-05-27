@@ -3,6 +3,6 @@ This source code implements the leading-edge algorithm for running an exhaustive
 
 Performance when running on Core i7-4770K:
 
-- All amicable pairs with smaller member < 10^9: 0.2 seconds
-- All amicable pairs with smaller member < 10^11: 20.85 seconds
-- All amicable pairs with smaller member < 10^13: 38 minutes 11.35 seconds
+- All amicable pairs with smaller member < 10^9: 0.185 seconds
+- All amicable pairs with smaller member < 10^11: 17.96 seconds
+- All amicable pairs with smaller member < 10^13: 32 minutes 24.2 seconds
