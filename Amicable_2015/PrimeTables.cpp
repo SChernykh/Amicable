@@ -10,6 +10,7 @@ number privPrimesUpToSqrtLimitSortedCount;
 byte privNextPrimeShifts[ShiftTableSize];
 const SumEstimateData* privSumEstimates[SumEstimatesSize];
 std::vector<std::pair<unsigned int, unsigned int>> privLinearSearchData;
+number privPrimeInverses[CompileTimePrimesCount * 2];
 
 std::vector<byte> PrimesUpToSqrtLimit;
 byte bitOffset[PrimeTableParameters::Modulo];
@@ -618,5 +619,16 @@ void PrimeTablesInit(bool isSubmit)
 			++data;
 		}
 	}
+
+	number index = 0;
+	for (PrimesUpToSqrtLimitIterator it(2); index < CompileTimePrimesCount; ++it, ++index)
+	{
+		if (index > 0)
+		{
+			privPrimeInverses[index * 2] = CalculateInverse(it.Get());
+			privPrimeInverses[index * 2 + 1] = number(-1) / it.Get();
+		}
+	}
+
 	// cppcheck-suppress memleak
 }

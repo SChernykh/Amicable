@@ -242,22 +242,6 @@ template<> FORCEINLINE bool IsNumEligible<IS_NUM_ELIGIBLE_BEGIN>(const number a,
 	}
 }
 
-#define X(N) {MultiplicativeInverse<CompileTimePrimes<N>::value>::value, number(-1) / CompileTimePrimes<N>::value}
-
-__declspec(align(64)) static number PrimeInverses[CompileTimePrimesCount][2] = {
-	{0,0},X(1),X(2),X(3),X(4),X(5),X(6),X(7),X(8),X(9),
-	X(10),X(11),X(12),X(13),X(14),X(15),X(16),X(17),X(18),X(19),
-	X(20),X(21),X(22),X(23),X(24),X(25),X(26),X(27),X(28),X(29),
-	X(30),X(31),X(32),X(33),X(34),X(35),X(36),X(37),X(38),X(39),
-	X(40),X(41),X(42),X(43),X(44),X(45),X(46),X(47),X(48),X(49),
-	X(50),X(51),X(52),X(53),X(54),X(55),X(56),X(57),X(58),X(59),
-	X(60),X(61),X(62),X(63),X(64),X(65),X(66),X(67),X(68),X(69),
-	X(70),X(71),X(72),X(73),X(74),X(75),X(76),X(77),X(78),X(79),
-	X(80),X(81),X(82),X(83),X(84),X(85),X(86),X(87),X(88),X(89),
-	X(90),X(91),X(92),X(93),X(94),X(95)
-};
-#undef X
-
 template<int PrimeIndex>
 FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetSum, number& n2TargetSum, number& j)
 {
@@ -272,8 +256,8 @@ FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetS
 	// M / N = (M * value) mod 2^64
 	// This means that (M * value) must be <= (number(-1) / N)
 	// Otherwise it's not divisible by N
-	number q = a * (*((volatile number*) &PrimeInverses[PrimeIndex][0]));
-	if (q <= (*((volatile number*) &PrimeInverses[PrimeIndex][1])))
+	number q = a * PrimeInverses[PrimeIndex * 2];
+	if (q <= PrimeInverses[PrimeIndex * 2 + 1])
 	{
 		a = q;
 		number n = p;
@@ -281,8 +265,8 @@ FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetS
 		number curPower = 0;
 		for (;;)
 		{
-			q = a * PrimeInverses[PrimeIndex][0];
-			if (q > PrimeInverses[PrimeIndex][1])
+			q = a * MultiplicativeInverse<p>::value;
+			if (q > number(-1) / p)
 				break;
 			a = q;
 			n *= p;

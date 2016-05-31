@@ -64,9 +64,32 @@ extern std::vector<byte> PrimesUpToSqrtLimit;
 extern number privPrimesUpToSqrtLimitSortedCount;
 extern byte privNextPrimeShifts[ShiftTableSize];
 extern std::vector<std::pair<unsigned int, unsigned int>> privLinearSearchData;
+extern number privPrimeInverses[CompileTimePrimesCount * 2];
+
 #define NextPrimeShifts ((const byte* const)(privNextPrimeShifts))
 #define PrimesUpToSqrtLimitSortedCount ((const unsigned int)(privPrimesUpToSqrtLimitSortedCount))
 #define LinearSearchData ((const std::vector<std::pair<unsigned int, unsigned int>>&)(privLinearSearchData))
+
+#define PrimeInverses ((const number*)(privPrimeInverses))
+
+FORCEINLINE number CalculateInverse(number n)
+{
+	number x1 = number(-1);
+	number x2 = 1;
+	number v1 = ~n + 1;
+	number v2 = n;
+	do
+	{
+		const number q = v1 / v2;
+		const number x3 = x1 - q * x2;
+		const number v3 = v1 - q * v2;
+		x1 = x2;
+		x2 = x3;
+		v1 = v2;
+		v2 = v3;
+	} while (v2 > 1);
+	return x2;
+}
 
 struct SumEstimateData
 {
