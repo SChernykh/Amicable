@@ -357,7 +357,7 @@ enum Byte
 	Bits = 8,
 };
 
-number MaximumSumOfDivisors3(const number a, const number p, const number q);
+number MaximumSumOfDivisors3NoInline(const number a, const number p, const number q);
 
 #define IF_CONSTEXPR(X) \
 	__pragma(warning(push)) \

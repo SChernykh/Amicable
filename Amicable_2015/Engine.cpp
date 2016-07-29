@@ -190,6 +190,11 @@ FORCEINLINE number MaximumSumOfDivisors3(const number a, const number p0, const 
 	//return a + 4 * p0 * p0 * p0 + 2 * p0 * p0 + 1;
 }
 
+NOINLINE number MaximumSumOfDivisors3NoInline(const number a, const number p0, const number a_div_p0)
+{
+	return MaximumSumOfDivisors3(a, p0, a_div_p0);
+}
+
 // Lemma 2.1 from http://www.ams.org/journals/mcom/1986-47-175/S0025-5718-1986-0842142-3/S0025-5718-1986-0842142-3.pdf
 FORCEINLINE number GetCoeffForMaximumSumOfDivisorsN(const number m, const number i, number& j)
 {
@@ -668,6 +673,11 @@ FORCEINLINE void CheckPair(const number n1, const number targetSum)
 		CheckPairInternalNoInline(n1, targetSum, n2TargetSum, n2, sum);
 }
 
+NOINLINE void CheckPairNoInline(const number n1, const number targetSum)
+{
+	CheckPair(n1, targetSum);
+}
+
 template<bool active> FORCEINLINE bool GetMaxSumMDiv2_Filter(const number aValue, const number aSumOfDivisors);
 
 template<> FORCEINLINE bool GetMaxSumMDiv2_Filter<false>(const number, const number) { return true; }
@@ -922,11 +932,11 @@ NOINLINE void Search<0>(const number aRangeStart0, const number aRangeEnd0, cons
 			{
 				curSieveChunk = *(sieveData++);
 
-				const number NewValues =	(PrimeTableParameters::Modulo / 2)	| (number(PrimeTableParameters::Modulo / 2) << 16)	| (number(PrimeTableParameters::Modulo) << 32) |
-											(16 << 8)							| (32 << 24)										| (number(0) << 40);
+				const number NextValuesModuloIndex = (PrimeTableParameters::Modulo / 2) | (number(PrimeTableParameters::Modulo / 2) << 16) | (number(PrimeTableParameters::Modulo) << 32);
+				const number NextValuesBitIndexShift = 16 | (32 << 16) | (number(0) << 32);
 
-				moduloIndex += ((NewValues >> bitIndexShift) & 255) * 2;
-				bitIndexShift = (NewValues >> (bitIndexShift + 8)) & 255;
+				moduloIndex += ((NextValuesModuloIndex >> bitIndexShift) & 255) * 2;
+				bitIndexShift = (NextValuesBitIndexShift >> bitIndexShift) & 255;
 
 				PossiblePrimesForModuloPtr = NumbersCoprimeToModulo + bitIndexShift;
 			}
@@ -963,11 +973,11 @@ NOINLINE void Search<0>(const number aRangeStart0, const number aRangeEnd0, cons
 			{
 				curSieveChunk = *(sieveData++);
 
-				const number NewValues =	(PrimeTableParameters::Modulo / 2)	| (number(PrimeTableParameters::Modulo / 2) << 16)	| (number(PrimeTableParameters::Modulo) << 32) |
-											(16 << 8)							| (32 << 24)										| (number(0) << 40);
+				const number NextValuesModuloIndex = (PrimeTableParameters::Modulo / 2) | (number(PrimeTableParameters::Modulo / 2) << 16) | (number(PrimeTableParameters::Modulo) << 32);
+				const number NextValuesBitIndexShift = 16 | (32 << 16) | (number(0) << 32);
 
-				moduloIndex += ((NewValues >> bitIndexShift) & 255) * 2;
-				bitIndexShift = (NewValues >> (bitIndexShift + 8)) & 255;
+				moduloIndex += ((NextValuesModuloIndex >> bitIndexShift) & 255) * 2;
+				bitIndexShift = (NextValuesBitIndexShift >> bitIndexShift) & 255;
 
 				PossiblePrimesForModuloPtr = NumbersCoprimeToModulo + bitIndexShift;
 			}

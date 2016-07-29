@@ -15,7 +15,7 @@ NOINLINE void CheckEvenOdd(const number n1, const number n2)
 		++sqrt_n2;
 	}
 	if (n3 == n2)
-		CheckPair(n1, n1 + n2);
+		CheckPairNoInline(n1, n1 + n2);
 }
 
 FORCEINLINE void CheckPowersOf2EvenOdd(const number aValue, const number aSumOfDivisors)

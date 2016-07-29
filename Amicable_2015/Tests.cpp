@@ -47,7 +47,7 @@ NOINLINE bool TestCheckPair()
 			if (m > SearchLimit::value / 10)
 			{
 				const number oldNumPairs = NumFoundPairs;
-				CheckPair(m, m + n);
+				CheckPairNoInline(m, m + n);
 				if (NumFoundPairs != oldNumPairs + 1)
 				{
 					std::cerr << "CheckPair didn't recognize " << m << ", " << n << " as a valid amicable pair" << std::endl;
@@ -280,7 +280,7 @@ NOINLINE bool TestMaximumSumOfDivisors3()
 	{
 		number a = p1 * p1 * p1;
 		number sum = p1 * p1 * p1 + p1 * p1 + p1 + 1;
-		number sumEstimate = MaximumSumOfDivisors3(a, p1, p1 * p1);
+		number sumEstimate = MaximumSumOfDivisors3NoInline(a, p1, p1 * p1);
 		// sumEstimate = a + (a_div_p0 + p0 * p0 + p0) * 2 + 1
 		// sumEstimate = a + (a / p1 + p1 * p1 + p1) * 2 + 1
 		// sumEstimate = a + (p1 * p1 + p1 * p1 + p1) * 2 + 1
@@ -316,7 +316,7 @@ NOINLINE bool TestMaximumSumOfDivisors3()
 			{
 				number a = p1 * (p2 * p2);
 				number sum = (p1 + 1) * (p2 * p2 + p2 + 1);
-				number sumEstimate = MaximumSumOfDivisors3(a, p1, p2 * p2);
+				number sumEstimate = MaximumSumOfDivisors3NoInline(a, p1, p2 * p2);
 				// sumEstimate = a + (a_div_p0 + p0 * p0 + p0) * 2 + 1
 				// sumEstimate = a + (p2 * p2 + p1 * p1 + p1) * 2 + 1
 				// sum = (p1 + 1) * (1 + p2 + p2^2)
@@ -348,7 +348,7 @@ NOINLINE bool TestMaximumSumOfDivisors3()
 			{
 				number a = p1 * (p1 * p2);
 				number sum = (p1 * p1 + p1 + 1) * (p2 + 1);
-				number sumEstimate = MaximumSumOfDivisors3(a, p1, p1 * p2);
+				number sumEstimate = MaximumSumOfDivisors3NoInline(a, p1, p1 * p2);
 				// sumEstimate = a + (a_div_p0 + p0 * p0 + p0) * 2 + 1
 				// sumEstimate = a + (p1 * p2 + p1 * p1 + p1) * 2 + 1
 				// sum = (p1 * p1 + p1 + 1) * (p2 + 1)
@@ -394,7 +394,7 @@ NOINLINE bool TestMaximumSumOfDivisors3()
 			{
 				number a = p1 * p2 * p3;
 				number sum = (p1 + 1) * (p2 + 1) * (p3 + 1);
-				number sumEstimate = MaximumSumOfDivisors3(a, p1, p2 * p3);
+				number sumEstimate = MaximumSumOfDivisors3NoInline(a, p1, p2 * p3);
 				// sumEstimate - a - 1 = (p2 * p3 + p1 * p1 + p1) * 2
 				// sum - a - 1 = p1 * p2 + p1 * p3 + p2 * p3 + p1 + p2 + p3
 				//

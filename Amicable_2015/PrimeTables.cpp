@@ -90,11 +90,11 @@ number CalculatePrimes(number aLowerBound, number anUpperBound, std::vector<byte
 		{
 			curSieveChunk = *(sieveData++);
 
-			const number NewValues =	(PrimeTableParameters::Modulo / 2)	| (number(PrimeTableParameters::Modulo / 2) << 16)	| (number(PrimeTableParameters::Modulo) << 32) |
-										(16 << 8)							| (32 << 24)										| (number(0) << 40);
+			const number NextValuesModuloIndex = (PrimeTableParameters::Modulo / 2) | (number(PrimeTableParameters::Modulo / 2) << 16) | (number(PrimeTableParameters::Modulo) << 32);
+			const number NextValuesBitIndexShift = 16 | (32 << 16) | (number(0) << 32);
 
-			moduloIndex += ((NewValues >> bitIndexShift) & 255) * 2;
-			bitIndexShift = (NewValues >> (bitIndexShift + 8)) & 255;
+			moduloIndex += ((NextValuesModuloIndex >> bitIndexShift) & 255) * 2;
+			bitIndexShift = (NextValuesBitIndexShift >> bitIndexShift) & 255;
 
 			PossiblePrimesForModuloPtr = NumbersCoprimeToModulo + bitIndexShift;
 		}
@@ -135,11 +135,11 @@ number CalculatePrimes(number aLowerBound, number anUpperBound, std::vector<byte
 		{
 			curSieveChunk = *(sieveData++);
 
-			const number NewValues =	(PrimeTableParameters::Modulo / 2)	| (number(PrimeTableParameters::Modulo / 2) << 16)	| (number(PrimeTableParameters::Modulo) << 32) |
-										(16 << 8)							| (32 << 24)										| (number(0) << 40);
+			const number NextValuesModuloIndex = (PrimeTableParameters::Modulo / 2) | (number(PrimeTableParameters::Modulo / 2) << 16) | (number(PrimeTableParameters::Modulo) << 32);
+			const number NextValuesBitIndexShift = 16 | (32 << 16) | (number(0) << 32);
 
-			moduloIndex += ((NewValues >> bitIndexShift) & 255) * 2;
-			bitIndexShift = (NewValues >> (bitIndexShift + 8)) & 255;
+			moduloIndex += ((NextValuesModuloIndex >> bitIndexShift) & 255) * 2;
+			bitIndexShift = (NextValuesBitIndexShift >> bitIndexShift) & 255;
 
 			PossiblePrimesForModuloPtr = NumbersCoprimeToModulo + bitIndexShift;
 		}
