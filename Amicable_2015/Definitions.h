@@ -183,7 +183,7 @@ enum SearchLimit : number
 // So 2.558638898829633279... * 10^18 is a theoretical limit
 //
 // But the practical limit is 7 * 10^18 - it's approximately where we start getting pairs with pair sum >= 2^64
-// The first actually missed known pair is (8428612252940935965, 10094556152778199011) with pair sum 1.004142971339777187789188417355 * 2^64
+// The first actually missed known pair is (7364096816271422535, 11119300665402788793) with pair sum 1.0019869852272140775539810420014 * 2^64
 static_assert(SearchLimit::value <= 7000000000000000000ULL, "Search limit is too large, some pairs can be missed");
 
 // Linear search starts when p >= SearchLimit::LinearLimit

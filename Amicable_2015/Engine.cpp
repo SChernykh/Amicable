@@ -549,8 +549,11 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 			// p=(B-sqrt(D))/2
 			// q=(B+sqrt(D))/2
 			const number B = n2TargetSum - n2 - 1;
-			const number D = B * B - n2 * 4;
-			if (IsPerfectSquareCandidate(D))
+			number B2[2], D[2];
+			B2[0] = _umul128(B, B, &B2[1]);
+			const unsigned char carry = _subborrow_u64(0, B2[0], n2 << 2, &D[0]);
+			_subborrow_u64(carry, B2[1], n2 >> 62, &D[1]);
+			if (IsPerfectSquareCandidate(D[0]))
 			{
 				// Using floating point arithmetic gives 52 bits of precision
 				// 1 or 2 bits will be lost because of rounding errors
@@ -569,11 +572,11 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 				//
 				// sqrt is rounded up here, so for example sqrt(15241383936) will give 123456.00000000000001
 				// static_cast<number>(...) will round it down to a correct integer
-				const double D1 = static_cast<double>(B) * B - n2 * 4.0;
+				const double D1 = static_cast<double>(D[0]) + static_cast<double>(D[1]) * 18446744073709551616.0;
 				if (D1 > 0)
 				{
 					const number sqrt_D = static_cast<number>(sqrt(D1));
-					if (sqrt_D * sqrt_D == D)
+					if (sqrt_D * sqrt_D == D[0])
 					{
 						p = (B - sqrt_D) / 2;
 						q = (B + sqrt_D) / 2;
