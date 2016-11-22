@@ -159,11 +159,12 @@ NOINLINE bool TestLinearSearchData()
 			{
 				m /= max_factor.first;
 			}
-			auto it = std::lower_bound(LinearSearchData.begin(), LinearSearchData.end(), m, [](const std::pair<number, number>& a, number b)
+			const unsigned char index = LinearSearchDataIndex[GetLinearSearchDataRemainder(max_factor.first + 1)];
+			auto it = std::lower_bound(LinearSearchData[index].begin(), LinearSearchData[index].end(), m, [](const std::pair<number, number>& a, number b)
 			{
 				return a.first < b;
 			});
-			if ((it == LinearSearchData.end()) || (it->first != m))
+			if ((it == LinearSearchData[index].end()) || (it->first != m))
 			{
 				std::cerr << "LinearSearchData doesn't include " << m << " as a valid amicable candidate" << std::endl;
 				return false;

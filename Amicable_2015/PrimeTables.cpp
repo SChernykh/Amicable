@@ -7,10 +7,11 @@
 
 SReciprocal privPrimeReciprocals[ReciprocalsTableSize];
 number privPrimesUpToSqrtLimitSortedCount;
-byte privNextPrimeShifts[ShiftTableSize];
+__declspec(align(64))byte privNextPrimeShifts[ShiftTableSize];
 const SumEstimateData* privSumEstimates[SumEstimatesSize];
-std::vector<std::pair<unsigned int, unsigned int>> privLinearSearchData;
-number privPrimeInverses[CompileTimePrimesCount * 2];
+std::vector<std::pair<unsigned int, unsigned int>> privLinearSearchData[8];
+__declspec(align(64)) unsigned char privLinearSearchDataIndex[5 * 7 * 11];
+__declspec(align(64)) number privPrimeInverses[CompileTimePrimesCount * 2];
 
 std::vector<byte> PrimesUpToSqrtLimit;
 byte bitOffset[PrimeTableParameters::Modulo];
@@ -510,45 +511,61 @@ void PrimeTablesInit(bool isSubmit)
 			// Smaller number in an amicable pair must not be deficient
 			if (sumI >= i * 2)
 			{
-				// Linear search goes through numbers of a form "k * p" where p > k * 2
-				// We collect all values of k here
-				// Since we know k, we can calculate partial factorization of bigger number in an amicable pair
-				// n = S(m) - m = S(k * p) - k * p = S(k) * (p + 1) - k * p
-				// So factorization will contain GCD(S(k) * (p + 1), k * p)
-				// We know k, S(k) and we also know that p + 1 is even, hence sumI * 2
-				const unsigned int gcd = static_cast<unsigned int>(GCD(i, sumI * 2));
-				number sumGCD;
-				f.clear();
-				Factorize(gcd, sumGCD, f);
+				static const unsigned int coeffs[ARRAYSIZE(privLinearSearchData)] = { 1, 5, 7, 5 * 7, 11, 5 * 11, 7 * 11, 5 * 7 * 11 };
+				for (unsigned int j = 0; j < ARRAYSIZE(privLinearSearchData); ++j)
+				{
+					// Linear search goes through numbers of a form "k * p" where p > k * 2
+					// We collect all values of k here
+					// Since we know k, we can calculate partial factorization of bigger number in an amicable pair
+					// n = S(m) - m = S(k * p) - k * p = S(k) * (p + 1) - k * p
+					// So factorization will contain GCD(S(k) * (p + 1), k * p)
+					// We know k, S(k), p + 1 is always divisible by 2
+					// We also consider (p + 1) mod (5*7*11): 8 different cases here (p + 1 divisible by any combination of 5, 7, 11)
+					const unsigned int gcd = static_cast<unsigned int>(GCD(i, sumI * coeffs[j] * 2));
+					number sumGCD;
+					f.clear();
+					Factorize(gcd, sumGCD, f);
 
-				// This partial factorization must be deficient in order for the bigger number to be deficient too
-				// In fact, we can use even stronger restrictions:
-				// If (M,N) is an amicable pair, M<N, then S(M)=S(N)=M+N
-				//
-				// S(M)/M-1=N/M
-				// S(N)/N-1=M/N
-				//
-				// let M=m*M1, N=n*N1, gcd(m,M1)=1, gcd(n,N1)=1, M1 > 1, N1 > 1
-				// S(M)/M - 1 > S(m)/m - 1
-				// S(N)/N - 1 > S(n)/n - 1
-				// let S(m)/m - 1 = x
-				// S(M)/M - 1 = y > x
-				// S(N)/N - 1 = 1/y < 1/x
-				// if S(n)/n - 1 >= 1/x then S(N)/N - 1 > S(n)/n - 1 >= 1/x, and (M,N) can't be an amicable pair
-				// so S(n)/n must be < 1 + 1/x
-				//
-				// x = sumI / i - 1
-				// x = (sumI - i) / i
-				// 1 / x = i / (sumI - i)
-				//
-				// sumGCD / gcd < 1 + i / (sumI - i)
-				// sumGCD < gcd * (1 + i / (sumI - i))
-				// sumGCD * (sumI - i) < gcd * (sumI - i) * (1 + i / (sumI - i))
-				// sumGCD * (sumI - i) < gcd * ((sumI - i) + i)
-				// sumGCD * (sumI - i) < gcd * sumI
-				if (sumGCD * (sumI - i) < gcd * sumI)
-					privLinearSearchData.push_back(std::pair<unsigned int, unsigned int>(i, static_cast<unsigned int>(sumI)));
+					// This partial factorization must be deficient in order for the bigger number to be deficient too
+					// In fact, we can use even stronger restrictions:
+					// If (M,N) is an amicable pair, M<N, then S(M)=S(N)=M+N
+					//
+					// S(M)/M-1=N/M
+					// S(N)/N-1=M/N
+					//
+					// let M=m*M1, N=n*N1, gcd(m,M1)=1, gcd(n,N1)=1, M1 > 1, N1 > 1
+					// S(M)/M - 1 > S(m)/m - 1
+					// S(N)/N - 1 > S(n)/n - 1
+					// let S(m)/m - 1 = x
+					// S(M)/M - 1 = y > x
+					// S(N)/N - 1 = 1/y < 1/x
+					// if S(n)/n - 1 >= 1/x then S(N)/N - 1 > S(n)/n - 1 >= 1/x, and (M,N) can't be an amicable pair
+					// so S(n)/n must be < 1 + 1/x
+					//
+					// x = sumI / i - 1
+					// x = (sumI - i) / i
+					// 1 / x = i / (sumI - i)
+					//
+					// sumGCD / gcd < 1 + i / (sumI - i)
+					// sumGCD < gcd * (1 + i / (sumI - i))
+					// sumGCD * (sumI - i) < gcd * (sumI - i) * (1 + i / (sumI - i))
+					// sumGCD * (sumI - i) < gcd * ((sumI - i) + i)
+					// sumGCD * (sumI - i) < gcd * sumI
+					if (sumGCD * (sumI - i) < gcd * sumI)
+					{
+						privLinearSearchData[j].push_back(std::pair<unsigned int, unsigned int>(i, static_cast<unsigned int>(sumI)));
+					}
+				}
 			}
+		}
+
+		for (unsigned int i = 0; i < ARRAYSIZE(privLinearSearchDataIndex); ++i)
+		{
+			unsigned char value = 0;
+			if ((i % 5) == 0) value += 1;
+			if ((i % 7) == 0) value += 2;
+			if ((i % 11) == 0) value += 4;
+			privLinearSearchDataIndex[i] = value;
 		}
 	}
 

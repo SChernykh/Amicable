@@ -853,7 +853,7 @@ NOINLINE void Search<0>(const number aRangeStart0, const number aRangeEnd0, cons
 			const number p = it.Get();
 			if (p >= SearchLimit::LinearLimit)
 			{
-				for (auto p2 : LinearSearchData)
+				for (auto p2 : LinearSearchData[LinearSearchDataIndex[GetLinearSearchDataRemainder(p + 1)]])
 				{
 					const number n1 = p * p2.first;
 					if (n1 > SearchLimit::value)
@@ -955,7 +955,7 @@ NOINLINE void Search<0>(const number aRangeStart0, const number aRangeEnd0, cons
 		{
 			if (curPrime >= SearchLimit::LinearLimit)
 			{
-				for (auto p : LinearSearchData)
+				for (auto p : LinearSearchData[LinearSearchDataIndex[GetLinearSearchDataRemainder(curPrime + 1)]])
 				{
 					const number n1 = curPrime * p.first;
 					if (n1 > SearchLimit::value)

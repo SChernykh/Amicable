@@ -63,14 +63,24 @@ enum
 extern std::vector<byte> PrimesUpToSqrtLimit;
 extern number privPrimesUpToSqrtLimitSortedCount;
 extern byte privNextPrimeShifts[ShiftTableSize];
-extern std::vector<std::pair<unsigned int, unsigned int>> privLinearSearchData;
+extern std::vector<std::pair<unsigned int, unsigned int>> privLinearSearchData[8];
+extern unsigned char privLinearSearchDataIndex[5 * 7 * 11];
 extern number privPrimeInverses[CompileTimePrimesCount * 2];
 
 #define NextPrimeShifts ((const byte* const)(privNextPrimeShifts))
 #define PrimesUpToSqrtLimitSortedCount ((const unsigned int)(privPrimesUpToSqrtLimitSortedCount))
-#define LinearSearchData ((const std::vector<std::pair<unsigned int, unsigned int>>&)(privLinearSearchData))
+#define LinearSearchData ((const std::vector<std::pair<unsigned int, unsigned int>>*)(privLinearSearchData))
+#define LinearSearchDataIndex ((const unsigned char*)(privLinearSearchDataIndex))
 
 #define PrimeInverses ((const number*)(privPrimeInverses))
+
+FORCEINLINE number GetLinearSearchDataRemainder(const number n)
+{
+	number highProduct;
+	static_assert(ARRAYSIZE(privLinearSearchDataIndex) == 5 * 7 * 11, "!!! Recalculate these constants (12265886968492584971ULL and 8) if ARRAYSIZE(privLinearSearchDataIndex) changes !!!");
+	_umul128(n, 12265886968492584971ULL, &highProduct);
+	return n - (highProduct >> 8) * ARRAYSIZE(privLinearSearchDataIndex);
+}
 
 FORCEINLINE number CalculateInverse(number n)
 {
