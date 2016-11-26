@@ -228,20 +228,14 @@ FORCEINLINE bool IsNumEligible(const number a, const number sumA, const number t
 
 template<> FORCEINLINE bool IsNumEligible<IS_NUM_ELIGIBLE_BEGIN>(const number a, const number sumA, const number targetSum, number& j)
 {
-	for (j = 0; ; ++j)
+	for (number k = 0; ; ++k)
 	{
-		const SumEstimateData* data = SumEstimates[j] + IS_NUM_ELIGIBLE_BEGIN;
-		if (a <= data->P)
+		if (a <= SumEstimatesBeginP[k])
 		{
-			// Code analysis thinks we can read from index -1 here
-			// PQ[0][16] is 58, so "a" must be <= 58 for this to happen
-			// CompileTimePrimes<16>::value is 59, so we've already checked all primes < 59 here
-			// if some number is <= 58, then it was already fully factored before getting here
-#pragma warning(suppress: 6385)
-			data = SumEstimates[--j] + IS_NUM_ELIGIBLE_BEGIN;
 			number highProduct;
-			_umul128(a, data->Q, &highProduct);
+			_umul128(a, SumEstimatesBeginQ[k], &highProduct);
 			const number maxPossibleSum = _umul128(sumA, a + highProduct, &highProduct);
+			j = k;
 			return (maxPossibleSum >= targetSum) || highProduct;
 		}
 	}

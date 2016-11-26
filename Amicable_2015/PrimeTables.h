@@ -114,8 +114,12 @@ enum
 };
 
 extern const SumEstimateData* privSumEstimates[SumEstimatesSize];
+extern __declspec(align(64)) number privSumEstimatesBeginP[SumEstimatesSize];
+extern __declspec(align(64)) number privSumEstimatesBeginQ[SumEstimatesSize];
 
 #define SumEstimates ((const SumEstimateData * const * const)(privSumEstimates))
+#define SumEstimatesBeginP ((const number* const)(privSumEstimatesBeginP))
+#define SumEstimatesBeginQ ((const number* const)(privSumEstimatesBeginQ))
 
 struct SmallFactorNumbers
 {

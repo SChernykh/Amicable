@@ -9,6 +9,8 @@ SReciprocal privPrimeReciprocals[ReciprocalsTableSize];
 number privPrimesUpToSqrtLimitSortedCount;
 __declspec(align(64))byte privNextPrimeShifts[ShiftTableSize];
 const SumEstimateData* privSumEstimates[SumEstimatesSize];
+__declspec(align(64)) number privSumEstimatesBeginP[SumEstimatesSize];
+__declspec(align(64)) number privSumEstimatesBeginQ[SumEstimatesSize];
 std::vector<std::pair<unsigned int, unsigned int>> privLinearSearchData[8];
 __declspec(align(64)) unsigned char privLinearSearchDataIndex[5 * 7 * 11];
 __declspec(align(64)) number privPrimeInverses[CompileTimePrimesCount * 2];
@@ -636,6 +638,11 @@ void PrimeTablesInit(bool isSubmit)
 			++data;
 		}
 	}
+	for (number j = 0; j < SumEstimatesSize; ++j)
+	{
+		privSumEstimatesBeginP[j] = (j + 1 < SumEstimatesSize) ? privSumEstimates[j + 1][IS_NUM_ELIGIBLE_BEGIN].P : number(-1);
+		privSumEstimatesBeginQ[j] = privSumEstimates[j][IS_NUM_ELIGIBLE_BEGIN].Q;
+	}
 
 	number index = 0;
 	for (PrimesUpToSqrtLimitIterator it(2); index < CompileTimePrimesCount; ++it, ++index)
@@ -646,6 +653,4 @@ void PrimeTablesInit(bool isSubmit)
 			privPrimeInverses[index * 2 + 1] = number(-1) / it.Get();
 		}
 	}
-
-	// cppcheck-suppress memleak
 }
