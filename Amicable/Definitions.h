@@ -1,93 +1,146 @@
 #pragma once
 
-typedef unsigned char byte;
-typedef unsigned long long int number;
-
 #define RUN_PERFORMANCE_TEST 1
 
-// The code can use some conjectures which are true for all known amicable pairs, but are still not proved
-// Set USE_CONJECTURES to 0 when doing an exhaustive search
-// Set USE_CONJECTURES to 1 when the guarantee to find all amicable pairs in the specified range is not needed
-#define USE_CONJECTURES 0
+typedef unsigned char byte;
+typedef unsigned long long int number;
 
 enum SearchLimit : number
 {
 	// Search up to 10^3, 1 pair
-	//SQRT2 = 32,
 	//value = 1000,
 
 	// Search up to 10^4, 4 pairs
-	//SQRT2 = 100,
 	//value = 10000,
 
 	// Search up to 10^5, 8 pairs
-	//SQRT2 = 317,
 	//value = 100000,
 
 	// Search up to 10^6, 29 pairs
-	//SQRT2 = 1000,
 	//value = 1000000,
 
 	// Search up to 10^7, 66 pairs
-	//SQRT2 = 3163,
 	//value = 10000000,
 
 	// Search up to 10^8, 128 pairs
-	//SQRT2 = 10000,
 	//value = 100000000,
 
 	// Search up to 10^9, 350 pairs
-	//SQRT2 = 31623,
 	//value = 1000000000,
 
 	// Search up to 10^10, 841 pairs
-	//SQRT2 = 100000,
 	//value = 10000000000,
 
 	// Search up to 10^11, 1913 pairs
-	SQRT2 = 316228,
 	value = 100000000000,
 
 	// Search up to 10^12, 4302 pairs
-	//SQRT2 = 1000000,
 	//value = 1000000000000,
 
 	// Search up to 10^13, 9877 pairs
-	//SQRT2 = 3162278,
 	//value = 10000000000000,
 
 	// Search up to 10^14, 21855 pairs
-	//SQRT2 = 10000000,
 	//value = 100000000000000,
 
 	// Search up to 10^15, 47728 pairs
-	//SQRT2 = 31622777,
 	//value = 1000000000000000,
 
 	// Search up to 10^16, 103673 pairs
-	//SQRT2 = 100000000,
 	//value = 10000000000000000,
 
 	// Search up to 10^17, 224748 pairs
-	//SQRT2 = 316227767,
 	//value = 100000000000000000,
 
 	// Search up to 10^18, ~485800 pairs
-	//SQRT2 = 1000000000,
 	//value = 1000000000000000000,
 
 	// Search up to 10^19, ~1048700 pairs
-	//SQRT2 = 3162277661,
 	//value = 10000000000000000000,
 
-	// We need to calculate all primes to factorize numbers up to S(n) where n <= SearchLimit::value
-	// Since S(n) / n < 2 / 1 * 3 / 2 * 5 / 4 * ... * 47 / 46 = 7.2095926010299534105882364948723... for all 64-bit numbers, S(n) < n * 7.2095926010299534105882364948723...
-	// So we need to calculate all primes up to sqrt(n * 7.2095926010299534105882364948723...) = SearchLimit::SQRT2 * 2.6850684536953528869874068825892...
-	PrimesUpToSqrtLimitValue = (SQRT2 * 268507) / 100000 + 1,
+	// Search up to 2^64, ~1500600 pairs after 10^18
+	//value = 18446744073709551615,
+};
 
-	// The first prime gap larger than 256 is 436273009 - 436273291
-	// So we don't need a multiplier up until then
-	ShiftMultiplier = (PrimesUpToSqrtLimitValue < 436273009) ? 1 : 2,
+template<number Pred, number A, number B> struct Predicate;
+
+template<number A, number B>
+struct Predicate<1, A, B>
+{
+	enum Value : number
+	{
+		value = A,
+	};
+};
+
+template<number A, number B>
+struct Predicate<0, A, B>
+{
+	enum Value : number
+	{
+		value = B,
+	};
+};
+
+template<number N, number A, number B>
+struct CompileTimeSQRTImpl
+{
+	enum Value : number
+	{
+		C = (A / 2) + (B / 2) + ((A & B) & 1) + 1,
+		Pred = (C * C > N) ? 1 : 0,
+		value = CompileTimeSQRTImpl<N, Predicate<Pred, A, C>::value, Predicate<Pred, C - 1, B>::value>::value,
+	};
+};
+
+template<number N, number C>
+struct CompileTimeSQRTImpl<N, C, C>
+{
+	enum Value : number
+	{
+		value = C,
+	};
+};
+
+template<number N>
+struct CompileTimeSQRT
+{
+	enum Value : number
+	{
+		value = CompileTimeSQRTImpl<N, 1, 4294967295>::value,
+	};
+};
+
+template<number A, number B>
+struct Min
+{
+	enum X : number
+	{
+		value = (A < B) ? A : B,
+	};
+};
+
+template<number A, number B>
+struct Max
+{
+	enum X : number
+	{
+		value = (A > B) ? A : B,
+	};
+};
+
+enum CompileTimeParams : number
+{
+	// Linear search starts when p >= SearchLimit::LinearLimit
+	// It iterates over 1 * p, 2 * p, 3 * p, ... until it reaches SearchLimit::value
+	// It assumes that:
+	// 1) If k is abundant then k * p is also abundant and vice versa
+	// 2) If k if deficient then k * p if also deficient and vice versa
+	// We can guarantee these assumptions only if p / k > 2 which means linear limit must be > sqrt(limit * 2)
+	// But we don't want to store too many values for linear search, so we only store values up to 10000000
+	LinearLimit = ((CompileTimeSQRT<SearchLimit::value>::value + 1) * 1414213563) / 1000000000 + 1,
+	MainPrimeTableBound = Max<LinearLimit, 1000>::value,
+	ShiftMultiplier = 2,
 
 	// Safe upper bound for the largest prime factor
 	//
@@ -135,18 +188,6 @@ enum SearchLimit : number
 	// because if largest prime factor p > SearchLimit::value / 20 then we'll only have numbers of the form k * p where k < 20
 	// SearchLimit::value / 20 is also the best possible bound because 220 = 20 * 11
 	SafeLimit = value / 20,
-
-	// Linear search starts when p >= SearchLimit::LinearLimit
-	// It iterates over 1 * p, 2 * p, 3 * p, ... until it reaches SearchLimit::value
-	// It assumes that:
-	// 1) If k is abundant then k * p is also abundant and vice versa
-	// 2) If k if deficient then k * p if also deficient and vice versa
-	// We can guarantee these assumptions only if p / k > 2 which means linear limit must be > sqrt(limit * 2)
-	// But we don't want to store too many values for linear search, so we only store values up to 10000000
-#pragma warning(push)
-#pragma warning(disable : 4296)
-	LinearLimit = max(value / 10000000, (SearchLimit::SQRT2 * 141422) / 100000 + 1),
-#pragma warning(pop)
 };
 
 // Let S(n) be the sum of all divisors of n
@@ -184,15 +225,7 @@ enum SearchLimit : number
 //
 // But the practical limit is 7 * 10^18 - it's approximately where we start getting pairs with pair sum >= 2^64
 // The first actually missed known pair is (7364096816271422535, 11119300665402788793) with pair sum 1.0019869852272140775539810420014 * 2^64
-static_assert(SearchLimit::value <= 7000000000000000000ULL, "Search limit is too large, some pairs can be missed");
-
-// Linear search starts when p >= SearchLimit::LinearLimit
-// It iterates over 1 * p, 2 * p, 3 * p, ... until it reaches SearchLimit::value
-// It assumes that:
-// 1) If k is abundant then k * p is also abundant and vice versa
-// 2) If k if deficient then k * p if also deficient and vice versa
-// We can guarantee these assumptions only if p / k > 2 which means linear limit must be > sqrt(limit * 2)
-static_assert(SearchLimit::LinearLimit > (SearchLimit::SQRT2 * 1.41422) / 100000 + 1, "Linear search limit is too low");
+//static_assert(SearchLimit::value <= 7000000000000000000ULL, "Search limit is too large, some pairs can be missed");
 
 template<number N> struct CompileTimePrimes;
 
@@ -293,40 +326,9 @@ template<> struct CompileTimePrimes<93> { enum { value = 491 }; };
 template<> struct CompileTimePrimes<94> { enum { value = 499 }; };
 template<> struct CompileTimePrimes<95> { enum { value = 503 }; };
 template<> struct CompileTimePrimes<96> { enum { value = 509 }; };
+template<> struct CompileTimePrimes<97> { enum { value = 521 }; };
 
 enum { CompileTimePrimesCount = 96 };
-
-enum { InlinePrimesInSearch = 12 };
-
-#pragma warning(push)
-#pragma warning(disable : 4307)
-template<int index, number M, number N, bool finish>
-struct MaxSearchDepthHelper
-{
-	enum
-	{
-		value = MaxSearchDepthHelper<index + 1, M * CompileTimePrimes<index + 1>::value, N, (N / CompileTimePrimes<index + 1>::value) < M>::value,
-	};
-};
-
-template<int index, number M, number N>
-struct MaxSearchDepthHelper<index, M, N, true>
-{
-	enum
-	{
-		value = index - 1 - InlinePrimesInSearch,
-	};
-};
-
-template<number N>
-struct MaxSearchDepth
-{
-	enum
-	{
-		value = MaxSearchDepthHelper<InlinePrimesInSearch, 1, N, false>::value,
-	};
-};
-#pragma warning(pop)
 
 enum PrimeTableParameters
 {
@@ -357,20 +359,10 @@ enum Byte
 	Bits = 8,
 };
 
-number MaximumSumOfDivisors3NoInline(const number a, const number p, const number q);
-
 #define IF_CONSTEXPR(X) \
-	__pragma(warning(push)) \
-	__pragma(warning(disable:4127)) \
+	__pragma(warning(suppress:4127)) \
 	static_assert((X) || !(X), "Error: "#X" is not a constexpr"); \
 	if (X) \
-	__pragma(warning(pop))
-
-#if RUN_PERFORMANCE_TEST
-#define COUT(X)
-#else
-#define COUT(X)
-#endif
 
 extern unsigned __int64(__fastcall *udiv128)(unsigned __int64 numhi, unsigned __int64 numlo, unsigned __int64 den, unsigned __int64* rem);
 extern unsigned __int64(__fastcall *mulmod64)(number a, number b, number n);

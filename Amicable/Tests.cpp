@@ -2,7 +2,6 @@
 #include "PrimeTables.h"
 #include "Engine.h"
 #include <fstream>
-#include <algorithm>
 
 NOINLINE bool TestCheckPair()
 {
@@ -44,15 +43,12 @@ NOINLINE bool TestCheckPair()
 			buf[0] = '\0';
 			f.getline(buf, sizeof(buf)); // empty line
 
-			if (m > SearchLimit::value / 10)
+			const number oldNumPairs = NumFoundPairs;
+			CheckPairNoInline(m, m + n);
+			if (NumFoundPairs != oldNumPairs + 1)
 			{
-				const number oldNumPairs = NumFoundPairs;
-				CheckPairNoInline(m, m + n);
-				if (NumFoundPairs != oldNumPairs + 1)
-				{
-					std::cerr << "CheckPair didn't recognize " << m << ", " << n << " as a valid amicable pair" << std::endl;
-					return false;
-				}
+				std::cerr << "CheckPair didn't recognize " << m << ", " << n << " as a valid amicable pair" << std::endl;
+				return false;
 			}
 		}
 	}
@@ -88,54 +84,40 @@ NOINLINE bool TestGeneric(T test)
 			if (m > SearchLimit::value)
 				break;
 
-			//if (m > SearchLimit::value / 10)
+			const size_t len = strlen(buf);
+			const char* factor_begin = nullptr;
+			factorization.clear();
+			for (size_t i = 0; i <= len; ++i)
 			{
-				const size_t len = strlen(buf);
-				const char* factor_begin = nullptr;
-				number cur_number = 1;
-				number cur_sum = 1;
-				factorization.clear();
-				for (size_t i = 0; i <= len; ++i)
+				if (!isdigit(buf[i]))
 				{
-					if (!isdigit(buf[i]))
+					if (factor_begin)
 					{
-						if (factor_begin)
+						number p;
+						if (sscanf_s(factor_begin, "%I64u", &p) == 1)
 						{
-							number p;
-							if (sscanf_s(factor_begin, "%I64u", &p) == 1)
+							number factor_power = 1;
+							if (buf[i] == '^')
 							{
-								number factor_power = 1;
-								if (buf[i] == '^')
-								{
-									sscanf_s(buf + i + 1, "%I64u", &factor_power);
-								}
-								factorization.emplace_back(std::pair<number, number>(p, factor_power));
-								if (p <= CompileTimePrimes<InlinePrimesInSearch>::value)
-								{
-									const number prev_sum = cur_sum;
-									for (number j = 0; j < factor_power; ++j)
-									{
-										cur_number *= p;
-										cur_sum = cur_sum * p + prev_sum;
-									}
-								}
+								sscanf_s(buf + i + 1, "%I64u", &factor_power);
 							}
-							factor_begin = nullptr;
+							factorization.emplace_back(std::pair<number, number>(p, factor_power));
 						}
-						if ((buf[i] == '=') || (buf[i] == '*'))
-						{
-							factor_begin = buf + i + 1;
-						}
+						factor_begin = nullptr;
+					}
+					if ((buf[i] == '=') || (buf[i] == '*'))
+					{
+						factor_begin = buf + i + 1;
 					}
 				}
-				std::sort(factorization.begin(), factorization.end(), [](const std::pair<number, number>& a, const std::pair<number, number>& b)
-				{
-					return a.first < b.first;
-				});
-				if (!test(m, factorization))
-				{
-					return false;
-				}
+			}
+			std::sort(factorization.begin(), factorization.end(), [](const std::pair<number, number>& a, const std::pair<number, number>& b)
+			{
+				return a.first < b.first;
+			});
+			if (!test(m, factorization))
+			{
+				return false;
 			}
 
 			buf[0] = '\0';
@@ -153,116 +135,26 @@ NOINLINE bool TestLinearSearchData()
 	return TestGeneric([](number m, const std::vector<std::pair<number, number>>& factorization)
 	{
 		const std::pair<number, number>& max_factor = factorization.back();
-		if (max_factor.first >= SearchLimit::LinearLimit)
+		if (max_factor.first >= CompileTimeParams::LinearLimit)
 		{
 			for (number i = 0; i < max_factor.second; ++i)
 			{
 				m /= max_factor.first;
 			}
-			const unsigned char index = LinearSearchDataIndex[GetLinearSearchDataRemainder(max_factor.first + 1)];
-			auto it = std::lower_bound(LinearSearchData[index].begin(), LinearSearchData[index].end(), m, [](const std::pair<number, number>& a, number b)
+			auto it = std::lower_bound(CandidatesData.begin(), CandidatesData.end(), m, [](const LinearSearchDataEntry& a, number b)
 			{
-				return a.first < b;
+				return a.value < b;
 			});
-			if ((it == LinearSearchData[index].end()) || (it->first != m))
+			if ((it == CandidatesData.end()) || (it->value != m))
 			{
 				std::cerr << "LinearSearchData doesn't include " << m << " as a valid amicable candidate" << std::endl;
 				return false;
 			}
-		}
-		return true;
-	});
-}
 
-NOINLINE bool TestSmallFactorNumbersData()
-{
-	return TestGeneric([](number /*m*/, const std::vector<std::pair<number, number>>& factorization)
-	{
-		number cur_small_number = 1;
-		for (const std::pair<number, number>& factor : factorization)
-		{
-			if (factor.first <= CompileTimePrimes<InlinePrimesInSearch>::value)
+			const unsigned int mask = CandidatesDataMask[GetLinearSearchDataRemainder(max_factor.first + 1)];
+			if ((it->is_not_over_abundant_mask & mask) == 0)
 			{
-				for (number j = 0; j < factor.second; ++j)
-				{
-					cur_small_number *= factor.first;
-				}
-			}
-		}
-		auto it = std::lower_bound(g_SmallFactorNumbersData.myNumbers.begin(), g_SmallFactorNumbersData.myNumbers.end(), cur_small_number, [](const std::pair<number, number>& a, number b)
-		{
-			return a.first < b;
-		});
-		if ((it == g_SmallFactorNumbersData.myNumbers.end()) || (it->first != cur_small_number))
-		{
-			std::cerr << "SmallFactorNumbersData doesn't include " << cur_small_number << " as a valid amicable candidate" << std::endl;
-			return false;
-		}
-		return true;
-	});
-}
-
-NOINLINE bool TestIsValidCandidate()
-{
-	return TestGeneric([](number /*m*/, const std::vector<std::pair<number, number>>& factorization)
-	{
-		number D = 1;
-		number sumD = 1;
-		for (const std::pair<number, number>& factor : factorization)
-		{
-			if ((factor.first <= CompileTimePrimes<InlinePrimesInSearch>::value) || (factor == factorization.back()))
-			{
-				const number prev_sum = sumD;
-				for (number j = 0; j < factor.second; ++j)
-				{
-					D *= factor.first;
-					sumD = sumD * factor.first + prev_sum;
-				}
-			}
-		}
-		if (!IsValidCandidate(D, sumD))
-		{
-			std::cerr << "IsValidCandidate doesn't recognize " << D << " as a valid amicable candidate" << std::endl;
-			return false;
-		}
-		return true;
-	});
-}
-
-NOINLINE bool TestGetMaxSumMDiv2()
-{
-	return TestGeneric([](number m, const std::vector<std::pair<number, number>>& factorization)
-	{
-		number cur_number = 1;
-		number cur_sum = 1;
-		for (const std::pair<number, number>& factor : factorization)
-		{
-			if (factor.first <= CompileTimePrimes<InlinePrimesInSearch>::value)
-			{
-				const number prev_sum = cur_sum;
-				for (number j = 0; j < factor.second; ++j)
-				{
-					cur_number *= factor.first;
-					cur_sum = cur_sum * factor.first + prev_sum;
-				}
-			}
-		}
-		for (auto it = factorization.rbegin(); it != factorization.rend(); ++it)
-		{
-			const std::pair<number, number>& factor = *it;
-			if (factor.first <= CompileTimePrimes<InlinePrimesInSearch>::value)
-			{
-				break;
-			}
-			const number prev_sum = cur_sum;
-			for (number j = 0; j < factor.second; ++j)
-			{
-				cur_number *= factor.first;
-				cur_sum = cur_sum * factor.first + prev_sum;
-			}
-			if (GetMaxSumMDiv2(cur_number, cur_sum) < cur_number)
-			{
-				std::cerr << "GetMaxSumMDiv2 doesn't recognize " << m << " as a valid amicable number" << std::endl;
+				std::cerr << "LinearSearchData has invalid is_not_over_abundant_mask for " << m << std::endl;
 				return false;
 			}
 		}
@@ -301,7 +193,7 @@ NOINLINE bool TestMaximumSumOfDivisors3()
 		const double curEstimate = static_cast<double>(sumEstimate - sum) / sum;
 		if (curEstimate < minEstimate)
 			minEstimate = curEstimate;
-		p1 += *shift1 ? *shift1 * SearchLimit::ShiftMultiplier : 1ULL;
+		p1 += *shift1 ? *shift1 * CompileTimeParams::ShiftMultiplier : 1ULL;
 		++shift1;
 	}
 
@@ -310,7 +202,7 @@ NOINLINE bool TestMaximumSumOfDivisors3()
 	for (int i = 0; i < N; ++i)
 	{
 		const byte* shift2 = shift1;
-		number p2 = p1 + (*shift2 ? *shift2 * SearchLimit::ShiftMultiplier : 1ULL);
+		number p2 = p1 + (*shift2 ? *shift2 * CompileTimeParams::ShiftMultiplier : 1ULL);
 		++shift2;
 		for (int j = 0; j < N; ++j)
 		{
@@ -372,10 +264,10 @@ NOINLINE bool TestMaximumSumOfDivisors3()
 				if (curEstimate < minEstimate)
 					minEstimate = curEstimate;
 			}
-			p2 += *shift2 ? *shift2 * SearchLimit::ShiftMultiplier : 1ULL;
+			p2 += *shift2 ? *shift2 * CompileTimeParams::ShiftMultiplier : 1ULL;
 			++shift2;
 		}
-		p1 += *shift1 ? *shift1 * SearchLimit::ShiftMultiplier : 1ULL;
+		p1 += *shift1 ? *shift1 * CompileTimeParams::ShiftMultiplier : 1ULL;
 		++shift1;
 	}
 
@@ -384,12 +276,12 @@ NOINLINE bool TestMaximumSumOfDivisors3()
 	for (int i = 0; i < N; ++i)
 	{
 		const byte* shift2 = shift1;
-		number p2 = p1 + (*shift2 ? *shift2 * SearchLimit::ShiftMultiplier : 1ULL);
+		number p2 = p1 + (*shift2 ? *shift2 * CompileTimeParams::ShiftMultiplier : 1ULL);
 		++shift2;
 		for (int j = 0; j < N; ++j)
 		{
 			const byte* shift3 = shift2;
-			number p3 = p2 + (*shift3 ? *shift3 * SearchLimit::ShiftMultiplier : 1ULL);
+			number p3 = p2 + (*shift3 ? *shift3 * CompileTimeParams::ShiftMultiplier : 1ULL);
 			++shift3;
 			for (int k = 0; k < N; ++k)
 			{
@@ -436,14 +328,33 @@ NOINLINE bool TestMaximumSumOfDivisors3()
 				const double curEstimate = static_cast<double>(sumEstimate - sum) / sum;
 				if (curEstimate < minEstimate)
 					minEstimate = curEstimate;
-				p3 += *shift3 ? *shift3 * SearchLimit::ShiftMultiplier : 1ULL;
+				p3 += *shift3 ? *shift3 * CompileTimeParams::ShiftMultiplier : 1ULL;
 				++shift3;
 			}
-			p2 += *shift2 ? *shift2 * SearchLimit::ShiftMultiplier : 1ULL;
+			p2 += *shift2 ? *shift2 * CompileTimeParams::ShiftMultiplier : 1ULL;
 			++shift2;
 		}
-		p1 += *shift1 ? *shift1 * SearchLimit::ShiftMultiplier : 1ULL;
+		p1 += *shift1 ? *shift1 * CompileTimeParams::ShiftMultiplier : 1ULL;
 		++shift1;
+	}
+	return true;
+}
+
+NOINLINE bool TestPrimeSieve()
+{
+	primesieve::PrimeSieve s;
+	number primeCount = 0;
+	number primeSum = 0;
+	s.sieveTemplated(0, 10000000000, [&primeCount, &primeSum](number p){ ++primeCount; primeSum += p; });
+	if (primeCount != 455052511)
+	{
+		std::cerr << "primesieve counted " << primeCount << " primes below 10^10 (correct value is 455052511)" << std::endl;
+		return false;
+	}
+	if (primeSum != 2220822432581729238)
+	{
+		std::cerr << "primesieve counted that sum of primes below 10^10 is " << primeSum << " (correct value is 2220822432581729238)" << std::endl;
+		return false;
 	}
 	return true;
 }

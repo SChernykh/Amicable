@@ -1,21 +1,21 @@
 #include "stdafx.h"
 #include "PrimeTables.h"
-#include "Factorize.h"
 #include <algorithm>
 #include <process.h>
 #include "sprp64.h"
 
-SReciprocal privPrimeReciprocals[ReciprocalsTableSize];
-number privPrimesUpToSqrtLimitSortedCount;
-__declspec(align(64))byte privNextPrimeShifts[ShiftTableSize];
+CACHE_ALIGNED SReciprocal privPrimeReciprocals[ReciprocalsTableSize];
+byte* privNextPrimeShifts = nullptr;
 const SumEstimateData* privSumEstimates[SumEstimatesSize];
-__declspec(align(64)) number privSumEstimatesBeginP[SumEstimatesSize];
-__declspec(align(64)) number privSumEstimatesBeginQ[SumEstimatesSize];
-std::vector<std::pair<unsigned int, unsigned int>> privLinearSearchData[8];
-__declspec(align(64)) unsigned char privLinearSearchDataIndex[5 * 7 * 11];
-__declspec(align(64)) number privPrimeInverses[CompileTimePrimesCount * 2];
+CACHE_ALIGNED number privSumEstimatesBeginP[SumEstimatesSize];
+CACHE_ALIGNED number privSumEstimatesBeginQ[SumEstimatesSize];
+CACHE_ALIGNED byte privIsNotOverAbundantMod385[128 * 512];
+std::vector<LinearSearchDataEntry> privCandidatesData;
+CACHE_ALIGNED unsigned char privCandidatesDataMask[5 * 7 * 11];
+std::pair<number, number>* privPrimeInverses = nullptr;
+CACHE_ALIGNED std::pair<number, number> privPrimeInverses2[CompileTimePrimesCount];
 
-std::vector<byte> PrimesUpToSqrtLimit;
+std::vector<byte> MainPrimeTable;
 byte bitOffset[PrimeTableParameters::Modulo];
 number bitMask[PrimeTableParameters::Modulo];
 
@@ -52,11 +52,11 @@ number CalculatePrimes(number aLowerBound, number anUpperBound, std::vector<byte
 	number d = 11;
 	number sqr_d = 121;
 
-	const number* sieveData = (const number*)(PrimesUpToSqrtLimit.data()) + 1;
+	const number* sieveData = (const number*)(MainPrimeTable.data()) + 1;
 	number moduloIndex = 0;
 	number bitIndexShift = 0;
-	// Precomputed first 64 bits of PrimesUpToSqrtLimit
-	// They're not available when we're only starting to calculate PrimesUpToSqrtLimit table
+	// Precomputed first 64 bits of MainPrimeTable
+	// They're not available when we're only starting to calculate MainPrimeTable
 	// So I just hard-coded them here
 	number curSieveChunk = 0xfafd7bbef7ffffffULL & ~number(3);
 	const unsigned int* PossiblePrimesForModuloPtr = NumbersCoprimeToModulo;
@@ -159,7 +159,7 @@ number CalculatePrimes(number aLowerBound, number anUpperBound, std::vector<byte
 
 bool IsPrime(number n)
 {
-	if (n >= SearchLimit::PrimesUpToSqrtLimitValue)
+	if (n >= CompileTimeParams::MainPrimeTableBound)
 	{
 		return efficient_mr64(n);
 	}
@@ -194,75 +194,7 @@ bool IsPrime(number n)
 	if (bit >= PrimeTableParameters::NumOffsets)
 		return false;
 
-	return (PrimesUpToSqrtLimit[k / Byte::Bits] & (1 << (k % Byte::Bits))) != 0;
-}
-
-SmallFactorNumbers g_SmallFactorNumbersData;
-
-template<number Index>
-FORCEINLINE void CalculateSmallFactorNumbersInternal(number D, number sumD, number smallestFactorInM1)
-{
-	enum { p = CompileTimePrimes<Index>::value };
-	number curSum = sumD;
-	for (;;)
-	{
-		CalculateSmallFactorNumbersInternal<Index + 1>(D, curSum, smallestFactorInM1);
-		if (D > SearchLimit::value / p)
-			break;
-		IF_CONSTEXPR(p == 3)
-		{
-			// Smaller number in an amicable pair must not be divisible by 6
-			if (D % 2 == 0)
-				return;
-		}
-		D *= p;
-		sumD *= p;
-		curSum += sumD;
-	}
-}
-
-template<>
-FORCEINLINE void CalculateSmallFactorNumbersInternal<0>(number D, number sumD, number smallestFactorInM1)
-{
-	const bool doDivision = (D > 1);
-	SReciprocal recD, recSumD;
-	if (doDivision)
-		recD.Init(D);
-
-	const bool isSumDPowerOf2 = ((sumD & (sumD - 1)) == 0);
-	unsigned long sumDShift = 0;
-	if (doDivision)
-	{
-		if (isSumDPowerOf2)
-			_BitScanForward64(&sumDShift, sumD);
-		else
-			recSumD.Init(sumD);
-	}
-
-	g_SmallFactorNumbersData.myNumbers.clear();
-	number curSum = sumD;
-	for (;;)
-	{
-		CalculateSmallFactorNumbersInternal<1>(D, curSum, smallestFactorInM1);
-		if (D > SearchLimit::value / 2)
-			break;
-		D *= 2;
-		sumD *= 2;
-		curSum += sumD;
-	}
-
-	std::sort(g_SmallFactorNumbersData.myNumbers.begin(), g_SmallFactorNumbersData.myNumbers.end(), [](const std::pair<number, number>& a, const std::pair<number, number>& b) { return a.first < b.first; });
-	if (doDivision)
-	{
-		for (std::pair<number, number>& n : g_SmallFactorNumbersData.myNumbers)
-		{
-			n.first = recD.DivideNoRemainder(n.first);
-			if (isSumDPowerOf2)
-				n.second >>= sumDShift;
-			else
-				n.second = recSumD.DivideNoRemainder(n.second);
-		}
-	}
+	return (MainPrimeTable[k / Byte::Bits] & (1 << (k % Byte::Bits))) != 0;
 }
 
 struct NumberAndSumOfDivisors
@@ -276,7 +208,7 @@ struct NumberAndSumOfDivisors
 	number r;
 };
 
-NOINLINE void GetSuperAbundantNumber(PrimesUpToSqrtLimitIterator p, const number maxPower, const number maxN, NumberAndSumOfDivisors cur, NumberAndSumOfDivisors& best)
+NOINLINE void GetSuperAbundantNumber(PrimeIterator p, const number maxPower, const number maxN, NumberAndSumOfDivisors cur, NumberAndSumOfDivisors& best)
 {
 	++p;
 
@@ -328,78 +260,7 @@ NOINLINE void GetSuperAbundantNumber(PrimesUpToSqrtLimitIterator p, const number
 
 static std::vector<std::pair<number, number>> locTmpFactorization;
 
-template<>
-NOINLINE void CalculateSmallFactorNumbersInternal<InlinePrimesInSearch + 1>(number D, number sumD, number /*smallestFactorInM1*/)
-{
-	// Check for overflow when calculating S(D)
-	if (sumD < D)
-		__debugbreak();
-
-#if USE_CONJECTURES
-	// If a number is divisible by 2^3, then it must not be divisible by 5 or 7
-	// This is not proved, but true for all known amicable pairs
-	if ((D % 8) == 0)
-		if (((D % 5) == 0) || ((D % 7) == 0))
-			return;
-#endif
-
-	// Numbers <= SearchLimit::value are represented as N = D*M where D=2^k0 * ... * 31^k10 * M1
-	// D is given, M can be anything satisfying with these restrictions:
-	// 1) M is coprime to D
-	// 2) All prime factors in M are > 31 and < than all prime factors in M1
-	// 3) D * M <= SearchLimit::value
-	//
-	// If N is a smaller member of an amicable pair, then S(N) = S(D*M) = S(D)*S(M) must be > 2 * N
-	// S(D) * S(M) > 2 * N
-	// S(D) * S(M) > 2 * D * M
-	// S(D) / D > 2 * M / S(M) for at least one M such that D * M <= SearchLimit::value
-	// S(D) / D > 2 * min(M / S(M))
-	// Since all FP calculations round up here, we must transform it to this: f(...) > C
-	// where f(...) are a series of calculations which will be rounded up
-	// Thus we neutralize rounding errors
-	// Calculating minimum is not correct when FP calculations round up
-	// So we also change minimum to maximum
-	//
-	// S(D) > D * 2 * min(M / S(M))
-	// S(D) > D * 2 / max(S(M) / M)
-	// S(D) * max(S(M) / M) > D * 2
-	// S(D) * max(S(M) / M) / 2 > D
-	bool is_abundant = sumD - D > D;
-	if (!is_abundant)
-	{
-		PrimesUpToSqrtLimitIterator p(CompileTimePrimes<InlinePrimesInSearch>::value);
-		NumberAndSumOfDivisors cur;
-		NumberAndSumOfDivisors result;
-		GetSuperAbundantNumber(p, number(-1), (SearchLimit::value / D) + 1, cur, result);
-		const number D1 = D * result.N;
-		const number sumD1 = sumD * result.sumLow;
-		is_abundant = sumD1 - D1 > D1;
-	}
-	if (is_abundant)
-	{
-		// The partial factorization must be deficient in order for the bigger number to be deficient too
-		const unsigned int gcd = static_cast<unsigned int>(GCD(D, sumD));
-		number sumGCD;
-		locTmpFactorization.clear();
-		Factorize(gcd, sumGCD, locTmpFactorization);
-		if (sumGCD - gcd < gcd)
-		{
-			// It must be not just deficient, but "deficient enough"
-			// "sumGCD * (sumD - D) < gcd * sumD" must be true
-			// See comments for privLinearSearchData below
-			number sum1[2];
-			sum1[0] = _umul128(sumGCD, sumD - D, &sum1[1]);
-
-			number sum2[2];
-			sum2[0] = _umul128(gcd, sumD, &sum2[1]);
-
-			if ((sum1[1] < sum2[1]) || ((sum1[1] == sum2[1]) && (sum1[0] < sum2[0])))
-				g_SmallFactorNumbersData.myNumbers.push_back(std::make_pair(D, sumD));
-		}
-	}
-}
-
-NOINLINE number GetMaxSumRatio(const PrimesUpToSqrtLimitIterator& p, const number limit, number* numberWihMaxSumRatio = nullptr)
+NOINLINE number GetMaxSumRatio(const PrimeIterator& p, const number limit, number* numberWihMaxSumRatio = nullptr)
 {
 	NumberAndSumOfDivisors cur;
 	NumberAndSumOfDivisors result;
@@ -415,9 +276,119 @@ NOINLINE number GetMaxSumRatio(const PrimesUpToSqrtLimitIterator& p, const numbe
 	return udiv128(r, 0, result.N, &r) + 1;
 }
 
-number g_MaxSumRatios[64];
+NOINLINE byte OverAbundantNoInline(const Factor* f, int last_factor_index, const number value, const number sum, number sum_for_gcd_coeff)
+{
+	return OverAbundant(f, last_factor_index, value, sum, sum_for_gcd_coeff);
+}
 
-void PrimeTablesInit(bool isSubmit)
+template<int depth>
+FORCEINLINE void SearchCandidates(Factor* factors, const number value, const number sum)
+{
+	if ((sum - value >= value) && !OverAbundantNoInline(factors, depth - 1, value, sum, 2))
+	{
+		unsigned char is_over_abundant_mask = 0;
+		is_over_abundant_mask |= OverAbundantNoInline(factors, depth - 1, value, sum, 2 * 5) << 1;
+		is_over_abundant_mask |= OverAbundantNoInline(factors, depth - 1, value, sum, 2 * 7) << 2;
+		is_over_abundant_mask |= OverAbundantNoInline(factors, depth - 1, value, sum, 2 * 11) << 4;
+		is_over_abundant_mask |= (((is_over_abundant_mask & 0x06) || OverAbundantNoInline(factors, depth - 1, value, sum, 2 * 5 * 7)) ? byte(1) : byte(0)) << 3;
+		is_over_abundant_mask |= (((is_over_abundant_mask & 0x12) || OverAbundantNoInline(factors, depth - 1, value, sum, 2 * 5 * 11)) ? byte(1) : byte(0)) << 5;
+		is_over_abundant_mask |= (((is_over_abundant_mask & 0x14) || OverAbundantNoInline(factors, depth - 1, value, sum, 2 * 7 * 11)) ? byte(1) : byte(0)) << 6;
+		is_over_abundant_mask |= (((is_over_abundant_mask & 0x7E) || OverAbundantNoInline(factors, depth - 1, value, sum, 2 * 5 * 7 * 11)) ? byte(1) : byte(0)) << 7;
+
+		privCandidatesData.emplace_back(LinearSearchDataEntry(static_cast<unsigned int>(value), static_cast<unsigned int>(sum), is_over_abundant_mask));
+	}
+
+	int start_i = (depth == 0) ? 0 : (factors[depth - 1].index + 1);
+
+	Factor& f = factors[depth];
+	f.p = (depth == 0) ? 2 : (factors[depth - 1].p + NextPrimeShifts[factors[depth - 1].index] * CompileTimeParams::ShiftMultiplier);
+
+	// A check to ensure that m is not divisible by 6
+	IF_CONSTEXPR(depth == 1)
+	{
+		// factors[0].p is 2
+		// factors[1].p is 3
+		// change factors[1].p to 5
+		if (start_i == 1)
+		{
+			f.p = 5;
+		}
+		if (start_i == 1)
+		{
+			start_i = 2;
+		}
+	}
+
+	// Check only 2, 3, 5 as the smallest prime factor because the smallest abundant number coprime to 2*3*5 is ~2*10^25
+	const unsigned int max_prime = static_cast<unsigned int>((depth > 0) ? ((CompileTimeParams::LinearLimit / 20) + 1) : 7);
+	for (f.index = start_i; f.p < max_prime; f.p += NextPrimeShifts[f.index] * CompileTimeParams::ShiftMultiplier, ++f.index)
+	{
+		number h;
+		number next_value = _umul128(value, f.p, &h);
+		if ((next_value >= CompileTimeParams::LinearLimit) || h)
+		{
+			return;
+		}
+		number next_sum = sum * (f.p + 1);
+
+		f.k = 1;
+		f.p_inv = PrimeInverses[f.index].first;
+		f.q_max = PrimeInverses[f.index].second;
+
+		for (;;)
+		{
+			SearchCandidates<depth + 1>(factors, next_value, next_sum);
+
+			next_value = _umul128(next_value, f.p, &h);
+			if ((next_value >= CompileTimeParams::LinearLimit) || h)
+			{
+				break;
+			}
+			next_sum = next_sum * f.p + sum;
+			++f.k;
+		}
+
+		// Workaround for shifting from 2 to 3 because NextPrimeShifts[0] is 0
+		IF_CONSTEXPR(depth == 0)
+		{
+			if (f.p == 2)
+			{
+				f.p = 3;
+			}
+		}
+	}
+}
+
+template<> FORCEINLINE void SearchCandidates<10>(Factor*, const number, const number) {}
+
+void GenerateCandidates()
+{
+	privCandidatesData.reserve(CompileTimeParams::LinearLimit / 30);
+
+	Factor factors[16];
+	SearchCandidates<0>(factors, 1, 1);
+
+	std::sort(privCandidatesData.begin(), privCandidatesData.end(), [](const LinearSearchDataEntry& a, const LinearSearchDataEntry& b){ return a.value < b.value; });
+
+	memset(privCandidatesDataMask, 1, sizeof(privCandidatesDataMask));
+
+	for (unsigned int i = 0; i < ARRAYSIZE(privCandidatesDataMask); i += 5)
+	{
+		privCandidatesDataMask[i] <<= 1;
+	}
+
+	for (unsigned int i = 0; i < ARRAYSIZE(privCandidatesDataMask); i += 7)
+	{
+		privCandidatesDataMask[i] <<= 2;
+	}
+
+	for (unsigned int i = 0; i < ARRAYSIZE(privCandidatesDataMask); i += 11)
+	{
+		privCandidatesDataMask[i] <<= 4;
+	}
+}
+
+void PrimeTablesInit()
 {
 	memset(bitOffset, -1, sizeof(bitOffset));
 	for (byte b = 0; b < PrimeTableParameters::NumOffsets; ++b)
@@ -426,150 +397,78 @@ void PrimeTablesInit(bool isSubmit)
 		bitMask[NumbersCoprimeToModulo[b]] = ~(1ULL << b);
 	}
 
-	CalculatePrimes(0, PrimesUpToSqrtLimitValue, PrimesUpToSqrtLimit);
+	CalculatePrimes(0, MainPrimeTableBound, MainPrimeTable);
 
 	// Make sure all floating point calculations round up
 	_control87(_RC_UP, _MCW_RC);
 
+	number nPrimes = 0;
+	int cpuid_data[4];
+	__cpuid(cpuid_data, 1);
+
+	// If popcnt instruction is supported, use it
+	if (cpuid_data[2] & (1 << 23))
 	{
-		PrimesUpToSqrtLimitIterator p(CompileTimePrimes<InlinePrimesInSearch>::value);
-		number limit = SearchLimit::value;
-		while (limit > CompileTimePrimes<InlinePrimesInSearch + 1>::value)
+		for (number* data = reinterpret_cast<number*>(MainPrimeTable.data()), *e = reinterpret_cast<number*>(MainPrimeTable.data() + MainPrimeTable.size() - 1); data <= e; ++data)
 		{
-			NumberAndSumOfDivisors cur;
-			NumberAndSumOfDivisors result;
-			GetSuperAbundantNumber(p, number(-1), limit, cur, result);
-			const number D = SearchLimit::value / result.N;
-			long index;
-			_BitScanReverse64(reinterpret_cast<unsigned long*>(&index), D);
-			number r;
-			const number ratio = udiv128(result.sumLow, 0, result.N * 2, &r) + 1;
-			while ((index >= 0) && !g_MaxSumRatios[index])
-			{
-				g_MaxSumRatios[index] = ratio;
-				--index;
-			}
-			limit = result.N;
-		}
-		for (long index = ARRAYSIZE(g_MaxSumRatios) - 1; (index >= 0) && !g_MaxSumRatios[index]; --index)
-		{
-			g_MaxSumRatios[index] = number(1) << 63;
+			nPrimes += __popcnt64(*data);
 		}
 	}
+	else
+	{
+		for (PrimeIterator it(2); it.Get() <= MainPrimeTableBound; ++it)
+		{
+			++nPrimes;
+		}
+	}
+	privPrimeInverses = reinterpret_cast<std::pair<number, number>*>(VirtualAlloc(nullptr, (((nPrimes + 3) / 4) * 4) * sizeof(std::pair<number, number>) + nPrimes, MEM_COMMIT, PAGE_READWRITE));
+	privNextPrimeShifts = reinterpret_cast<byte*>(privPrimeInverses + (((nPrimes + 3) / 4) * 4));
 
-	number nPrimes = 0;
-	for (PrimesUpToSqrtLimitIterator it(2); it.Get() <= PrimesUpToSqrtLimitValue;)
+	nPrimes = 0;
+	for (PrimeIterator it(2); it.Get() <= MainPrimeTableBound;)
 	{
 		const number p = it.Get();
 
 		if ((p > 2) && (nPrimes < ReciprocalsTableSize))
+		{
 			privPrimeReciprocals[nPrimes].Init(p);
+		}
 
 		++it;
 		const number q = it.Get();
-		if (q - p >= 256 * SearchLimit::ShiftMultiplier)
+		if (q - p >= 256 * CompileTimeParams::ShiftMultiplier)
 		{
+			std::cerr << "Primes gap is 512 or greater, decrease MainPrimeTableBound";
 			__debugbreak();
 		}
-		if (nPrimes < ARRAYSIZE(privNextPrimeShifts))
-			privNextPrimeShifts[nPrimes] = static_cast<byte>((q - p) / SearchLimit::ShiftMultiplier);
+		privNextPrimeShifts[nPrimes] = static_cast<byte>((q - p) / CompileTimeParams::ShiftMultiplier);
 		++nPrimes;
 	}
-	if (nPrimes > ARRAYSIZE(privNextPrimeShifts))
+
+	for (number p = 3, index = 1; p <= MainPrimeTableBound; p += privNextPrimeShifts[index++] * CompileTimeParams::ShiftMultiplier)
 	{
-		std::cerr << "ShiftTableSize must be >= " << nPrimes;
-		__debugbreak();
-	}
-
-	CalculateSmallFactorNumbersInternal<0>(1, 1, number(-1));
-
-	{
-		privPrimesUpToSqrtLimitSortedCount = nPrimes - InlinePrimesInSearch - 1;
-
-		if (isSubmit)
-			return;
-
-		// Gather data for linear search and do preliminary filtering
-		// All filters combined leave 971348 (971686 when USE_CONJECTURES is on) numbers out of the first 1000000
-		// It's a great speed-up compared to the recursive search
-		std::vector<std::pair<number, number>> f;
-		for (unsigned int i = 1; i <= SearchLimit::value / SearchLimit::LinearLimit; ++i)
+		#pragma warning(suppress : 4146)
+		const number p_inv = -modular_inverse64(p);
+		const number p_max = number(-1) / p;
+		if (p_inv * p != 1)
 		{
-			// Smaller number in an amicable pair must not be divisible by 6
-			if ((i % 6) == 0)
-				continue;
-
-#if USE_CONJECTURES
-			// If a number is divisible by 2^3, then it must not be divisible by 5 or 7
-			// This is not proved, but true for all known amicable pairs
-			if ((i % 8) == 0)
-				if (((i % 5) == 0) || ((i % 7) == 0))
-					continue;
-#endif
-
-			number sumI;
-			f.clear();
-			Factorize(i, sumI, f);
-			// Smaller number in an amicable pair must not be deficient
-			if (sumI >= i * 2)
-			{
-				static const unsigned int coeffs[ARRAYSIZE(privLinearSearchData)] = { 1, 5, 7, 5 * 7, 11, 5 * 11, 7 * 11, 5 * 7 * 11 };
-				for (unsigned int j = 0; j < ARRAYSIZE(privLinearSearchData); ++j)
-				{
-					// Linear search goes through numbers of a form "k * p" where p > k * 2
-					// We collect all values of k here
-					// Since we know k, we can calculate partial factorization of bigger number in an amicable pair
-					// n = S(m) - m = S(k * p) - k * p = S(k) * (p + 1) - k * p
-					// So factorization will contain GCD(S(k) * (p + 1), k * p)
-					// We know k, S(k), p + 1 is always divisible by 2
-					// We also consider (p + 1) mod (5*7*11): 8 different cases here (p + 1 divisible by any combination of 5, 7, 11)
-					const unsigned int gcd = static_cast<unsigned int>(GCD(i, sumI * coeffs[j] * 2));
-					number sumGCD;
-					f.clear();
-					Factorize(gcd, sumGCD, f);
-
-					// This partial factorization must be deficient in order for the bigger number to be deficient too
-					// In fact, we can use even stronger restrictions:
-					// If (M,N) is an amicable pair, M<N, then S(M)=S(N)=M+N
-					//
-					// S(M)/M-1=N/M
-					// S(N)/N-1=M/N
-					//
-					// let M=m*M1, N=n*N1, gcd(m,M1)=1, gcd(n,N1)=1, M1 > 1, N1 > 1
-					// S(M)/M - 1 > S(m)/m - 1
-					// S(N)/N - 1 > S(n)/n - 1
-					// let S(m)/m - 1 = x
-					// S(M)/M - 1 = y > x
-					// S(N)/N - 1 = 1/y < 1/x
-					// if S(n)/n - 1 >= 1/x then S(N)/N - 1 > S(n)/n - 1 >= 1/x, and (M,N) can't be an amicable pair
-					// so S(n)/n must be < 1 + 1/x
-					//
-					// x = sumI / i - 1
-					// x = (sumI - i) / i
-					// 1 / x = i / (sumI - i)
-					//
-					// sumGCD / gcd < 1 + i / (sumI - i)
-					// sumGCD < gcd * (1 + i / (sumI - i))
-					// sumGCD * (sumI - i) < gcd * (sumI - i) * (1 + i / (sumI - i))
-					// sumGCD * (sumI - i) < gcd * ((sumI - i) + i)
-					// sumGCD * (sumI - i) < gcd * sumI
-					if (sumGCD * (sumI - i) < gcd * sumI)
-					{
-						privLinearSearchData[j].push_back(std::pair<unsigned int, unsigned int>(i, static_cast<unsigned int>(sumI)));
-					}
-				}
-			}
+			std::cerr << "modular_inverse64 failed";
+			__debugbreak();
 		}
 
-		for (unsigned int i = 0; i < ARRAYSIZE(privLinearSearchDataIndex); ++i)
+		privPrimeInverses[index].first = p_inv;
+		privPrimeInverses[index].second = p_max;
+		if (index < CompileTimePrimesCount)
 		{
-			unsigned char value = 0;
-			if ((i % 5) == 0) value += 1;
-			if ((i % 7) == 0) value += 2;
-			if ((i % 11) == 0) value += 4;
-			privLinearSearchDataIndex[i] = value;
+			privPrimeInverses2[index].first = p_inv;
+			privPrimeInverses2[index].second = p_max;
 		}
 	}
+
+	// Gather data for linear search and do preliminary filtering
+	// All filters combined leave 971348 numbers out of the first 1000000
+	// It's a great speed-up compared to the recursive search
+	GenerateCandidates();
 
 	// PQ corresponds to tables P and Q in lemma 2.1 from
 	// "Computation of All the Amicable Pairs Below 10^10 By H.J.J.te Riele": http://www.ams.org/journals/mcom/1986-47-175/S0025-5718-1986-0842142-3/S0025-5718-1986-0842142-3.pdf
@@ -577,10 +476,12 @@ void PrimeTablesInit(bool isSubmit)
 	const number maxI = 16384;
 	std::vector<std::pair<number, number>> PQ[SumEstimatesSize];
 	for (number j = 0; j < SumEstimatesSize; ++j)
+	{
 		PQ[j].resize(maxI);
+	}
 
-	PrimesUpToSqrtLimitIterator prevP(1);
-	PrimesUpToSqrtLimitIterator p(2);
+	PrimeIterator prevP(1);
+	PrimeIterator p(2);
 	number PQ_size = maxI;
 	auto MultiplyWithSaturation = [](const number a, const number b)
 	{
@@ -588,16 +489,16 @@ void PrimeTablesInit(bool isSubmit)
 		const number result = _umul128(a, b, &h);
 		return h ? number(-1) : result;
 	};
-	for (number i = 0; (i < maxI) && (p.Get() <= max(SearchLimit::PrimesUpToSqrtLimitValue, CompileTimePrimes<CompileTimePrimesCount>::value)); ++i, ++p)
+	for (number i = 0; (i < maxI) && (p.Get() <= Max<CompileTimeParams::MainPrimeTableBound, CompileTimePrimes<CompileTimePrimesCount>::value>::value); ++i, ++p)
 	{
 		number j = 1;
-		PrimesUpToSqrtLimitIterator q(p);
+		PrimeIterator q(p);
 		++q;
 
 		PQ[0][i].first = p.Get();
 		PQ[0][i].second = GetMaxSumRatio(prevP, MultiplyWithSaturation(p.Get(), q.Get()));
 
-		for (; (j < SumEstimatesSize) && (q.Get() <= max(SearchLimit::PrimesUpToSqrtLimitValue, CompileTimePrimes<CompileTimePrimesCount>::value)); ++j)
+		for (; (j < SumEstimatesSize) && (q.Get() <= Max<CompileTimeParams::MainPrimeTableBound, CompileTimePrimes<CompileTimePrimesCount>::value>::value); ++j)
 		{
 			number highProductP;
 			const number mulP = _umul128(PQ[j - 1][i].first, q.Get(), &highProductP);
@@ -623,9 +524,15 @@ void PrimeTablesInit(bool isSubmit)
 	}
 
 	for (number i = 0; i < PQ_size; ++i)
+	{
 		for (number j = 0; j < SumEstimatesSize; ++j)
+		{
 			if (PQ[j][i].first != number(-1))
+			{
 				--PQ[j][i].first;
+			}
+		}
+	}
 
 	SumEstimateData* data = new SumEstimateData[SumEstimatesSize * (PQ_size - IS_NUM_ELIGIBLE_BEGIN)];
 	for (number j = 0; j < SumEstimatesSize; ++j)
@@ -644,13 +551,24 @@ void PrimeTablesInit(bool isSubmit)
 		privSumEstimatesBeginQ[j] = privSumEstimates[j][IS_NUM_ELIGIBLE_BEGIN].Q;
 	}
 
-	number index = 0;
-	for (PrimesUpToSqrtLimitIterator it(2); index < CompileTimePrimesCount; ++it, ++index)
+	byte overAbundantIndexConversion[385];
+	for (unsigned int i = 0; i < 385; ++i)
 	{
-		if (index > 0)
+		unsigned int index = 0;
+		if (i * MultiplicativeInverse<5>::value <= number(-1) / 5) index += 1;
+		if (i * MultiplicativeInverse<7>::value <= number(-1) / 7) index += 2;
+		if (i * MultiplicativeInverse<11>::value <= number(-1) / 11) index += 4;
+		overAbundantIndexConversion[i] = static_cast<byte>(1 << index);
+	}
+
+	memset(privIsNotOverAbundantMod385, 1, 385);
+	for (unsigned int is_over_abundant_mask = 2; is_over_abundant_mask < 256; is_over_abundant_mask += 2)
+	{
+		byte* p385 = privIsNotOverAbundantMod385 + (is_over_abundant_mask << 8);
+		const unsigned int is_not_over_abundant_mask = ~is_over_abundant_mask;
+		for (unsigned int i = 0; i < 385; ++i)
 		{
-			privPrimeInverses[index * 2] = CalculateInverse(it.Get());
-			privPrimeInverses[index * 2 + 1] = number(-1) / it.Get();
+			p385[i] = static_cast<byte>((is_not_over_abundant_mask & overAbundantIndexConversion[i]) ? 1 : 0);
 		}
 	}
 }

@@ -1,5 +1,9 @@
 #pragma once
 
+void PrimeTablesInit();
+number CalculatePrimes(number aLowerBound, number anUpperBound, std::vector<byte>& anOutPrimes);
+bool IsPrime(number n);
+
 enum
 {
 	// There are exactly 192725 primes below 2^(64/3)
@@ -52,53 +56,48 @@ struct SReciprocal
 };
 #pragma pack(pop)
 
-extern SReciprocal privPrimeReciprocals[ReciprocalsTableSize];
+extern CACHE_ALIGNED SReciprocal privPrimeReciprocals[ReciprocalsTableSize];
 #define PrimeReciprocals ((const SReciprocal* const)(privPrimeReciprocals))
 
-enum
+#pragma pack(push, 1)
+struct LinearSearchDataEntry
 {
-	ShiftTableSize = 129982215,
-};
+	LinearSearchDataEntry() {}
 
-extern std::vector<byte> PrimesUpToSqrtLimit;
-extern number privPrimesUpToSqrtLimitSortedCount;
-extern byte privNextPrimeShifts[ShiftTableSize];
-extern std::vector<std::pair<unsigned int, unsigned int>> privLinearSearchData[8];
-extern unsigned char privLinearSearchDataIndex[5 * 7 * 11];
-extern number privPrimeInverses[CompileTimePrimesCount * 2];
+	LinearSearchDataEntry(unsigned int _value, unsigned int _sum, unsigned char is_over_abundant_mask)
+		: value(_value)
+		, sum(_sum)
+		, is_not_over_abundant_mask(static_cast<unsigned char>(~is_over_abundant_mask))
+	{
+	}
+
+	unsigned int value;
+	unsigned int sum;
+	unsigned char is_not_over_abundant_mask;
+};
+#pragma pack(pop)
+
+extern std::vector<byte> MainPrimeTable;
+extern byte bitOffset[PrimeTableParameters::Modulo];
+extern byte* privNextPrimeShifts;
+extern std::vector<LinearSearchDataEntry> privCandidatesData;
+extern CACHE_ALIGNED unsigned char privCandidatesDataMask[5 * 7 * 11];
+extern std::pair<number, number>* privPrimeInverses;
+extern CACHE_ALIGNED std::pair<number, number> privPrimeInverses2[CompileTimePrimesCount];
 
 #define NextPrimeShifts ((const byte* const)(privNextPrimeShifts))
-#define PrimesUpToSqrtLimitSortedCount ((const unsigned int)(privPrimesUpToSqrtLimitSortedCount))
-#define LinearSearchData ((const std::vector<std::pair<unsigned int, unsigned int>>*)(privLinearSearchData))
-#define LinearSearchDataIndex ((const unsigned char*)(privLinearSearchDataIndex))
+#define CandidatesData ((const std::vector<LinearSearchDataEntry>&)(privCandidatesData))
+#define CandidatesDataMask ((const unsigned char*)(privCandidatesDataMask))
 
-#define PrimeInverses ((const number*)(privPrimeInverses))
+#define PrimeInverses ((const std::pair<number, number>*)(privPrimeInverses))
+#define PrimeInverses2 ((const std::pair<number, number>*)(privPrimeInverses2))
 
 FORCEINLINE number GetLinearSearchDataRemainder(const number n)
 {
 	number highProduct;
-	static_assert(ARRAYSIZE(privLinearSearchDataIndex) == 5 * 7 * 11, "!!! Recalculate these constants (12265886968492584971ULL and 8) if ARRAYSIZE(privLinearSearchDataIndex) changes !!!");
+	static_assert(ARRAYSIZE(privCandidatesDataMask) == 5 * 7 * 11, "!!! Recalculate these constants (12265886968492584971ULL and 8) if ARRAYSIZE(privLinearSearchDataIndex) changes !!!");
 	_umul128(n, 12265886968492584971ULL, &highProduct);
-	return n - (highProduct >> 8) * ARRAYSIZE(privLinearSearchDataIndex);
-}
-
-FORCEINLINE number CalculateInverse(number n)
-{
-	number x1 = number(-1);
-	number x2 = 1;
-	number v1 = ~n + 1;
-	number v2 = n;
-	do
-	{
-		const number q = v1 / v2;
-		const number x3 = x1 - q * x2;
-		const number v3 = v1 - q * v2;
-		x1 = x2;
-		x2 = x3;
-		v1 = v2;
-		v2 = v3;
-	} while (v2 > 1);
-	return x2;
+	return n - (highProduct >> 8) * ARRAYSIZE(privCandidatesDataMask);
 }
 
 struct SumEstimateData
@@ -114,134 +113,93 @@ enum
 };
 
 extern const SumEstimateData* privSumEstimates[SumEstimatesSize];
-extern __declspec(align(64)) number privSumEstimatesBeginP[SumEstimatesSize];
-extern __declspec(align(64)) number privSumEstimatesBeginQ[SumEstimatesSize];
+extern CACHE_ALIGNED number privSumEstimatesBeginP[SumEstimatesSize];
+extern CACHE_ALIGNED number privSumEstimatesBeginQ[SumEstimatesSize];
 
 #define SumEstimates ((const SumEstimateData * const * const)(privSumEstimates))
-#define SumEstimatesBeginP ((const number* const)(privSumEstimatesBeginP))
-#define SumEstimatesBeginQ ((const number* const)(privSumEstimatesBeginQ))
+#define SumEstimatesBeginP (((const number* const)(privSumEstimatesBeginP)))
+#define SumEstimatesBeginQ (((const number* const)(privSumEstimatesBeginQ)))
 
-struct SmallFactorNumbers
-{
-	std::vector<std::pair<number, number>> myNumbers;
-};
+extern CACHE_ALIGNED byte privIsNotOverAbundantMod385[128 * 512];
 
-extern SmallFactorNumbers g_SmallFactorNumbersData;
-extern number g_MaxSumRatios[64];
-
-FORCEINLINE number GetMaxSumMDiv2(number D, number sumD)
-{
-	unsigned long index;
-	_BitScanReverse64(&index, D);
-
-	number h;
-	_umul128(sumD, g_MaxSumRatios[index], &h);
-	return h;
-}
+#define IsNotOverAbundantMod385 ((const byte*)(privIsNotOverAbundantMod385))
 
 FORCEINLINE number GCD(number a, number b)
 {
-	while (b)
+	if (a == 0) return b;
+	if (b == 0) return a;
+
+	unsigned long shift;
+	_BitScanForward64(&shift, a | b);
+
+	unsigned long index_a;
+	_BitScanForward64(&index_a, a);
+	a >>= index_a;
+
+	do
 	{
-		const number prev_a = a;
-		a = b;
-		b = prev_a % b;
-	}
-	return a;
-};
+		unsigned long index_b;
+		_BitScanForward64(&index_b, b);
+		b >>= index_b;
 
-template<number Index>
-FORCEINLINE bool IsValidCandidate(const number D, const number sumD, number gcd, number sumGCD)
-{
-	enum { p = CompileTimePrimes<Index>::value };
+		const number a1 = a;
+		const number b1 = b;
+		a = (a1 > b1) ? b1 : a1;
+		b = (a1 > b1) ? a1 : b1;
 
-	number qa = D * MultiplicativeInverse<p>::value;
-	if (qa <= number(-1) / p)
-	{
-		number qb = sumD * MultiplicativeInverse<p>::value;
-		if (qb <= number(-1) / p)
-		{
-			number n = p;
-			number curSum = p + 1;
-			number a = qa;
-			number b = qb;
-			for (;;)
-			{
-				qa = a * MultiplicativeInverse<p>::value;
-				if (qa > number(-1) / p)
-					break;
-				qb = b * MultiplicativeInverse<p>::value;
-				if (qb > number(-1) / p)
-					break;
-				n *= p;
-				curSum += n;
-				a = qa;
-				b = qb;
-			}
-			gcd *= n;
-			sumGCD *= curSum;
-		}
-	}
-	return IsValidCandidate<Index + 1>(D, sumD, gcd, sumGCD);
+		b -= a;
+	} while (b);
+
+	return (a << shift);
 }
 
-template<> FORCEINLINE bool IsValidCandidate<InlinePrimesInSearch + 1>(const number D, const number sumD, number gcd, number sumGCD)
-{
-	// "sumGCD * (sumD - D) < gcd * sumD" must be true
-	number sum1[2];
-	sum1[0] = _umul128(sumGCD, sumD - D, &sum1[1]);
-
-	number sum2[2];
-	sum2[0] = _umul128(gcd, sumD, &sum2[1]);
-
-	return ((sum1[1] < sum2[1]) || ((sum1[1] == sum2[1]) && (sum1[0] < sum2[0])));
-}
-
-FORCEINLINE bool IsValidCandidate(const number D, const number sumD)
-{
-	// If one of numbers is odd, then it's very unlikely for it to not be a candidate
-	// Such numbers exist, but they're very rare, so it's better to skip factorization and exit
-	// My tests show that this check speeds up the search
-	const number allBitsCombined = D | sumD;
-	if (allBitsCombined & 1)
-		return true;
-
-	unsigned long index;
-	_BitScanForward64(&index, allBitsCombined);
-
-	const number gcd = number(1) << index;
-	const number sumGCD = gcd * 2 - 1;
-	return IsValidCandidate<1>(D, sumD, gcd, sumGCD);
-}
-
-void PrimeTablesInit(bool isSubmit);
-number CalculatePrimes(number aLowerBound, number anUpperBound, std::vector<byte>& anOutPrimes);
-
-// Works only for numbers up to SearchLimit::PrimesUpToSqrtLimitValue
-bool IsPrime(number n);
-
-class PrimesUpToSqrtLimitIterator
+class PrimeIterator
 {
 public:
-	explicit PrimesUpToSqrtLimitIterator(number aStartPrime)
-		: mySieveChunk(0xfafd7bbef7ffffffULL & ~number(3))
-		, mySieveData((const number*)(PrimesUpToSqrtLimit.data()))
+	explicit FORCEINLINE PrimeIterator(const number* aSieveData = reinterpret_cast<const number*>(MainPrimeTable.data()))
+		: mySieveChunk(*aSieveData & ~number(1))
+		, mySieveData(aSieveData)
 		, myPossiblePrimesForModuloPtr(NumbersCoprimeToModulo)
 		, myModuloIndex(0)
 		, myBitIndexShift(0)
-		, myCurrentPrime(1)
+		, myCurrentPrime(2)
 	{
-		while (myCurrentPrime < aStartPrime)
+	}
+
+	explicit PrimeIterator(number aStartNumber, const number* aSieveData = (const number*)(MainPrimeTable.data()))
+		: mySieveData(aSieveData)
+		, myPossiblePrimesForModuloPtr(NumbersCoprimeToModulo)
+	{
+		if (aStartNumber < 2)
+		{
+			aStartNumber = 2;
+		}
+
+		const number chunkIndex = ((aStartNumber / PrimeTableParameters::Modulo) * (PrimeTableParameters::NumOffsets / Byte::Bits)) / sizeof(number);
+		mySieveData = aSieveData + chunkIndex;
+		mySieveChunk = *mySieveData;
+		myModuloIndex = (chunkIndex / 3) * PrimeTableParameters::Modulo * 4 + (chunkIndex % 3) * PrimeTableParameters::Modulo;
+		myBitIndexShift = (chunkIndex % 3) * 16;
+		myPossiblePrimesForModuloPtr = NumbersCoprimeToModulo + myBitIndexShift;
+
+		myCurrentPrime = static_cast<number>(-1);
+		for (;;)
+		{
 			operator++();
+			if (myCurrentPrime >= aStartNumber)
+			{
+				break;
+			}
+		}
 	}
 
 	FORCEINLINE number Get() const { return myCurrentPrime; }
 
-	FORCEINLINE PrimesUpToSqrtLimitIterator& operator++()
+	FORCEINLINE PrimeIterator& operator++()
 	{
-		if (myCurrentPrime < 11)
+		if (myCurrentPrime < 7)
 		{
-			myCurrentPrime = (0xB0705320UL >> (myCurrentPrime * 4)) & 15;
+			myCurrentPrime = (0x705320UL >> (myCurrentPrime * 4)) & 15;
 			return *this;
 		}
 
@@ -275,3 +233,66 @@ private:
 	number myBitIndexShift;
 	number myCurrentPrime;
 };
+
+struct Factor
+{
+	number p;
+	unsigned int k;
+	int index;
+	number p_inv;
+	number q_max;
+};
+
+FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const number value, const number sum, number sum_for_gcd_coeff)
+{
+	number g = 1;
+	number sum_g = 1;
+	number sum_for_gcd = sum * sum_for_gcd_coeff;
+
+	const Factor* last_factor = f + last_factor_index;
+
+	if (f->p == 2)
+	{
+		DWORD power_of_2;
+		_BitScanForward64(&power_of_2, sum_for_gcd);
+		const DWORD k = static_cast<DWORD>(f->k);
+		if (power_of_2 > k)
+		{
+			power_of_2 = k;
+		}
+		sum_for_gcd >>= power_of_2;
+		g <<= power_of_2;
+		sum_g <<= power_of_2;
+		sum_g = sum_g * 2 - 1;
+		++f;
+	}
+
+	while (f <= last_factor)
+	{
+		const number prev_sum_g = sum_g;
+		for (unsigned int j = 0; j < f->k; ++j)
+		{
+			const number q = sum_for_gcd * f->p_inv;
+			if (q > f->q_max)
+			{
+				break;
+			}
+			sum_for_gcd = q;
+			g *= f->p;
+			sum_g = sum_g * f->p + prev_sum_g;
+		}
+		++f;
+	}
+
+	number n1[2];
+	number n2[2];
+	n1[0] = _umul128(sum_g - g, sum - value, &n1[1]);
+	n2[0] = _umul128(g, value, &n2[1]);
+#if _MSC_VER >= 1900
+	return _subborrow_u64(_subborrow_u64(1, n2[0], n1[0], &n2[0]), n2[1], n1[1], &n2[1]);
+#else
+	return static_cast<byte>((n2[1] < n1[1]) || ((n2[1] == n1[1]) && (n2[0] <= n1[0])));
+#endif
+}
+
+NOINLINE byte OverAbundantNoInline(const Factor* f, int last_factor_index, const number value, const number sum, number sum_for_gcd_coeff);

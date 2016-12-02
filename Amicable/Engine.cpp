@@ -1,5 +1,7 @@
 #include "stdafx.h"
 #include "PrimeTables.h"
+#include "Engine.h"
+#include "RangeGen.h"
 
 // "a" has at most two factors (a = p1 * p2 or a = p^2 or a is prime)
 // We know that p1 >= p and p2 <= q
@@ -255,8 +257,8 @@ FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetS
 	// M / N = (M * value) mod 2^64
 	// This means that (M * value) must be <= (number(-1) / N)
 	// Otherwise it's not divisible by N
-	number q = a * PrimeInverses[PrimeIndex * 2];
-	if (q <= PrimeInverses[PrimeIndex * 2 + 1])
+	number q = a * PrimeInverses[PrimeIndex].first;
+	if (q <= PrimeInverses[PrimeIndex].second)
 	{
 		a = q;
 		number n = p;
@@ -264,11 +266,13 @@ FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetS
 		number curPower = 0;
 		for (;;)
 		{
-			q = a * MultiplicativeInverse<p>::value;
-			if (q > number(-1) / p)
+			q = a * PrimeInverses2[PrimeIndex].first;
+			if (q > PrimeInverses2[PrimeIndex].second)
+			{
 				break;
-			a = q;
+			}
 			n *= p;
+			a = q;
 			++curPower;
 			curSum += n;
 		}
@@ -298,7 +302,7 @@ FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetS
 			s5 = number(p) * p * p * p * p + s4,
 		};
 
-		__declspec(align(64)) static const number InverseS[5][3] = {
+		static CACHE_ALIGNED const number InverseS[5][3] = {
 			{MultiplicativeInverseEven<s1>::value, MultiplicativeInverseEven<s1>::shift, number(-1) / s1},
 			{MultiplicativeInverse<s2>::value, 0, number(-1) / s2},
 			{MultiplicativeInverseEven<s3>::value, MultiplicativeInverseEven<s3>::shift, number(-1) / s3},
@@ -319,16 +323,16 @@ FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetS
 
 template<> FORCEINLINE bool CheckDivisibility<CompileTimePrimesCount>(number&, number&, const number, number&, number&) { return true; }
 
-__declspec(thread) number NumFoundPairs = 0;
-number TotalCPUcycles = 0;
+__declspec(thread) unsigned int NumFoundPairs;
 
 NOINLINE void NumberFound(const number n1, const number targetSum)
 {
-	(void)n1;
-	(void)targetSum;
+	(void) n1;
+	(void) targetSum;
 	++NumFoundPairs;
 #if !RUN_PERFORMANCE_TEST
-	printf("%I64u, %I64u\n", n1, targetSum - n1);
+	const number n2 = targetSum - n1;
+	printf("%s%I64u, %I64u\n", (n2 <= n1) ? "!!! " : "", n1, n2);
 #endif
 }
 
@@ -415,7 +419,7 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 		if (MaximumSumOfDivisorsN(n2, numPrimesCheckedSoFar, indexForMaximumSumOfDivisorsN) < n2TargetSum)
 			return;
 
-		p += *(shift++) * SearchLimit::ShiftMultiplier;
+		p += *(shift++) * CompileTimeParams::ShiftMultiplier;
 	}
 
 	// Here p^4 > n2, so n2 can have at most 3 factors
@@ -477,7 +481,7 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 		if (MaximumSumOfDivisors3(n2, p, q) < n2TargetSum)
 			return;
 
-		p += *(shift++) * SearchLimit::ShiftMultiplier;
+		p += *(shift++) * CompileTimeParams::ShiftMultiplier;
 		++numPrimesCheckedSoFar;
 	}
 
@@ -545,8 +549,13 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 			const number B = n2TargetSum - n2 - 1;
 			number B2[2], D[2];
 			B2[0] = _umul128(B, B, &B2[1]);
-			const unsigned char carry = _subborrow_u64(0, B2[0], n2 << 2, &D[0]);
-			_subborrow_u64(carry, B2[1], n2 >> 62, &D[1]);
+#if _MSC_VER >= 1900
+			_subborrow_u64(_subborrow_u64(0, B2[0], n2 << 2, &D[0]), B2[1], n2 >> 62, &D[1]);
+#else
+			const unsigned int carry = static_cast<unsigned int>((B2[0] < (n2 << 2)) ? 1 : 0);
+			D[0] = B2[0] - (n2 << 2);
+			D[1] = B2[1] - (n2 >> 62) - carry;
+#endif
 			if (IsPerfectSquareCandidate(D[0]))
 			{
 				// Using floating point arithmetic gives 52 bits of precision
@@ -609,15 +618,10 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 		NumberFound(n1, targetSum);
 }
 
-NOINLINE void CheckPairInternalNoInline(const number n1, const number targetSum, number n2TargetSum, number n2, number sum)
-{
-	CheckPairInternal(n1, targetSum, n2TargetSum, n2, sum);
-}
-
 #define X(N) {MultiplicativeInverse<(number(1) << (N + 2)) - 1>::value, number(-1) / ((number(1) << (N + 2)) - 1)}
 
 // Cache aligned
-__declspec(align(64)) static const number locPowersOf2DivisibilityData[63][2] = {
+CACHE_ALIGNED static const number locPowersOf2DivisibilityData[63][2] = {
 	X(0), X(1), X(2), X(3), X(4), X(5), X(6), X(7), X(8), X(9),
 	X(10), X(11), X(12), X(13), X(14), X(15), X(16), X(17), X(18), X(19),
 	X(20), X(21), X(22), X(23), X(24), X(25), X(26), X(27), X(28), X(29),
@@ -631,15 +635,7 @@ __declspec(align(64)) static const number locPowersOf2DivisibilityData[63][2] = 
 
 FORCEINLINE number InitialCheck(const number n1, const number targetSum, number& n2, number& sum)
 {
-	if (n1 <= SearchLimit::value / 10)
-		return 0;
-
-	// n1 must be a smaller member of a pair
 	n2 = targetSum - n1;
-	if (n1 >= n2)
-		return 0;
-
-	sum = 1;
 
 	unsigned long bitIndex;
 	_BitScanForward64(&bitIndex, n2);
@@ -658,6 +654,10 @@ FORCEINLINE number InitialCheck(const number n1, const number targetSum, number&
 		if (n2TargetSum > locPowersOf2DivisibilityData[bitIndex - 1][1])
 			return 0;
 	}
+	else
+	{
+		sum = 1;
+	}
 
 	return n2TargetSum;
 }
@@ -667,7 +667,7 @@ FORCEINLINE void CheckPair(const number n1, const number targetSum)
 	number n2, sum;
 	const number n2TargetSum = InitialCheck(n1, targetSum, n2, sum);
 	if (n2TargetSum)
-		CheckPairInternalNoInline(n1, targetSum, n2TargetSum, n2, sum);
+		CheckPairInternal(n1, targetSum, n2TargetSum, n2, sum);
 }
 
 NOINLINE void CheckPairNoInline(const number n1, const number targetSum)
@@ -675,233 +675,160 @@ NOINLINE void CheckPairNoInline(const number n1, const number targetSum)
 	CheckPair(n1, targetSum);
 }
 
-template<bool active> FORCEINLINE bool GetMaxSumMDiv2_Filter(const number aValue, const number aSumOfDivisors);
-
-template<> FORCEINLINE bool GetMaxSumMDiv2_Filter<false>(const number, const number) { return true; }
-template<> FORCEINLINE bool GetMaxSumMDiv2_Filter<true>(const number aValue, const number aSumOfDivisors) { return (GetMaxSumMDiv2(aValue, aSumOfDivisors) >= aValue); }
-
-template<int NumDistinctOddPrimeFactors>
-FORCEINLINE void Search(const number aValue, const number aSumOfDivisors, const number aPreviousPrimeFactor)
+NOINLINE void SearchRange(const RangeData& r)
 {
-	IF_CONSTEXPR(NumDistinctOddPrimeFactors == 1)
+	number prime_limit = (SearchLimit::value - 1) / r.value;
+	if (r.sum - r.value < r.value)
 	{
-		if ((GetMaxSumMDiv2(aValue, aSumOfDivisors) < aValue) || !IsValidCandidate(aValue, aSumOfDivisors))
-			return;
+		const number prime_limit2 = (r.sum - 1) / (r.value * 2 - r.sum);
+		if (prime_limit > prime_limit2)
+		{
+			prime_limit = prime_limit2;
+		}
+	}
+	if (prime_limit > CompileTimeParams::MainPrimeTableBound)
+	{
+		prime_limit = CompileTimeParams::MainPrimeTableBound;
 	}
 
-	CheckPair(aValue, aSumOfDivisors);
+	unsigned int is_over_abundant_mask = 0;
+	const Factor* f = r.factors;
+	const int k = r.last_factor_index;
+	is_over_abundant_mask |= OverAbundant(f, k, r.value, r.sum, 2 * 5) << 1;
+	is_over_abundant_mask |= OverAbundant(f, k, r.value, r.sum, 2 * 7) << 2;
+	is_over_abundant_mask |= OverAbundant(f, k, r.value, r.sum, 2 * 11) << 4;
+	is_over_abundant_mask |= (((is_over_abundant_mask & 0x06) || OverAbundant(f, k, r.value, r.sum, 2 * 5 * 7)) ? byte(1) : byte(0)) << 3;
+	is_over_abundant_mask |= (((is_over_abundant_mask & 0x12) || OverAbundant(f, k, r.value, r.sum, 2 * 5 * 11)) ? byte(1) : byte(0)) << 5;
+	is_over_abundant_mask |= (((is_over_abundant_mask & 0x14) || OverAbundant(f, k, r.value, r.sum, 2 * 7 * 11)) ? byte(1) : byte(0)) << 6;
+	is_over_abundant_mask |= (((is_over_abundant_mask & 0x7E) || OverAbundant(f, k, r.value, r.sum, 2 * 5 * 7 * 11)) ? byte(1) : byte(0)) << 7;
 
-	number curPrime = CompileTimePrimes<InlinePrimesInSearch + 1>::value;
+	const byte* is_not_over_abundant_mod_385 = IsNotOverAbundantMod385 + (is_over_abundant_mask << 8);
 
-	number N = aPreviousPrimeFactor;
-
-	// We already have 1 or more distinct prime factors here
-	// so curPrime must be < sqrt(SearchLimit::value) here
-	// because it must be less than other prime factors
-	// therefore we can use the fast way to iterate over primes (shift array)
-	IF_CONSTEXPR(NumDistinctOddPrimeFactors == 1)
-		if (N > SearchLimit::SQRT2)
-			N = SearchLimit::SQRT2;
-
-	const byte* shift = NextPrimeShifts + InlinePrimesInSearch + 1;
-	while (curPrime < N)
+	number q = r.start_prime;
+	unsigned int sum_q_mod_385 = (q + 1) % 385;
+	const byte* shift = NextPrimeShifts + r.index_start_prime;
+	number result = 0;
+	const number m = r.value;
+	const number sum_m = r.sum;
+	while (q <= prime_limit)
 	{
-		number highProductNextValue;
-		number nextValue = _umul128(aValue, curPrime, &highProductNextValue);
-		if ((nextValue > SearchLimit::value) || highProductNextValue)
-			break;
-
-		number numRecursiveCalls;
-		IF_CONSTEXPR(NumDistinctOddPrimeFactors <= 2)
+		if (is_not_over_abundant_mod_385[sum_q_mod_385])
 		{
-			numRecursiveCalls = 0;
+			++result;
+			CheckPair(m * q, sum_m * (q + 1));
 		}
-		number n = aSumOfDivisors * curPrime;
-		number sumN = aSumOfDivisors + n;
-		for (;;)
+		const unsigned int cur_shift = static_cast<unsigned int>(*(shift++));
+		q += cur_shift * CompileTimeParams::ShiftMultiplier;
+		sum_q_mod_385 += cur_shift * CompileTimeParams::ShiftMultiplier;
+
+		//static_assert(SearchLimit::MainPrimeTableBound < 22367084959, "Prime gaps can be greater than 385 starting with 22367084959. The following code won't work.");
+		if (sum_q_mod_385 >= 385)
 		{
-			if (GetMaxSumMDiv2_Filter<NumDistinctOddPrimeFactors <= 2>(nextValue, sumN))
-			{
-				Search<NumDistinctOddPrimeFactors + 1>(nextValue, sumN, curPrime);
-				IF_CONSTEXPR(NumDistinctOddPrimeFactors <= 2)
-				{
-					++numRecursiveCalls;
-				}
-			}
-
-			nextValue = _umul128(nextValue, curPrime, &highProductNextValue);
-			if ((nextValue > SearchLimit::value) || highProductNextValue)
-				break;
-
-			n *= curPrime;
-			sumN += n;
+			sum_q_mod_385 -= 385;
 		}
-		IF_CONSTEXPR(NumDistinctOddPrimeFactors <= 2)
-		{
-			if (!numRecursiveCalls)
-				return;
-		}
-
-		curPrime += *(shift++) * SearchLimit::ShiftMultiplier;
 	}
 }
 
-template<> FORCEINLINE void Search<MaxSearchDepth<SearchLimit::value>::value>(const number aValue, const number aSumOfDivisors, const number)
+NOINLINE void SearchRangeSquared(const RangeData& r)
 {
-	CheckPair(aValue, aSumOfDivisors);
+	number prime_limit = static_cast<number>(sqrt(static_cast<double>(SearchLimit::value) / r.value)) + 1;
+	if (r.sum - r.value < r.value)
+	{
+		// r.sum * (p^2 + p + 1) = r.value * p^2 * 2
+		// (r.sum - r.value * 2) * p^2 + r.sum * (p + 1) = 0
+		// (r.value * 2 - r.sum) * p^2 - r.sum * (p + 1) = 0
+		// (r.value * 2 - r.sum) * p^2 - r.sum * p - r.sum = 0
+		// (r.value * 2 - r.sum) / r.sum * p^2 - p - 1 = 0
+		// (r.value * 2 / r.sum - 1) * p^2 - p - 1 = 0
+		const double A = static_cast<double>(r.value * 2 - r.sum) / r.sum;
+		const number prime_limit2 = static_cast<number>((1.0 + sqrt(1.0 + 4.0 * A)) / (2.0 * A)) + 1;
+		if (prime_limit > prime_limit2)
+		{
+			prime_limit = prime_limit2;
+		}
+	}
+
+	number q = r.start_prime;
+	const byte* shift = NextPrimeShifts + r.index_start_prime;
+	const number m = r.value;
+	const number sum_m = r.sum;
+	while (q < prime_limit)
+	{
+		const number q2 = q * q;
+		CheckPair(m * q2, sum_m * (q2 + q + 1));
+		q += static_cast<unsigned int>(*(shift++)) * CompileTimeParams::ShiftMultiplier;
+	}
 }
 
-NOINLINE void SearchNoInline(const number aValue, const number aSumOfDivisors, const number aPreviousPrimeFactor)
+NOINLINE void SearchRangeCubed(const RangeData& r)
 {
-	for (const std::pair<number, number>& n : g_SmallFactorNumbersData.myNumbers)
+	number q = r.start_prime;
+	const byte* shift = NextPrimeShifts + r.index_start_prime;
+	const number m = r.value;
+	const number sum_m = r.sum;
+	for (;;)
 	{
 		number h;
-		const number D = _umul128(n.first, aValue, &h);
-		if (h || (D > SearchLimit::value))
+		const number q2 = q * q;
+		const number q3 = _umul128(q2, q, &h);
+		if (h)
+		{
 			break;
-
-		const number sumD = n.second * aSumOfDivisors;
-		Search<1>(D, sumD, aPreviousPrimeFactor);
-	}
-}
-
-static volatile number SharedCounterForSearch[2] = {};
-static number NumThreads = 0;
-
-NOINLINE number GetCacheSizePerThread()
-{
-	PSYSTEM_LOGICAL_PROCESSOR_INFORMATION buffer = NULL;
-	DWORD returnLength = 0;
-	if (!GetLogicalProcessorInformation(buffer, &returnLength) && (GetLastError() == ERROR_INSUFFICIENT_BUFFER))
-	{
-		buffer = (PSYSTEM_LOGICAL_PROCESSOR_INFORMATION)malloc(returnLength);
-		if (buffer)
-		{
-			if (GetLogicalProcessorInformation(buffer, &returnLength))
-			{
-				PSYSTEM_LOGICAL_PROCESSOR_INFORMATION ptr = buffer;
-				DWORD byteOffset = 0;
-				DWORD L2TotalSize = 0;
-				DWORD L3TotalSize = 0;
-				while (byteOffset + sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION) <= returnLength)
-				{
-					if (ptr->Relationship == RelationCache)
-					{
-						if (ptr->Cache.Level == 2)
-							L2TotalSize += ptr->Cache.Size;
-						else if (ptr->Cache.Level == 3)
-							L3TotalSize += ptr->Cache.Size;
-					}
-					byteOffset += sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION);
-					++ptr;
-				}
-				if (L3TotalSize)
-				{
-					free(buffer);
-					return (L3TotalSize - L3TotalSize / 10) / NumThreads;
-				}
-				else if (L2TotalSize)
-				{
-					free(buffer);
-					return (L2TotalSize - L2TotalSize / 10) / NumThreads;
-				}
-			}
-			free(buffer);
 		}
-	}
-	return 1024 * 1024;
-}
 
-FORCEINLINE void FixRanges(number& aRangeStart, number& aRangeEnd)
-{
-	if (aRangeEnd > SearchLimit::SafeLimit)
-		aRangeEnd = SearchLimit::SafeLimit;
-
-	if (aRangeStart > aRangeEnd)
-		aRangeStart = aRangeEnd;
-}
-
-template<>
-NOINLINE void Search<0>(const number aRangeStart0, const number aRangeEnd0, const number)
-{
-	number aRangeStart = aRangeStart0;
-	number aRangeEnd = aRangeEnd0;
-
-	FixRanges(aRangeStart, aRangeEnd);
-
-	// First iterate up to PrimesUpToSqrtLimitValue using the fast way (precomputed table of primes)
-	number curPrime;
-	if (aRangeStart <= SearchLimit::PrimesUpToSqrtLimitValue)
-	{
-		const number limit = min(aRangeEnd, SearchLimit::PrimesUpToSqrtLimitValue);
-
-		number sharedCounterValue = _InterlockedIncrement(&SharedCounterForSearch[0]) - 1;
-		number localCounterValue = 0;
-		for (PrimesUpToSqrtLimitIterator it(aRangeStart); it.Get() <= limit; ++it, ++localCounterValue)
+		const number value = _umul128(m, q3, &h);
+		if ((value >= SearchLimit::value) || h)
 		{
-			if (localCounterValue != sharedCounterValue)
-				continue;
+			break;
+		}
+		CheckPair(value, sum_m * (q3 + q2 + q + 1));
+		q += static_cast<unsigned int>(*(shift++)) * CompileTimeParams::ShiftMultiplier;
+	}
+}
 
-			sharedCounterValue = _InterlockedIncrement(&SharedCounterForSearch[0]) - 1;
-
-			const number p = it.Get();
-			if (p >= SearchLimit::LinearLimit)
+NOINLINE void SearchLargePrimes(volatile number* SharedCounterForSearch, const number StartPrime, const number PrimeLimit)
+{
+	struct Callback
+	{
+		FORCEINLINE void operator()(number curPrime)
+		{
+			const unsigned int mask = CandidatesDataMask[GetLinearSearchDataRemainder(curPrime + 1)];
+			for (const auto& candidate : CandidatesData)
 			{
-				for (auto p2 : LinearSearchData[LinearSearchDataIndex[GetLinearSearchDataRemainder(p + 1)]])
+				if (candidate.is_not_over_abundant_mask & mask)
 				{
-					const number n1 = p * p2.first;
+					const number n1 = curPrime * candidate.value;
 					if (n1 > SearchLimit::value)
+					{
 						break;
-					CheckPair(n1, (p + 1) * p2.second);
+					}
+					CheckPair(n1, (curPrime + 1) * candidate.sum);
 				}
 			}
-			else
-			{
-				number n = p;
-				number sumN = 1 + p;
-				do
-				{
-					SearchNoInline(n, sumN, p);
-					number highProduct;
-					n = _umul128(n, p, &highProduct);
-					if (highProduct)
-						break;
-					sumN += n;
-				} while (n <= SearchLimit::value);
-			}
 		}
-		curPrime = SearchLimit::PrimesUpToSqrtLimitValue + 1;
-	}
-	else
-	{
-		curPrime = aRangeStart;
-	}
+	} c;
 
-	// Then iterate up to aRangeEnd using the slow way (Sieve of Eratosthenes to get next primes)
-	const number CacheSizePerThread = GetCacheSizePerThread();
-	std::vector<byte> primes;
-	primes.reserve(CacheSizePerThread + (NumOffsets / Byte::Bits) * 16);
-	const number minRangeSize = (1024 / (NumOffsets / Byte::Bits)) * PrimeTableParameters::Modulo;
+	primesieve::PrimeSieve s;
 
-	number maxRangeSize = (CacheSizePerThread / (NumOffsets / Byte::Bits)) * PrimeTableParameters::Modulo;
-	if (maxRangeSize > (aRangeEnd + 1 - curPrime) / (NumThreads * 4) + 1)
-		maxRangeSize = (aRangeEnd + 1 - curPrime) / (NumThreads * 4) + 1;
-	if (maxRangeSize < minRangeSize)
-		maxRangeSize = minRangeSize;
+	number curRangeEnd = StartPrime - 1;
 
-	number curRangeEnd = curPrime - 1;
+	const number minRangeSize = Min<CompileTimeParams::MainPrimeTableBound / 4, 1000000>::value;
+	const number maxRangeSize = CompileTimeParams::SafeLimit / 100;
+
 	number localCounter = 0;
 
 	do
 	{
-		const number sharedCounterValue = static_cast<number>(_InterlockedIncrement(SharedCounterForSearch + 1));
+		const number sharedCounterValue = static_cast<number>(_InterlockedIncrement(SharedCounterForSearch));
 
 		number curRangeBegin;
 		do
 		{
 			curRangeBegin = curRangeEnd + 1;
-			if (curRangeBegin > aRangeEnd)
+			if (curRangeBegin > PrimeLimit)
+			{
 				return;
+			}
 
 			++localCounter;
 
@@ -912,138 +839,10 @@ NOINLINE void Search<0>(const number aRangeStart0, const number aRangeEnd0, cons
 				rangeSize = maxRangeSize;
 
 			curRangeEnd = curRangeBegin + rangeSize;
-			if (curRangeEnd > aRangeEnd)
-				curRangeEnd = aRangeEnd;
+			if (curRangeEnd > PrimeLimit)
+				curRangeEnd = PrimeLimit;
 		} while (localCounter < sharedCounterValue);
 
-		const number lowerBound = CalculatePrimes(curRangeBegin, curRangeEnd, primes);
-		const number* sieveData = (const number*)(primes.data());
-		number moduloIndex = lowerBound;
-		number bitIndexShift = 0;
-		number curSieveChunk = *(sieveData++);
-		const unsigned int* PossiblePrimesForModuloPtr = NumbersCoprimeToModulo;
-
-		do
-		{
-			while (!curSieveChunk)
-			{
-				curSieveChunk = *(sieveData++);
-
-				const number NextValuesModuloIndex = (PrimeTableParameters::Modulo / 2) | (number(PrimeTableParameters::Modulo / 2) << 16) | (number(PrimeTableParameters::Modulo) << 32);
-				const number NextValuesBitIndexShift = 16 | (32 << 16) | (number(0) << 32);
-
-				moduloIndex += ((NextValuesModuloIndex >> bitIndexShift) & 255) * 2;
-				bitIndexShift = (NextValuesBitIndexShift >> bitIndexShift) & 255;
-
-				PossiblePrimesForModuloPtr = NumbersCoprimeToModulo + bitIndexShift;
-			}
-
-			unsigned long bitIndex;
-			_BitScanForward64(&bitIndex, curSieveChunk);
-			curSieveChunk &= (curSieveChunk - 1);
-
-			curPrime = moduloIndex + PossiblePrimesForModuloPtr[bitIndex];
-		} while (curPrime < curRangeBegin);
-
-		while (curPrime <= curRangeEnd)
-		{
-			if (curPrime >= SearchLimit::LinearLimit)
-			{
-				for (auto p : LinearSearchData[LinearSearchDataIndex[GetLinearSearchDataRemainder(curPrime + 1)]])
-				{
-					const number n1 = curPrime * p.first;
-					if (n1 > SearchLimit::value)
-						break;
-					const number targetSum = (curPrime + 1) * p.second;
-					number n2, sum;
-					const number n2TargetSum = InitialCheck(n1, targetSum, n2, sum);
-					if (n2TargetSum)
-						CheckPairInternal(n1, targetSum, n2TargetSum, n2, sum);
-				}
-			}
-			else
-			{
-				SearchNoInline(curPrime, curPrime + 1, curPrime);
-			}
-
-			while (!curSieveChunk)
-			{
-				curSieveChunk = *(sieveData++);
-
-				const number NextValuesModuloIndex = (PrimeTableParameters::Modulo / 2) | (number(PrimeTableParameters::Modulo / 2) << 16) | (number(PrimeTableParameters::Modulo) << 32);
-				const number NextValuesBitIndexShift = 16 | (32 << 16) | (number(0) << 32);
-
-				moduloIndex += ((NextValuesModuloIndex >> bitIndexShift) & 255) * 2;
-				bitIndexShift = (NextValuesBitIndexShift >> bitIndexShift) & 255;
-
-				PossiblePrimesForModuloPtr = NumbersCoprimeToModulo + bitIndexShift;
-			}
-
-			unsigned long bitIndex;
-			_BitScanForward64(&bitIndex, curSieveChunk);
-			curSieveChunk &= (curSieveChunk - 1);
-
-			curPrime = moduloIndex + PossiblePrimesForModuloPtr[bitIndex];
-		}
-	} while (curRangeEnd < aRangeEnd);
-}
-
-unsigned int __stdcall SearchThreadFunc(void* aData)
-{
-	_control87(_RC_UP,  _MCW_RC);
-	const number threadIndex = number(aData) & 0xFFFFFFFFUL;
-	if (threadIndex == 0)
-		for (const std::pair<number, number>& n : g_SmallFactorNumbersData.myNumbers)
-			CheckPair(n.first, n.second);
-	Search<0>(CompileTimePrimes<InlinePrimesInSearch + 1>::value, SearchLimit::SafeLimit, threadIndex);
-	return static_cast<unsigned int>(NumFoundPairs);
-}
-
-#include <process.h>
-
-number RunSearch(number numThreadsOverride)
-{
-	TotalCPUcycles = 0;
-	memset((void*)SharedCounterForSearch, 0, sizeof(SharedCounterForSearch));
-
-	DWORD_PTR processAffinity;
-	DWORD_PTR systemAffinity;
-	GetProcessAffinityMask(GetCurrentProcess(), &processAffinity, &systemAffinity);
-	NumThreads = 0;
-	for (DWORD_PTR k = processAffinity; k; k &= (k - 1))
-		++NumThreads;
-
-	if (numThreadsOverride > 0)
-		NumThreads = numThreadsOverride;
-
-	HANDLE handles[64];
-	DWORD_PTR threadAffinity = processAffinity;
-	for (number i = 0; i < NumThreads; ++i)
-	{
-		const number threadData = i + (NumThreads << 32);
-		handles[i] = (HANDLE) _beginthreadex(0, 0, SearchThreadFunc, (void*)(threadData), CREATE_SUSPENDED, 0);
-		unsigned long index;
-		_BitScanForward64(&index, threadAffinity);
-		if (numThreadsOverride == 0)
-			SetThreadAffinityMask(handles[i], number(1) << index);
-		threadAffinity &= ~(number(1) << index);
-	}
-
-	for (number i = 0; i < NumThreads; ++i)
-		ResumeThread(handles[i]);
-
-	WaitForMultipleObjects(static_cast<DWORD>(NumThreads), handles, true, INFINITE);
-
-	number exitCodeSum = 0;
-	for (number i = 0; i < NumThreads; ++i)
-	{
-		DWORD n;
-		GetExitCodeThread(handles[i], &n);
-		exitCodeSum += n;
-		number cycles;
-		QueryThreadCycleTime(handles[i], &cycles);
-		TotalCPUcycles += cycles;
-		CloseHandle(handles[i]);
-	}
-	return exitCodeSum;
+		s.sieveTemplated(curRangeBegin, curRangeEnd, c);
+	} while (curRangeEnd < PrimeLimit);
 }

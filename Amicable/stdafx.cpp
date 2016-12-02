@@ -1,4 +1,8 @@
-#pragma warning(disable: 4514) // unreferenced inline function has been removed
-#pragma warning(disable: 4548) // expression before comma has no effect; expected expression with side-effect
+// stdafx.cpp : source file that includes just the standard includes
+// Amicable.pch will be the pre-compiled header
+// stdafx.obj will contain the pre-compiled type information
 
 #include "stdafx.h"
+
+// TODO: reference any additional headers you need in STDAFX.H
+// and not in this file
