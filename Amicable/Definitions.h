@@ -10,55 +10,55 @@ enum SearchLimit : number
 	// Search up to 10^3, 1 pair
 	//value = 1000,
 
-	// Search up to 10^4, 4 pairs
+	// Search up to 10^4, 5 pairs
 	//value = 10000,
 
-	// Search up to 10^5, 8 pairs
+	// Search up to 10^5, 13 pairs
 	//value = 100000,
 
-	// Search up to 10^6, 29 pairs
+	// Search up to 10^6, 42 pairs
 	//value = 1000000,
 
-	// Search up to 10^7, 66 pairs
+	// Search up to 10^7, 108 pairs
 	//value = 10000000,
 
-	// Search up to 10^8, 128 pairs
+	// Search up to 10^8, 236 pairs
 	//value = 100000000,
 
-	// Search up to 10^9, 350 pairs
+	// Search up to 10^9, 586 pairs
 	//value = 1000000000,
 
-	// Search up to 10^10, 841 pairs
+	// Search up to 10^10, 1427 pairs
 	//value = 10000000000,
 
-	// Search up to 10^11, 1913 pairs
+	// Search up to 10^11, 3340 pairs
 	value = 100000000000,
 
-	// Search up to 10^12, 4302 pairs
+	// Search up to 10^12, 7642 pairs
 	//value = 1000000000000,
 
-	// Search up to 10^13, 9877 pairs
+	// Search up to 10^13, 17519 pairs
 	//value = 10000000000000,
 
-	// Search up to 10^14, 21855 pairs
+	// Search up to 10^14, 39374 pairs
 	//value = 100000000000000,
 
-	// Search up to 10^15, 47728 pairs
+	// Search up to 10^15, 87102 pairs
 	//value = 1000000000000000,
 
-	// Search up to 10^16, 103673 pairs
+	// Search up to 10^16, 190775 pairs
 	//value = 10000000000000000,
 
-	// Search up to 10^17, 224748 pairs
+	// Search up to 10^17, 415523 pairs
 	//value = 100000000000000000,
 
-	// Search up to 10^18, ~485800 pairs
+	// Search up to 10^18, 901312 pairs
 	//value = 1000000000000000000,
 
-	// Search up to 10^19, ~1048700 pairs
+	// Search up to 10^19, ~1955600 pairs
 	//value = 10000000000000000000,
 
-	// Search up to 2^64, ~1500600 pairs after 10^18
+	// Search up to 2^64, ~1986300 pairs
 	//value = 18446744073709551615,
 };
 
