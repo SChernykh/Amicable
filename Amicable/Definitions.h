@@ -58,7 +58,7 @@ enum SearchLimit : number
 	// Search up to 10^19, ~1955600 pairs
 	//value = 10000000000000000000,
 
-	// Search up to 2^64, ~1986300 pairs
+	// Search up to 2^64, ~2401900 pairs
 	//value = 18446744073709551615,
 };
 
