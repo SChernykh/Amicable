@@ -707,21 +707,19 @@ NOINLINE void SearchRange(const RangeData& r)
 	number q = r.start_prime;
 	unsigned int sum_q_mod_385 = (q + 1) % 385;
 	const byte* shift = NextPrimeShifts + r.index_start_prime;
-	number result = 0;
 	const number m = r.value;
 	const number sum_m = r.sum;
 	while (q <= prime_limit)
 	{
 		if (is_not_over_abundant_mod_385[sum_q_mod_385])
 		{
-			++result;
 			CheckPair(m * q, sum_m * (q + 1));
 		}
 		const unsigned int cur_shift = static_cast<unsigned int>(*(shift++));
 		q += cur_shift * CompileTimeParams::ShiftMultiplier;
 		sum_q_mod_385 += cur_shift * CompileTimeParams::ShiftMultiplier;
 
-		//static_assert(SearchLimit::MainPrimeTableBound < 22367084959, "Prime gaps can be greater than 385 starting with 22367084959. The following code won't work.");
+		static_assert(CompileTimeParams::MainPrimeTableBound < 22367084959, "Prime gaps can be greater than 385 starting with 22367084959. The following code won't work.");
 		if (sum_q_mod_385 >= 385)
 		{
 			sum_q_mod_385 -= 385;
