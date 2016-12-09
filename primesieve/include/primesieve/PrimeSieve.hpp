@@ -13,6 +13,10 @@
 #define PRIMESIEVE_CLASS_HPP
 
 #include "Callback.hpp"
+#include "littleendian_cast.hpp"
+#include "PreSieve.hpp"
+#include "PrimeFinder.hpp"
+#include "PrimeGenerator.hpp"
 
 #include <stdint.h>
 #include <string>

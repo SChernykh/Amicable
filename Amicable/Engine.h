@@ -13,4 +13,5 @@ number MaximumSumOfDivisors3NoInline(const number a, const number p0, const numb
 	
 void CheckDivisibilityBench();
 
-extern __declspec(thread) unsigned int NumFoundPairs;
+void SetNumFoundPairsInThisThread(unsigned int value);
+unsigned int GetNumFoundPairsInThisThread();

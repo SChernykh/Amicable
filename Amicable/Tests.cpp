@@ -21,7 +21,7 @@ NOINLINE bool TestCheckPair()
 			f.getline(buf, sizeof(buf)); // M and factorization
 
 			number m;
-			if (sscanf_s(buf, "%I64u", &m) != 1)
+			if (sscanf_s(buf, "%llu", &m) != 1)
 			{
 				std::cerr << buf << " is not a valid number" << std::endl;
 				return false;
@@ -34,7 +34,7 @@ NOINLINE bool TestCheckPair()
 			f.getline(buf, sizeof(buf)); // N and factorization
 
 			number n;
-			if (sscanf_s(buf, "%I64u", &n) != 1)
+			if (sscanf_s(buf, "%llu", &n) != 1)
 			{
 				std::cerr << buf << " is not a valid number" << std::endl;
 				return false;
@@ -43,9 +43,9 @@ NOINLINE bool TestCheckPair()
 			buf[0] = '\0';
 			f.getline(buf, sizeof(buf)); // empty line
 
-			const number oldNumPairs = NumFoundPairs;
+			const number oldNumPairs = GetNumFoundPairsInThisThread();
 			CheckPairNoInline(m, m + n);
-			if (NumFoundPairs != oldNumPairs + 1)
+			if (GetNumFoundPairsInThisThread() != oldNumPairs + 1)
 			{
 				std::cerr << "CheckPair didn't recognize " << m << ", " << n << " as a valid amicable pair" << std::endl;
 				return false;
@@ -75,7 +75,7 @@ NOINLINE bool TestGeneric(T test)
 			f.getline(buf, sizeof(buf)); // M and factorization
 
 			number m;
-			if (sscanf_s(buf, "%I64u", &m) != 1)
+			if (sscanf_s(buf, "%llu", &m) != 1)
 			{
 				std::cerr << buf << " is not a valid number" << std::endl;
 				return false;
@@ -94,12 +94,12 @@ NOINLINE bool TestGeneric(T test)
 					if (factor_begin)
 					{
 						number p;
-						if (sscanf_s(factor_begin, "%I64u", &p) == 1)
+						if (sscanf_s(factor_begin, "%llu", &p) == 1)
 						{
 							number factor_power = 1;
 							if (buf[i] == '^')
 							{
-								sscanf_s(buf + i + 1, "%I64u", &factor_power);
+								sscanf_s(buf + i + 1, "%llu", &factor_power);
 							}
 							factorization.emplace_back(std::pair<number, number>(p, factor_power));
 						}
@@ -130,7 +130,7 @@ NOINLINE bool TestGeneric(T test)
 	return true;
 }
 
-NOINLINE bool TestLinearSearchData()
+NOINLINE bool TestAmicableCandidates()
 {
 	return TestGeneric([](number m, const std::vector<std::pair<number, number>>& factorization)
 	{
@@ -141,7 +141,7 @@ NOINLINE bool TestLinearSearchData()
 			{
 				m /= max_factor.first;
 			}
-			auto it = std::lower_bound(CandidatesData.begin(), CandidatesData.end(), m, [](const LinearSearchDataEntry& a, number b)
+			auto it = std::lower_bound(CandidatesData.begin(), CandidatesData.end(), m, [](const AmicableCandidate& a, number b)
 			{
 				return a.value < b;
 			});

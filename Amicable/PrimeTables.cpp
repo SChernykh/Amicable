@@ -1,7 +1,6 @@
 #include "stdafx.h"
 #include "PrimeTables.h"
 #include <algorithm>
-#include <process.h>
 #include "sprp64.h"
 
 CACHE_ALIGNED SReciprocal privPrimeReciprocals[ReciprocalsTableSize];
@@ -10,7 +9,7 @@ const SumEstimateData* privSumEstimates[SumEstimatesSize];
 CACHE_ALIGNED number privSumEstimatesBeginP[SumEstimatesSize];
 CACHE_ALIGNED number privSumEstimatesBeginQ[SumEstimatesSize];
 CACHE_ALIGNED byte privIsNotOverAbundantMod385[128 * 512];
-std::vector<LinearSearchDataEntry> privCandidatesData;
+std::vector<AmicableCandidate> privCandidatesData;
 CACHE_ALIGNED unsigned char privCandidatesDataMask[5 * 7 * 11];
 std::pair<number, number>* privPrimeInverses = nullptr;
 CACHE_ALIGNED std::pair<number, number> privPrimeInverses2[CompileTimePrimesCount];
@@ -23,11 +22,11 @@ number CalculatePrimes(number aLowerBound, number anUpperBound, std::vector<byte
 {
 	aLowerBound -= (aLowerBound % PrimeTableParameters::Modulo);
 
-	static __declspec(thread) unsigned char* locGetRemainderCode = 0;
+	static THREAD_LOCAL unsigned char* locGetRemainderCode = 0;
 	unsigned char* GetRemainderCode = locGetRemainderCode;
 	if (!GetRemainderCode)
 	{
-		GetRemainderCode = locGetRemainderCode = (unsigned char*) VirtualAlloc(0, 16, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+		GetRemainderCode = locGetRemainderCode = (unsigned char*) AllocateSystemMemory(16, true);
 		unsigned char code[] =
 		{
 			0xB8,0,0,0,0, // mov eax, 0
@@ -40,7 +39,7 @@ number CalculatePrimes(number aLowerBound, number anUpperBound, std::vector<byte
 	}
 	*(unsigned int*)(GetRemainderCode + 1) = static_cast<unsigned int>(aLowerBound);
 	*(unsigned int*)(GetRemainderCode + 6) = static_cast<unsigned int>(aLowerBound >> 32);
-	unsigned __int64(__fastcall *GetRemainder)(unsigned __int64) = (unsigned __int64(__fastcall*)(unsigned __int64))((void*)(GetRemainderCode));
+	number (*GetRemainder)(number) = (number(*)(number))((void*)(GetRemainderCode));
 
 	// https://en.wikipedia.org/wiki/Prime_gap#Numerical_results
 	// Since we operate in the range 1..2^64, a gap = PrimeTableParameters::Modulo * 9 = 1890 is enough
@@ -295,7 +294,7 @@ FORCEINLINE void SearchCandidates(Factor* factors, const number value, const num
 		is_over_abundant_mask |= (((is_over_abundant_mask & 0x14) || OverAbundantNoInline(factors, depth - 1, value, sum, 2 * 7 * 11)) ? byte(1) : byte(0)) << 6;
 		is_over_abundant_mask |= (((is_over_abundant_mask & 0x7E) || OverAbundantNoInline(factors, depth - 1, value, sum, 2 * 5 * 7 * 11)) ? byte(1) : byte(0)) << 7;
 
-		privCandidatesData.emplace_back(LinearSearchDataEntry(static_cast<unsigned int>(value), static_cast<unsigned int>(sum), is_over_abundant_mask));
+		privCandidatesData.emplace_back(AmicableCandidate(static_cast<unsigned int>(value), static_cast<unsigned int>(sum), is_over_abundant_mask));
 	}
 
 	int start_i = (depth == 0) ? 0 : (factors[depth - 1].index + 1);
@@ -368,7 +367,7 @@ void GenerateCandidates()
 	Factor factors[16];
 	SearchCandidates<0>(factors, 1, 1);
 
-	std::sort(privCandidatesData.begin(), privCandidatesData.end(), [](const LinearSearchDataEntry& a, const LinearSearchDataEntry& b){ return a.value < b.value; });
+	std::sort(privCandidatesData.begin(), privCandidatesData.end(), [](const AmicableCandidate& a, const AmicableCandidate& b){ return a.value < b.value; });
 
 	memset(privCandidatesDataMask, 1, sizeof(privCandidatesDataMask));
 
@@ -400,14 +399,11 @@ void PrimeTablesInit()
 	CalculatePrimes(0, MainPrimeTableBound, MainPrimeTable);
 
 	// Make sure all floating point calculations round up
-	_control87(_RC_UP, _MCW_RC);
+	ForceRoundUpFloatingPoint();
 
 	number nPrimes = 0;
-	int cpuid_data[4];
-	__cpuid(cpuid_data, 1);
 
-	// If popcnt instruction is supported, use it
-	if (cpuid_data[2] & (1 << 23))
+	if (IsPopcntAvailable())
 	{
 		for (number* data = reinterpret_cast<number*>(MainPrimeTable.data()), *e = reinterpret_cast<number*>(MainPrimeTable.data() + MainPrimeTable.size() - 1); data <= e; ++data)
 		{
@@ -421,7 +417,8 @@ void PrimeTablesInit()
 			++nPrimes;
 		}
 	}
-	privPrimeInverses = reinterpret_cast<std::pair<number, number>*>(VirtualAlloc(nullptr, (((nPrimes + 3) / 4) * 4) * sizeof(std::pair<number, number>) + nPrimes, MEM_COMMIT, PAGE_READWRITE));
+
+	privPrimeInverses = reinterpret_cast<std::pair<number, number>*>(AllocateSystemMemory((((nPrimes + 3) / 4) * 4) * sizeof(std::pair<number, number>) + nPrimes, false));
 	privNextPrimeShifts = reinterpret_cast<byte*>(privPrimeInverses + (((nPrimes + 3) / 4) * 4));
 
 	nPrimes = 0;
@@ -439,7 +436,7 @@ void PrimeTablesInit()
 		if (q - p >= 256 * CompileTimeParams::ShiftMultiplier)
 		{
 			std::cerr << "Primes gap is 512 or greater, decrease MainPrimeTableBound";
-			__debugbreak();
+			abort();
 		}
 		privNextPrimeShifts[nPrimes] = static_cast<byte>((q - p) / CompileTimeParams::ShiftMultiplier);
 		++nPrimes;
@@ -447,13 +444,13 @@ void PrimeTablesInit()
 
 	for (number p = 3, index = 1; p <= MainPrimeTableBound; p += privNextPrimeShifts[index++] * CompileTimeParams::ShiftMultiplier)
 	{
-		#pragma warning(suppress : 4146)
+		SUPPRESS_WARNING(4146)
 		const number p_inv = -modular_inverse64(p);
 		const number p_max = number(-1) / p;
 		if (p_inv * p != 1)
 		{
 			std::cerr << "modular_inverse64 failed";
-			__debugbreak();
+			abort();
 		}
 
 		privPrimeInverses[index].first = p_inv;

@@ -122,6 +122,15 @@
     <ClInclude Include="..\primesieve\include\primesieve_warnings.h">
       <Filter>3rdparty\primesieve\headers</Filter>
     </ClInclude>
+    <ClInclude Include="Platform.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Platform_MSVC_Windows.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Platform_GCC_Linux.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -131,9 +140,6 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="PrimeTables.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="Definitions.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Engine.cpp">
@@ -182,6 +188,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Tests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Platform.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

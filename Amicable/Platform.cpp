@@ -1,4 +1,9 @@
 #include "stdafx.h"
+#include "Platform.h"
+
+// Platform/compiler-dependent code must be here
+
+#ifdef _MSC_VER // MSVC & Windows
 
 #pragma section("udiv128", read, execute)
 __declspec(allocate("udiv128"))
@@ -21,5 +26,7 @@ const unsigned char mulmod64_code[] = {
 		0xC3              // ret
 };
 
-unsigned __int64 (__fastcall *udiv128)(number numhi, number numlo, number den, number* rem) = (unsigned __int64(__fastcall *)(unsigned __int64, unsigned __int64, unsigned __int64, unsigned __int64*))((const unsigned char*)udiv128Code);
-unsigned __int64 (__fastcall *mulmod64)(number a, number b, number n) = (number (__fastcall *)(number, number, number))((const unsigned char*) mulmod64_code);
+number (*udiv128)(number numhi, number numlo, number den, number* rem) = (number(*)(number, number, number, number*))((const unsigned char*)udiv128Code);
+number (*mulmod64)(number a, number b, number n) = (number (*)(number, number, number))((const unsigned char*) mulmod64_code);
+
+#endif

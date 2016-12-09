@@ -25,6 +25,8 @@
 
 namespace primesieve {
 
+uint64_t get_max_stop();
+
 /// approximate_prime_count(x) >= pi(x)
 inline std::size_t approximate_prime_count(uint64_t start, uint64_t stop)
 {

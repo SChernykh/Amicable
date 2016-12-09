@@ -2,9 +2,6 @@
 
 #define RUN_PERFORMANCE_TEST 1
 
-typedef unsigned char byte;
-typedef unsigned long long int number;
-
 enum SearchLimit : number
 {
 	// Search up to 10^3, 1 pair
@@ -358,14 +355,6 @@ enum Byte
 {
 	Bits = 8,
 };
-
-#define IF_CONSTEXPR(X) \
-	__pragma(warning(suppress:4127)) \
-	static_assert((X) || !(X), "Error: "#X" is not a constexpr"); \
-	if (X) \
-
-extern unsigned __int64(__fastcall *udiv128)(unsigned __int64 numhi, unsigned __int64 numlo, unsigned __int64 den, unsigned __int64* rem);
-extern unsigned __int64(__fastcall *mulmod64)(number a, number b, number n);
 
 FORCEINLINE bool IsPerfectSquareCandidate(const number n)
 {

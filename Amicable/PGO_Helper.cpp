@@ -3,14 +3,27 @@
 #include "Engine.h"
 #include "RangeGen.h"
 #include "PGO_Helper.h"
-#include <process.h>
+#include <setjmp.h>
+#include <signal.h>
 
-static NOINLINE unsigned int __stdcall ProfileGuidedOptimization_Instrument_WorkerThread(void* data)
+static THREAD_LOCAL bool locIsWorkerThread = false;
+static THREAD_LOCAL jmp_buf locWorkerThreadJumpBuffer;
+
+static NOINLINE void ProfileGuidedOptimization_Instrument_WorkerThread(number data)
 {
-	LARGE_INTEGER freq, t1, t2;
-	QueryPerformanceFrequency(&freq);
-	QueryPerformanceCounter(&t1);
-	__try
+	locIsWorkerThread = true;
+
+	Timer t;
+
+	SUPPRESS_WARNING(4611)
+	if (setjmp(locWorkerThreadJumpBuffer))
+	{
+		const double dt = t.getElapsedTime();
+		printf("Thread %llu finished in %.3f seconds\n", data, dt);
+		return;
+	}
+
+	TRY
 	{
 		RangeData r;
 		r.factors[0].p = 2;
@@ -27,7 +40,7 @@ static NOINLINE unsigned int __stdcall ProfileGuidedOptimization_Instrument_Work
 		r.index_start_prime = CompileTimePrimesCount + 1;
 		r.last_factor_index = 1;
 
-		switch (number(data))
+		switch (data)
 		{
 		case 0:
 			SearchRange(r);
@@ -67,40 +80,48 @@ static NOINLINE unsigned int __stdcall ProfileGuidedOptimization_Instrument_Work
 			break;
 		}
 	}
-	__except(EXCEPTION_EXECUTE_HANDLER)
+	EXCEPT(EXCEPTION_EXECUTE_HANDLER)
 	{
 	}
-	QueryPerformanceCounter(&t2);
-	printf("Thread %llu finished in %.3f seconds\n", number(data), static_cast<double>(t2.QuadPart - t1.QuadPart) / freq.QuadPart);
-	return 0; 
+
+	longjmp(locWorkerThreadJumpBuffer, 1);
+}
+
+void sigsegv_handler(int)
+{
+	if (locIsWorkerThread)
+	{
+		longjmp(locWorkerThreadJumpBuffer, 1);
+	}
 }
 
 NOINLINE void ProfileGuidedOptimization_Instrument()
 {
 	printf("Collecting profile data...\n");
 
+	signal(SIGSEGV, sigsegv_handler);
+
 	RangeGen::Init();
 
-	HANDLE h[6];
-	for (number i = 0; i < ARRAYSIZE(h); ++i)
+	const number NumWorkerThreads = 6;
+
+	std::vector<std::thread> threads;
+	threads.reserve(NumWorkerThreads);
+	for (number i = 0; i < NumWorkerThreads; ++i)
 	{
-		h[i] = reinterpret_cast<HANDLE>(_beginthreadex(0, 0, ProfileGuidedOptimization_Instrument_WorkerThread, (void*) i, 0, 0));
+		threads.emplace_back(std::thread(ProfileGuidedOptimization_Instrument_WorkerThread, i));
 	}
 
-	if (WaitForMultipleObjects(ARRAYSIZE(h), h, true, 1000) == WAIT_TIMEOUT)
+	Sleep(1000);
+
+	printf("Terminating threads which are still active...\n");
+
+	// Just disable access to some crucial data structures to crash running threads.
+	// Access violation will be caught and the thread will then finish gracefully, saving all profiling data.
+	DisableAccessToMemory(privPrimeInverses, 65536);
+
+	for (number i = 0; i < threads.size(); ++i)
 	{
-		printf("Terminating threads which are still active...\n");
-
-		// Just disable access to some crucial data structures to crash running threads.
-		// Access violation will be caught and the thread will then finish gracefully, saving all profiling data.
-		DWORD oldProtect;
-		VirtualProtect(reinterpret_cast<LPVOID>(privPrimeInverses), 65536, PAGE_NOACCESS, &oldProtect);
-
-		WaitForMultipleObjects(ARRAYSIZE(h), h, true, INFINITE);
-	}
-
-	for (number i = 0; i < ARRAYSIZE(h); ++i)
-	{
-		CloseHandle(h[i]);
+		threads[i].join();
 	}
 }

@@ -9,16 +9,18 @@
 /// file in the top level directory.
 ///
 
-#include <primesieve_warnings.h>
+#include <stdafx.h>
 
 #include <primesieve/config.hpp>
+#include <primesieve/littleendian_cast.hpp>
 #include <primesieve/PrimeFinder.hpp>
+#include <primesieve/PreSieve.hpp>
+#include <primesieve/PrimeGenerator.hpp>
 #include <primesieve/PrimeSieve.hpp>
 #include <primesieve/Callback.hpp>
 #include <primesieve/callback_t.hpp>
 #include <primesieve/SieveOfEratosthenes.hpp>
 #include <primesieve/SieveOfEratosthenes-inline.hpp>
-#include <primesieve/littleendian_cast.hpp>
 
 #include <stdint.h>
 #include <algorithm>
@@ -45,7 +47,7 @@ const uint_t PrimeFinder::kBitmasks_[6][5] =
 PrimeFinder::PrimeFinder(PrimeSieve& ps, const PreSieve& preSieve) :
   SieveOfEratosthenes(std::max<uint64_t>(7, ps.getStart()),
                       ps.getStop(),
-                      ps.getSieveSize(),
+                      static_cast<uint_t>(ps.getSieveSize()),
                       preSieve),
   ps_(ps)
 {
@@ -60,7 +62,7 @@ void PrimeFinder::init_kCounts()
 {
   for (uint_t i = 1; i < ps_.counts_.size(); i++)
   {
-    if (ps_.isCount(i))
+    if (ps_.isCount(static_cast<int>(i)))
     {
       kCounts_[i].resize(256);
       for (uint_t j = 0; j < kCounts_[i].size(); j++)
@@ -147,7 +149,7 @@ void PrimeFinder::count(const byte_t* sieve, uint_t sieveSize)
   // count prime k-tuplets (i = 1 twins, i = 2 triplets, ...)
   for (uint_t i = 1; i < ps_.counts_.size(); i++)
   {
-    if (ps_.isCount(i))
+    if (ps_.isCount(static_cast<int>(i)))
     {
       uint_t sum0 = 0;
       uint_t sum1 = 0;
@@ -185,7 +187,7 @@ void PrimeFinder::print(const byte_t* sieve, uint_t sieveSize) const
     uint_t i = 1; // i = 1 twins, i = 2 triplets, ...
     uint64_t base = getSegmentLow();
 
-    for (; !ps_.isPrint(i); i++);
+    for (; !ps_.isPrint(static_cast<int>(i)); i++);
     for (uint_t j = 0; j < sieveSize; j++, base += NUMBERS_PER_BYTE)
     {
       for (const uint_t* bitmask = kBitmasks_[i]; *bitmask <= sieve[j]; bitmask++)

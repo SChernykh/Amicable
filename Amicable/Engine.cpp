@@ -323,7 +323,17 @@ FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetS
 
 template<> FORCEINLINE bool CheckDivisibility<CompileTimePrimesCount>(number&, number&, const number, number&, number&) { return true; }
 
-__declspec(thread) unsigned int NumFoundPairs;
+static THREAD_LOCAL unsigned int NumFoundPairs;
+
+void SetNumFoundPairsInThisThread(unsigned int value)
+{
+	NumFoundPairs = value;
+}
+
+unsigned int GetNumFoundPairsInThisThread()
+{
+	return NumFoundPairs;
+}
 
 NOINLINE void NumberFound(const number n1, const number targetSum)
 {
@@ -332,7 +342,7 @@ NOINLINE void NumberFound(const number n1, const number targetSum)
 	++NumFoundPairs;
 #if !RUN_PERFORMANCE_TEST
 	const number n2 = targetSum - n1;
-	printf("%s%I64u, %I64u\n", (n2 <= n1) ? "!!! " : "", n1, n2);
+	printf("%s%llu, %llu\n", (n2 <= n1) ? "!!! " : "", n1, n2);
 #endif
 }
 
@@ -549,13 +559,7 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 			const number B = n2TargetSum - n2 - 1;
 			number B2[2], D[2];
 			B2[0] = _umul128(B, B, &B2[1]);
-#if _MSC_VER >= 1900
-			_subborrow_u64(_subborrow_u64(0, B2[0], n2 << 2, &D[0]), B2[1], n2 >> 62, &D[1]);
-#else
-			const unsigned int carry = static_cast<unsigned int>((B2[0] < (n2 << 2)) ? 1 : 0);
-			D[0] = B2[0] - (n2 << 2);
-			D[1] = B2[1] - (n2 >> 62) - carry;
-#endif
+			sub128(B2[0], B2[1], n2 << 2, n2 >> 62, &D[0], &D[1]);
 			if (IsPerfectSquareCandidate(D[0]))
 			{
 				// Using floating point arithmetic gives 52 bits of precision

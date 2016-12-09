@@ -9,16 +9,17 @@
 /// file in the top level directory.
 ///
 
-#include <primesieve_warnings.h>
+#include <stdafx.h>
 
 #include <primesieve/config.hpp>
 #include <primesieve/callback_t.hpp>
+#include <primesieve/littleendian_cast.hpp>
+#include <primesieve/PreSieve.hpp>
+#include <primesieve/PrimeGenerator.hpp>
+#include <primesieve/PrimeFinder.hpp>
 #include <primesieve/PrimeSieve.hpp>
 #include <primesieve/primesieve_error.hpp>
 #include <primesieve/Callback.hpp>
-#include <primesieve/PreSieve.hpp>
-#include <primesieve/PrimeFinder.hpp>
-#include <primesieve/PrimeGenerator.hpp>
 #include <primesieve/pmath.hpp>
 
 #include <stdint.h>
@@ -79,7 +80,7 @@ uint64_t PrimeSieve::getTripletCount()           const { return counts_[2]; }
 uint64_t PrimeSieve::getQuadrupletCount()        const { return counts_[3]; }
 uint64_t PrimeSieve::getQuintupletCount()        const { return counts_[4]; }
 uint64_t PrimeSieve::getSextupletCount()         const { return counts_[5]; }
-uint64_t PrimeSieve::getCount(int index)         const { return counts_.at(index); }
+uint64_t PrimeSieve::getCount(int index)         const { return counts_.at(static_cast<uint64_t>(index)); }
 double   PrimeSieve::getStatus()                 const { return percent_; }
 double   PrimeSieve::getSeconds()                const { return seconds_; }
 int      PrimeSieve::getSieveSize()              const { return sieveSize_; }
@@ -206,7 +207,7 @@ void PrimeSieve::doSmallPrime(const SmallPrime& sp)
         reinterpret_cast<callback_c_t>(callback_)(sp.firstPrime);
     }
     if (isCount(sp.index))
-      counts_[sp.index]++;
+      counts_[static_cast<uint64_t>(sp.index)]++;
     if (isPrint(sp.index))
       std::cout << sp.str << '\n';
   }

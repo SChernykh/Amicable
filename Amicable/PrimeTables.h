@@ -60,11 +60,11 @@ extern CACHE_ALIGNED SReciprocal privPrimeReciprocals[ReciprocalsTableSize];
 #define PrimeReciprocals ((const SReciprocal* const)(privPrimeReciprocals))
 
 #pragma pack(push, 1)
-struct LinearSearchDataEntry
+struct AmicableCandidate
 {
-	LinearSearchDataEntry() {}
+	AmicableCandidate() {}
 
-	LinearSearchDataEntry(unsigned int _value, unsigned int _sum, unsigned char is_over_abundant_mask)
+	AmicableCandidate(unsigned int _value, unsigned int _sum, unsigned char is_over_abundant_mask)
 		: value(_value)
 		, sum(_sum)
 		, is_not_over_abundant_mask(static_cast<unsigned char>(~is_over_abundant_mask))
@@ -80,13 +80,13 @@ struct LinearSearchDataEntry
 extern std::vector<byte> MainPrimeTable;
 extern byte bitOffset[PrimeTableParameters::Modulo];
 extern byte* privNextPrimeShifts;
-extern std::vector<LinearSearchDataEntry> privCandidatesData;
+extern std::vector<AmicableCandidate> privCandidatesData;
 extern CACHE_ALIGNED unsigned char privCandidatesDataMask[5 * 7 * 11];
 extern std::pair<number, number>* privPrimeInverses;
 extern CACHE_ALIGNED std::pair<number, number> privPrimeInverses2[CompileTimePrimesCount];
 
 #define NextPrimeShifts ((const byte* const)(privNextPrimeShifts))
-#define CandidatesData ((const std::vector<LinearSearchDataEntry>&)(privCandidatesData))
+#define CandidatesData ((const std::vector<AmicableCandidate>&)(privCandidatesData))
 #define CandidatesDataMask ((const unsigned char*)(privCandidatesDataMask))
 
 #define PrimeInverses ((const std::pair<number, number>*)(privPrimeInverses))
@@ -288,11 +288,7 @@ FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const numb
 	number n2[2];
 	n1[0] = _umul128(sum_g - g, sum - value, &n1[1]);
 	n2[0] = _umul128(g, value, &n2[1]);
-#if _MSC_VER >= 1900
-	return _subborrow_u64(_subborrow_u64(1, n2[0], n1[0], &n2[0]), n2[1], n1[1], &n2[1]);
-#else
-	return static_cast<byte>((n2[1] < n1[1]) || ((n2[1] == n1[1]) && (n2[0] <= n1[0])));
-#endif
+	return leq128(n2[0], n2[1], n1[0], n1[1]);
 }
 
 NOINLINE byte OverAbundantNoInline(const Factor* f, int last_factor_index, const number value, const number sum, number sum_for_gcd_coeff);

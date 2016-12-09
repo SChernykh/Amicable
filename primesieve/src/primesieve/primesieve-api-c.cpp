@@ -9,9 +9,13 @@
 /// file in the top level directory.
 ///
 
-#include <primesieve_warnings.h>
+#include <stdafx.h>
 
 #include <primesieve.h>
+#include <primesieve/littleendian_cast.hpp>
+#include <primesieve/PreSieve.hpp>
+#include <primesieve/PrimeGenerator.hpp>
+#include <primesieve/PrimeFinder.hpp>
 #include <primesieve.hpp>
 #include <primesieve/PrimeSieve.hpp>
 #include <primesieve/callback_t.hpp>

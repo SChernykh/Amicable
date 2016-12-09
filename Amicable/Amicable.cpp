@@ -18,27 +18,35 @@ int main(int argc, char* argv[])
 
 	if ((argc > 1) && (strcmp(argv[1], "/test") == 0))
 	{
+		std::cout << "Testing CheckPair()...";
+		flush(std::cout);
 		if (!TestCheckPair())
 		{
-			std::cerr << "TestCheckPair() failed" << std::endl;
+			std::cerr << "CheckPair() test failed" << std::endl;
 			return 1;
 		}
-		if (!TestLinearSearchData())
+		std::cout << "done" << std::endl << "Testing amicable candidates...";
+		flush(std::cout);
+		if (!TestAmicableCandidates())
 		{
-			std::cerr << "TestLinearSearchData() failed" << std::endl;
+			std::cerr << "Amicable candidates test failed" << std::endl;
 			return 2;
 		}
+		std::cout << "done" << std::endl << "Testing MaximumSumOfDivisors3()...";
+		flush(std::cout);
 		if (!TestMaximumSumOfDivisors3())
 		{
-			std::cerr << "MaximumSumOfDivisors3 test failed" << std::endl;
+			std::cerr << "MaximumSumOfDivisors3() test failed" << std::endl;
 			return 3;
 		}
+		std::cout << "done" << std::endl << "Testing primesieve...";
+		flush(std::cout);
 		if (!TestPrimeSieve())
 		{
 			std::cerr << "primesieve test failed" << std::endl;
 			return 4;
 		}
-		std::cout << "All tests passed" << std::endl;
+		std::cout << "done" << std::endl << "All tests passed" << std::endl;
 		return 0;
 	}
 
@@ -52,14 +60,13 @@ int main(int argc, char* argv[])
 	for (;;)
 #endif
 	{
-		LARGE_INTEGER f, t1, t2;
-		QueryPerformanceFrequency(&f);
-		QueryPerformanceCounter(&t1);
+		Timer t;
 		RangeGen::Run(numThreads);
-		QueryPerformanceCounter(&t2);
+		const double dt = t.getElapsedTime();
+
 		printf("completed in %f seconds\n%u pairs found\n%e CPU cycles\n\n",
-			static_cast<double>(t2.QuadPart - t1.QuadPart) / f.QuadPart,
-			NumFoundPairs,
+			dt,
+			GetNumFoundPairsInThisThread(),
 			static_cast<double>(RangeGen::cpu_cycles)
 		);
 	}

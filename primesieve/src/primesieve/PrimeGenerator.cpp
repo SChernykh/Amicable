@@ -9,15 +9,15 @@
 /// file in the top level directory.
 ///
 
-#include <primesieve_warnings.h>
+#include <stdafx.h>
 
 #include <primesieve/config.hpp>
+#include <primesieve/littleendian_cast.hpp>
+#include <primesieve/PreSieve.hpp>
 #include <primesieve/PrimeGenerator.hpp>
 #include <primesieve/PrimeFinder.hpp>
-#include <primesieve/PreSieve.hpp>
 #include <primesieve/SieveOfEratosthenes.hpp>
 #include <primesieve/SieveOfEratosthenes-inline.hpp>
-#include <primesieve/littleendian_cast.hpp>
 
 #include <stdint.h>
 #include <vector>

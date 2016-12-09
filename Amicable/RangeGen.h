@@ -51,7 +51,7 @@ private:
 	};
 
 	template<unsigned int largest_prime_power> static bool Iterate(RangeData& range);
-	static unsigned int __stdcall WorkerThread(void*);
+	static void WorkerThread(unsigned int* result);
 
 private:
 	static CRITICAL_SECTION lock;

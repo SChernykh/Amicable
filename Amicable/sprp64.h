@@ -5,7 +5,6 @@
 #pragma warning(push, 1)
 #pragma warning(disable : 4146 4838)
 
-#if _MSC_VER >= 1900
 static FORCEINLINE number mont_prod64(const number a, const number b, const number n, const number npi)
 {
 	number t_hi, mn_hi, u;
@@ -18,7 +17,7 @@ static FORCEINLINE number mont_prod64(const number a, const number b, const numb
 	// mn_hi * 2^64 + mn_lo = m*n
 	const number mn_lo = _umul128(m, n, &mn_hi);
 
-	_addcarry_u64(_addcarry_u64(0, t_lo, mn_lo, &t_lo), t_hi, mn_hi, &u);
+	add128(t_lo, t_hi, mn_lo, mn_hi, &t_lo, &u);
 
 	number n1 = 0;
 	if (u < t_hi) n1 = n;
@@ -34,73 +33,20 @@ static FORCEINLINE number mont_prod_add64(const number a, const number b, const 
 	number t_lo = _umul128(a, b, &t_hi);
 
 	// t_hi * 2^64 + t_lo = a*b+c
-	_addcarry_u64(_addcarry_u64(0, t_lo, c, &t_lo), t_hi, 0, &t_hi);
+	add128(t_lo, t_hi, c, 0, &t_lo, &t_hi);
 
 	const number m = t_lo * npi;
 
 	// mn_hi * 2^64 + mn_lo = m*n
 	const number mn_lo = _umul128(m, n, &mn_hi);
 
-	_addcarry_u64(_addcarry_u64(0, t_lo, mn_lo, &t_lo), t_hi, mn_hi, &u);
+	add128(t_lo, t_hi, mn_lo, mn_hi, &t_lo, &u);
 
 	number n1 = 0;
 	if (u < t_hi) n1 = n;
 	if (u >= n) n1 = n;
 	return u - n1;
 }
-
-#else
-
-static FORCEINLINE number mont_prod64(const number a, const number b, const number n, const number npi)
-{
-	number t_hi, t_lo, m, mn_hi, mn_lo, u;
-	int carry;
-
-	// t_hi * 2^64 + t_lo = a*b
-	t_lo = _umul128(a, b, &t_hi);
-
-	m = t_lo * npi;
-
-	// mn_hi * 2^64 + mn_lo = m*n
-	mn_lo = _umul128(m, n, &mn_hi);
-
-	carry = t_lo + mn_lo < t_lo ? 1 : 0;
-
-	u = t_hi + mn_hi + carry;
-
-	number n1 = 0;
-	if (u < t_hi) n1 = n;
-	if (u >= n) n1 = n;
-	return u - n1;
-}
-
-static FORCEINLINE number mont_prod_add64(const number a, const number b, const number c, const number n, const number npi)
-{
-	number t_hi, t_lo, m, mn_hi, mn_lo, u;
-
-	// t_hi * 2^64 + t_lo = a*b
-	t_lo = _umul128(a, b, &t_hi);
-
-	// t_hi * 2^64 + t_lo = a*b+c
-	int carry = (t_lo + c < t_lo) ? 1 : 0;
-	t_lo += c;
-	t_hi += carry;
-
-	m = t_lo * npi;
-
-	// mn_hi * 2^64 + mn_lo = m*n
-	mn_lo = _umul128(m, n, &mn_hi);
-
-	carry = (t_lo + mn_lo < t_lo) ? 1 : 0;
-
-	u = t_hi + mn_hi + carry;
-
-	number n1 = 0;
-	if (u < t_hi) n1 = n;
-	if (u >= n) n1 = n;
-	return u - n1;
-}
-#endif
 
 // WARNING: a must be odd
 // returns -a^-1 mod 2^64

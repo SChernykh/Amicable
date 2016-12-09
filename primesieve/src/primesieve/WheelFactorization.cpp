@@ -8,7 +8,7 @@
 /// file in the top level directory.
 ///
 
-#include <primesieve_warnings.h>
+#include <stdafx.h>
 
 #include <primesieve/WheelFactorization.hpp>
 #include <primesieve/bits.hpp>

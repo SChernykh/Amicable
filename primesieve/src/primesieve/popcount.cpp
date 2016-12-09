@@ -9,7 +9,7 @@
 /// file in the top level directory.
 ///
 
-#include <primesieve_warnings.h>
+#include <stdafx.h>
 
 #if !defined(__STDC_CONSTANT_MACROS)
   #define __STDC_CONSTANT_MACROS
