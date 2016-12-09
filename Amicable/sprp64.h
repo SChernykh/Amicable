@@ -59,14 +59,19 @@ static FORCEINLINE number modular_inverse64(const number a)
 
 	const unsigned char amask = mask[static_cast<unsigned char>(a) >> 1];
 
-	unsigned char result[8];
+	union
+	{
+		unsigned char resultBytes[8];
+		number result;
+	};
+
 	number S = 1;
 	for (number i = 0; i < 8; ++i)
 	{
-		result[i] = amask * S;
-		S = (S + a * result[i]) >> 8;
+		resultBytes[i] = amask * S;
+		S = (S + a * resultBytes[i]) >> 8;
 	}
-	return *reinterpret_cast<number*>(result);
+	return result;
 }
 
 static FORCEINLINE void modular_inverse64_2(const number a1, const number a2, number* results)

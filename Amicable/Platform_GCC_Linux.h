@@ -84,22 +84,6 @@ FORCEINLINE int LeaveCriticalSection(CRITICAL_SECTION* lock)
 
 #define sscanf_s sscanf
 
-FORCEINLINE void Sleep(DWORD ms)
-{
-	timespec t, r;
-	t.tv_sec = ms / 1000;
-	t.tv_nsec = (ms % 1000) * 1000000;
-	for (;;)
-	{
-		nanosleep(&t, &r);
-		if ((r.tv_sec == 0) && (r.tv_nsec == 0))
-		{
-			break;
-		}
-		t = r;
-	}
-}
-
 #define TRY
 #define EXCEPT(X)
 
@@ -121,6 +105,24 @@ public:
 private:
 	timespec t1;
 };
+
+FORCEINLINE void Sleep(DWORD ms)
+{
+	Timer t0;
+	for (;;)
+	{
+		const double sleepTime = ms / 1000.0 - t0.getElapsedTime();
+		if (sleepTime <= 0)
+		{
+			return;
+		}
+
+		timespec t;
+		t.tv_sec = static_cast<time_t>(sleepTime);
+		t.tv_nsec = static_cast<long>((sleepTime - t.tv_sec) * 1e9);
+		nanosleep(&t, nullptr);
+	}
+}
 
 FORCEINLINE number udiv128(number numhi, number numlo, number den, number* rem)
 {
@@ -158,8 +160,8 @@ FORCEINLINE byte leq128(number a_lo, number a_hi, number b_lo, number b_hi)
 
 FORCEINLINE bool IsPopcntAvailable()
 {
-	unsigned int cpuid_data[4];
-	__get_cpuid(1, cpuid_data, cpuid_data + 1, cpuid_data + 2, cpuid_data + 3);
+	unsigned int cpuid_data[4] = {};
+	__get_cpuid(1, &cpuid_data[0], &cpuid_data[1], &cpuid_data[2], &cpuid_data[3]);
 	return (cpuid_data[2] & (1 << 23)) != 0;
 }
 

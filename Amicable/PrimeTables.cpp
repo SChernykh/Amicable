@@ -402,24 +402,46 @@ void PrimeTablesInit()
 	ForceRoundUpFloatingPoint();
 
 	number nPrimes = 0;
+	number nPrimeInverses = 0;
 
 	if (IsPopcntAvailable())
 	{
-		for (number* data = reinterpret_cast<number*>(MainPrimeTable.data()), *e = reinterpret_cast<number*>(MainPrimeTable.data() + MainPrimeTable.size() - 1); data <= e; ++data)
+		number* data = reinterpret_cast<number*>(MainPrimeTable.data());
+		enum
+		{
+			primeInversesBoundBytes = ((PrimeInversesBound / PrimeTableParameters::Modulo) + 1) * (PrimeTableParameters::NumOffsets / Byte::Bits) - 1,
+		};
+
+		number* e = reinterpret_cast<number*>(MainPrimeTable.data() + primeInversesBoundBytes);
+		for (; data <= e; ++data)
+		{
+			nPrimes += __popcnt64(*data);
+		}
+		nPrimeInverses = nPrimes;
+
+		e = reinterpret_cast<number*>(MainPrimeTable.data() + MainPrimeTable.size() - 1);
+		for (; data <= e; ++data)
 		{
 			nPrimes += __popcnt64(*data);
 		}
 	}
 	else
 	{
-		for (PrimeIterator it(2); it.Get() <= MainPrimeTableBound; ++it)
+		PrimeIterator it(2);
+		for (; it.Get() <= PrimeInversesBound; ++it)
+		{
+			++nPrimes;
+		}
+		nPrimeInverses = nPrimes;
+
+		for (; it.Get() <= MainPrimeTableBound; ++it)
 		{
 			++nPrimes;
 		}
 	}
 
-	privPrimeInverses = reinterpret_cast<std::pair<number, number>*>(AllocateSystemMemory((((nPrimes + 3) / 4) * 4) * sizeof(std::pair<number, number>) + nPrimes, false));
-	privNextPrimeShifts = reinterpret_cast<byte*>(privPrimeInverses + (((nPrimes + 3) / 4) * 4));
+	privPrimeInverses = reinterpret_cast<std::pair<number, number>*>(AllocateSystemMemory((((nPrimeInverses + 3) / 4) * 4) * sizeof(std::pair<number, number>) + nPrimes, false));
+	privNextPrimeShifts = reinterpret_cast<byte*>(privPrimeInverses + (((nPrimeInverses + 3) / 4) * 4));
 
 	nPrimes = 0;
 	for (PrimeIterator it(2); it.Get() <= MainPrimeTableBound;)
@@ -442,7 +464,7 @@ void PrimeTablesInit()
 		++nPrimes;
 	}
 
-	for (number p = 3, index = 1; p <= MainPrimeTableBound; p += privNextPrimeShifts[index++] * CompileTimeParams::ShiftMultiplier)
+	for (number p = 3, index = 1; p <= PrimeInversesBound; p += privNextPrimeShifts[index++] * CompileTimeParams::ShiftMultiplier)
 	{
 		SUPPRESS_WARNING(4146)
 		const number p_inv = -modular_inverse64(p);

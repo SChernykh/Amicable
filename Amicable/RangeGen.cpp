@@ -47,7 +47,7 @@ recurse_begin:
 	}
 
 	// Check only 2, 3, 5 as the smallest prime factor because the smallest abundant number coprime to 2*3*5 is ~2*10^25
-	s->max_prime = static_cast<unsigned int>((search_stack_depth > 0) ? (MainPrimeTableBound + 1) : 7);
+	s->max_prime = static_cast<unsigned int>((search_stack_depth > 0) ? (PrimeInversesBound + 1) : 7);
 	for (f->index = start_i; f->p < s->max_prime; f->p += NextPrimeShifts[f->index] * CompileTimeParams::ShiftMultiplier, ++f->index)
 	{
 		number h;
@@ -169,6 +169,12 @@ recurse_return:
 		}
 	}
 	--search_stack_depth;
+	if (search_stack_depth >= 0)
+	{
+		--s;
+		--f;
+		goto recurse_begin;
+	}
 	return false;
 }
 

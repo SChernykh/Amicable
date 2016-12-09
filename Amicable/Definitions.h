@@ -137,6 +137,7 @@ enum CompileTimeParams : number
 	// But we don't want to store too many values for linear search, so we only store values up to 10000000
 	LinearLimit = ((CompileTimeSQRT<SearchLimit::value>::value + 1) * 1414213563) / 1000000000 + 1,
 	MainPrimeTableBound = Max<LinearLimit, 1000>::value,
+	PrimeInversesBound = CompileTimeSQRT<SearchLimit::value / 4>::value,
 	ShiftMultiplier = 2,
 
 	// Safe upper bound for the largest prime factor
