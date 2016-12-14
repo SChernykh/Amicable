@@ -21,6 +21,8 @@
 #include <cassert>
 #include <list>
 
+_Pragma("GCC diagnostic ignored \"-Wstrict-overflow\"")
+
 namespace primesieve {
 
 /// @param stop       Upper bound for sieving.
