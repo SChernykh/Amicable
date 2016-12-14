@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CompileTimeFunctions.h"
+
 enum
 {
 	ShiftMultiplier = 2,
@@ -44,13 +46,13 @@ enum SearchLimit : number
 	//value = 100000000,
 
 	// Search up to 10^9, 586 pairs
-	value = 1000000000,
+	//value = 1000000000,
 
 	// Search up to 10^10, 1427 pairs
 	//value = 10000000000,
 
 	// Search up to 10^11, 3340 pairs
-	//value = 100000000000,
+	value = 100000000000,
 
 	// Search up to 10^12, 7642 pairs
 	//value = 1000000000000,
