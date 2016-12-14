@@ -135,7 +135,7 @@ NOINLINE bool TestAmicableCandidates()
 	return TestGeneric([](number m, const std::vector<std::pair<number, number>>& factorization)
 	{
 		const std::pair<number, number>& max_factor = factorization.back();
-		if (max_factor.first >= CompileTimeParams::LinearLimit)
+		if (max_factor.first >= SearchLimit::LinearLimit)
 		{
 			for (number i = 0; i < max_factor.second; ++i)
 			{
@@ -193,7 +193,7 @@ NOINLINE bool TestMaximumSumOfDivisors3()
 		const double curEstimate = static_cast<double>(sumEstimate - sum) / sum;
 		if (curEstimate < minEstimate)
 			minEstimate = curEstimate;
-		p1 += *shift1 ? *shift1 * CompileTimeParams::ShiftMultiplier : 1ULL;
+		p1 += *shift1 ? *shift1 * ShiftMultiplier : 1ULL;
 		++shift1;
 	}
 
@@ -202,7 +202,7 @@ NOINLINE bool TestMaximumSumOfDivisors3()
 	for (int i = 0; i < N; ++i)
 	{
 		const byte* shift2 = shift1;
-		number p2 = p1 + (*shift2 ? *shift2 * CompileTimeParams::ShiftMultiplier : 1ULL);
+		number p2 = p1 + (*shift2 ? *shift2 * ShiftMultiplier : 1ULL);
 		++shift2;
 		for (int j = 0; j < N; ++j)
 		{
@@ -264,10 +264,10 @@ NOINLINE bool TestMaximumSumOfDivisors3()
 				if (curEstimate < minEstimate)
 					minEstimate = curEstimate;
 			}
-			p2 += *shift2 ? *shift2 * CompileTimeParams::ShiftMultiplier : 1ULL;
+			p2 += *shift2 ? *shift2 * ShiftMultiplier : 1ULL;
 			++shift2;
 		}
-		p1 += *shift1 ? *shift1 * CompileTimeParams::ShiftMultiplier : 1ULL;
+		p1 += *shift1 ? *shift1 * ShiftMultiplier : 1ULL;
 		++shift1;
 	}
 
@@ -276,12 +276,12 @@ NOINLINE bool TestMaximumSumOfDivisors3()
 	for (int i = 0; i < N; ++i)
 	{
 		const byte* shift2 = shift1;
-		number p2 = p1 + (*shift2 ? *shift2 * CompileTimeParams::ShiftMultiplier : 1ULL);
+		number p2 = p1 + (*shift2 ? *shift2 * ShiftMultiplier : 1ULL);
 		++shift2;
 		for (int j = 0; j < N; ++j)
 		{
 			const byte* shift3 = shift2;
-			number p3 = p2 + (*shift3 ? *shift3 * CompileTimeParams::ShiftMultiplier : 1ULL);
+			number p3 = p2 + (*shift3 ? *shift3 * ShiftMultiplier : 1ULL);
 			++shift3;
 			for (int k = 0; k < N; ++k)
 			{
@@ -328,13 +328,13 @@ NOINLINE bool TestMaximumSumOfDivisors3()
 				const double curEstimate = static_cast<double>(sumEstimate - sum) / sum;
 				if (curEstimate < minEstimate)
 					minEstimate = curEstimate;
-				p3 += *shift3 ? *shift3 * CompileTimeParams::ShiftMultiplier : 1ULL;
+				p3 += *shift3 ? *shift3 * ShiftMultiplier : 1ULL;
 				++shift3;
 			}
-			p2 += *shift2 ? *shift2 * CompileTimeParams::ShiftMultiplier : 1ULL;
+			p2 += *shift2 ? *shift2 * ShiftMultiplier : 1ULL;
 			++shift2;
 		}
-		p1 += *shift1 ? *shift1 * CompileTimeParams::ShiftMultiplier : 1ULL;
+		p1 += *shift1 ? *shift1 * ShiftMultiplier : 1ULL;
 		++shift1;
 	}
 	return true;

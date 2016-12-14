@@ -131,6 +131,9 @@
     <ClInclude Include="Platform_GCC_Linux.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="CompileTimeFunctions.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -191,6 +194,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Platform.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Definitions.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

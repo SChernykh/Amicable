@@ -335,15 +335,16 @@ unsigned int GetNumFoundPairsInThisThread()
 	return NumFoundPairs;
 }
 
+bool g_PrintNumbers = true;
+
 NOINLINE void NumberFound(const number n1, const number targetSum)
 {
-	(void) n1;
-	(void) targetSum;
 	++NumFoundPairs;
-#if !RUN_PERFORMANCE_TEST
-	const number n2 = targetSum - n1;
-	printf("%s%llu, %llu\n", (n2 <= n1) ? "!!! " : "", n1, n2);
-#endif
+	if (g_PrintNumbers)
+	{
+		const number n2 = targetSum - n1;
+		printf("%s%llu, %llu\n", (n2 <= n1) ? "!!! " : "", n1, n2);
+	}
 }
 
 FORCEINLINE number Root4(const number n)
@@ -429,7 +430,7 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 		if (MaximumSumOfDivisorsN(n2, numPrimesCheckedSoFar, indexForMaximumSumOfDivisorsN) < n2TargetSum)
 			return;
 
-		p += *(shift++) * CompileTimeParams::ShiftMultiplier;
+		p += *(shift++) * ShiftMultiplier;
 	}
 
 	// Here p^4 > n2, so n2 can have at most 3 factors
@@ -491,7 +492,7 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 		if (MaximumSumOfDivisors3(n2, p, q) < n2TargetSum)
 			return;
 
-		p += *(shift++) * CompileTimeParams::ShiftMultiplier;
+		p += *(shift++) * ShiftMultiplier;
 		++numPrimesCheckedSoFar;
 	}
 
@@ -690,9 +691,9 @@ NOINLINE void SearchRange(const RangeData& r)
 			prime_limit = prime_limit2;
 		}
 	}
-	if (prime_limit > CompileTimeParams::MainPrimeTableBound)
+	if (prime_limit > SearchLimit::MainPrimeTableBound)
 	{
-		prime_limit = CompileTimeParams::MainPrimeTableBound;
+		prime_limit = SearchLimit::MainPrimeTableBound;
 	}
 
 	unsigned int is_over_abundant_mask = 0;
@@ -720,10 +721,12 @@ NOINLINE void SearchRange(const RangeData& r)
 			CheckPair(m * q, sum_m * (q + 1));
 		}
 		const unsigned int cur_shift = static_cast<unsigned int>(*(shift++));
-		q += cur_shift * CompileTimeParams::ShiftMultiplier;
-		sum_q_mod_385 += cur_shift * CompileTimeParams::ShiftMultiplier;
+		q += cur_shift * ShiftMultiplier;
+		sum_q_mod_385 += cur_shift * ShiftMultiplier;
 
-		static_assert(CompileTimeParams::MainPrimeTableBound < 22367084959, "Prime gaps can be greater than 385 starting with 22367084959. The following code won't work.");
+#if !DYNAMIC_SEARCH_LIMIT
+		static_assert(SearchLimit::MainPrimeTableBound < 22367084959, "Prime gaps can be greater than 385 starting with 22367084959. The following code won't work.");
+#endif
 		if (sum_q_mod_385 >= 385)
 		{
 			sum_q_mod_385 -= 385;
@@ -758,7 +761,7 @@ NOINLINE void SearchRangeSquared(const RangeData& r)
 	{
 		const number q2 = q * q;
 		CheckPair(m * q2, sum_m * (q2 + q + 1));
-		q += static_cast<unsigned int>(*(shift++)) * CompileTimeParams::ShiftMultiplier;
+		q += static_cast<unsigned int>(*(shift++)) * ShiftMultiplier;
 	}
 }
 
@@ -784,7 +787,7 @@ NOINLINE void SearchRangeCubed(const RangeData& r)
 			break;
 		}
 		CheckPair(value, sum_m * (q3 + q2 + q + 1));
-		q += static_cast<unsigned int>(*(shift++)) * CompileTimeParams::ShiftMultiplier;
+		q += static_cast<unsigned int>(*(shift++)) * ShiftMultiplier;
 	}
 }
 
@@ -814,8 +817,8 @@ NOINLINE void SearchLargePrimes(volatile number* SharedCounterForSearch, const n
 
 	number curRangeEnd = StartPrime - 1;
 
-	const number minRangeSize = Min<CompileTimeParams::MainPrimeTableBound / 4, 1000000>::value;
-	const number maxRangeSize = CompileTimeParams::SafeLimit / 100;
+	const number minRangeSize = std::min<number>(SearchLimit::MainPrimeTableBound / 4, 1000000);
+	const number maxRangeSize = SearchLimit::SafeLimit / 100;
 
 	number localCounter = 0;
 

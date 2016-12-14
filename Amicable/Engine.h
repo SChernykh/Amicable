@@ -15,3 +15,5 @@ void CheckDivisibilityBench();
 
 void SetNumFoundPairsInThisThread(unsigned int value);
 unsigned int GetNumFoundPairsInThisThread();
+
+extern bool g_PrintNumbers;

@@ -90,16 +90,44 @@ FORCEINLINE int LeaveCriticalSection(CRITICAL_SECTION* lock)
 class Timer
 {
 public:
-	Timer()
+	FORCEINLINE explicit Timer(bool count_cycles = false)
 	{
+		(void) count_cycles;
+
 		clock_gettime(CLOCK_REALTIME, &t1);
 	}
 
-	double getElapsedTime() const
+	FORCEINLINE double getElapsedTime() const
 	{
 		timespec t2;
 		clock_gettime(CLOCK_REALTIME, &t2);
 		return (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) * 1e-9;
+	}
+
+	FORCEINLINE number getCPUCycles() const
+	{
+		const double dt = getElapsedTime();
+
+		std::string s;
+		int numCPUs = 0;
+		double totalFreqMHz = 0.0;
+		std::ifstream f("/proc/cpuinfo");
+		while (!f.eof())
+		{
+			std::getline(f, s);
+			if (s.find("cpu MHz") != std::string::npos)
+			{
+				const size_t offset = s.find(':');
+				if (offset != std::string::npos)
+				{
+					++numCPUs;
+					totalFreqMHz += atof(s.c_str() + offset + 1);
+				}
+			}
+		}
+		f.close();
+
+		return static_cast<number>(dt * totalFreqMHz * 1e6 / numCPUs);
 	}
 
 private:

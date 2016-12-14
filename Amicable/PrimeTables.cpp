@@ -158,7 +158,7 @@ number CalculatePrimes(number aLowerBound, number anUpperBound, std::vector<byte
 
 bool IsPrime(number n)
 {
-	if (n >= CompileTimeParams::MainPrimeTableBound)
+	if (n >= SearchLimit::MainPrimeTableBound)
 	{
 		return efficient_mr64(n);
 	}
@@ -300,7 +300,7 @@ FORCEINLINE void SearchCandidates(Factor* factors, const number value, const num
 	int start_i = (depth == 0) ? 0 : (factors[depth - 1].index + 1);
 
 	Factor& f = factors[depth];
-	f.p = (depth == 0) ? 2 : (factors[depth - 1].p + NextPrimeShifts[factors[depth - 1].index] * CompileTimeParams::ShiftMultiplier);
+	f.p = (depth == 0) ? 2 : (factors[depth - 1].p + NextPrimeShifts[factors[depth - 1].index] * ShiftMultiplier);
 
 	// A check to ensure that m is not divisible by 6
 	IF_CONSTEXPR(depth == 1)
@@ -319,12 +319,12 @@ FORCEINLINE void SearchCandidates(Factor* factors, const number value, const num
 	}
 
 	// Check only 2, 3, 5 as the smallest prime factor because the smallest abundant number coprime to 2*3*5 is ~2*10^25
-	const unsigned int max_prime = static_cast<unsigned int>((depth > 0) ? ((CompileTimeParams::LinearLimit / 20) + 1) : 7);
-	for (f.index = start_i; f.p < max_prime; f.p += NextPrimeShifts[f.index] * CompileTimeParams::ShiftMultiplier, ++f.index)
+	const unsigned int max_prime = static_cast<unsigned int>((depth > 0) ? ((SearchLimit::LinearLimit / 20) + 1) : 7);
+	for (f.index = start_i; f.p < max_prime; f.p += NextPrimeShifts[f.index] * ShiftMultiplier, ++f.index)
 	{
 		number h;
 		number next_value = _umul128(value, f.p, &h);
-		if ((next_value >= CompileTimeParams::LinearLimit) || h)
+		if ((next_value >= SearchLimit::LinearLimit) || h)
 		{
 			return;
 		}
@@ -339,7 +339,7 @@ FORCEINLINE void SearchCandidates(Factor* factors, const number value, const num
 			SearchCandidates<depth + 1>(factors, next_value, next_sum);
 
 			next_value = _umul128(next_value, f.p, &h);
-			if ((next_value >= CompileTimeParams::LinearLimit) || h)
+			if ((next_value >= SearchLimit::LinearLimit) || h)
 			{
 				break;
 			}
@@ -362,7 +362,7 @@ template<> FORCEINLINE void SearchCandidates<10>(Factor*, const number, const nu
 
 void GenerateCandidates()
 {
-	privCandidatesData.reserve(CompileTimeParams::LinearLimit / 30);
+	privCandidatesData.reserve(SearchLimit::LinearLimit / 30);
 
 	Factor factors[16];
 	SearchCandidates<0>(factors, 1, 1);
@@ -396,7 +396,7 @@ void PrimeTablesInit()
 		bitMask[NumbersCoprimeToModulo[b]] = ~(1ULL << b);
 	}
 
-	CalculatePrimes(0, MainPrimeTableBound, MainPrimeTable);
+	CalculatePrimes(0, SearchLimit::MainPrimeTableBound, MainPrimeTable);
 
 	// Make sure all floating point calculations round up
 	ForceRoundUpFloatingPoint();
@@ -407,10 +407,7 @@ void PrimeTablesInit()
 	if (IsPopcntAvailable())
 	{
 		number* data = reinterpret_cast<number*>(MainPrimeTable.data());
-		enum
-		{
-			primeInversesBoundBytes = ((PrimeInversesBound / PrimeTableParameters::Modulo) + 1) * (PrimeTableParameters::NumOffsets / Byte::Bits) - 1,
-		};
+		const number primeInversesBoundBytes = ((SearchLimit::PrimeInversesBound / PrimeTableParameters::Modulo) + 1) * (PrimeTableParameters::NumOffsets / Byte::Bits) - 1;
 
 		number* e = reinterpret_cast<number*>(MainPrimeTable.data() + primeInversesBoundBytes);
 		for (; data <= e; ++data)
@@ -428,23 +425,28 @@ void PrimeTablesInit()
 	else
 	{
 		PrimeIterator it(2);
-		for (; it.Get() <= PrimeInversesBound; ++it)
+		for (; it.Get() <= SearchLimit::PrimeInversesBound; ++it)
 		{
 			++nPrimes;
 		}
 		nPrimeInverses = nPrimes;
 
-		for (; it.Get() <= MainPrimeTableBound; ++it)
+		for (; it.Get() <= SearchLimit::MainPrimeTableBound; ++it)
 		{
 			++nPrimes;
 		}
+	}
+
+	if (nPrimeInverses < CompileTimePrimesCount)
+	{
+		nPrimeInverses = CompileTimePrimesCount;
 	}
 
 	privPrimeInverses = reinterpret_cast<std::pair<number, number>*>(AllocateSystemMemory((((nPrimeInverses + 3) / 4) * 4) * sizeof(std::pair<number, number>) + nPrimes, false));
 	privNextPrimeShifts = reinterpret_cast<byte*>(privPrimeInverses + (((nPrimeInverses + 3) / 4) * 4));
 
 	nPrimes = 0;
-	for (PrimeIterator it(2); it.Get() <= MainPrimeTableBound;)
+	for (PrimeIterator it(2); it.Get() <= SearchLimit::MainPrimeTableBound;)
 	{
 		const number p = it.Get();
 
@@ -455,16 +457,16 @@ void PrimeTablesInit()
 
 		++it;
 		const number q = it.Get();
-		if (q - p >= 256 * CompileTimeParams::ShiftMultiplier)
+		if (q - p >= 256 * ShiftMultiplier)
 		{
 			std::cerr << "Primes gap is 512 or greater, decrease MainPrimeTableBound";
 			abort();
 		}
-		privNextPrimeShifts[nPrimes] = static_cast<byte>((q - p) / CompileTimeParams::ShiftMultiplier);
+		privNextPrimeShifts[nPrimes] = static_cast<byte>((q - p) / ShiftMultiplier);
 		++nPrimes;
 	}
 
-	for (number p = 3, index = 1; p <= PrimeInversesBound; p += privNextPrimeShifts[index++] * CompileTimeParams::ShiftMultiplier)
+	for (number p = 3, index = 1; p <= SearchLimit::PrimeInversesBound; p += privNextPrimeShifts[index++] * ShiftMultiplier)
 	{
 		SUPPRESS_WARNING(4146)
 		const number p_inv = -modular_inverse64(p);
@@ -508,7 +510,7 @@ void PrimeTablesInit()
 		const number result = _umul128(a, b, &h);
 		return h ? number(-1) : result;
 	};
-	for (number i = 0; (i < maxI) && (p.Get() <= Max<CompileTimeParams::MainPrimeTableBound, CompileTimePrimes<CompileTimePrimesCount>::value>::value); ++i, ++p)
+	for (number i = 0; (i < maxI) && (p.Get() <= std::max<number>(SearchLimit::MainPrimeTableBound, CompileTimePrimes<CompileTimePrimesCount>::value)); ++i, ++p)
 	{
 		number j = 1;
 		PrimeIterator q(p);
@@ -517,7 +519,7 @@ void PrimeTablesInit()
 		PQ[0][i].first = p.Get();
 		PQ[0][i].second = GetMaxSumRatio(prevP, MultiplyWithSaturation(p.Get(), q.Get()));
 
-		for (; (j < SumEstimatesSize) && (q.Get() <= Max<CompileTimeParams::MainPrimeTableBound, CompileTimePrimes<CompileTimePrimesCount>::value>::value); ++j)
+		for (; (j < SumEstimatesSize) && (q.Get() <= std::max<number>(SearchLimit::MainPrimeTableBound, CompileTimePrimes<CompileTimePrimesCount>::value)); ++j)
 		{
 			number highProductP;
 			const number mulP = _umul128(PQ[j - 1][i].first, q.Get(), &highProductP);

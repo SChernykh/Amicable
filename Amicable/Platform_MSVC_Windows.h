@@ -40,21 +40,33 @@
 class Timer
 {
 public:
-	Timer()
+	FORCEINLINE explicit Timer(bool count_cycles = false)
 	{
 		QueryPerformanceFrequency(&f);
 		QueryPerformanceCounter(&t1);
+		if (count_cycles)
+		{
+			QueryProcessCycleTime(GetCurrentProcess(), &cycleTime1);
+		}
 	}
 
-	double getElapsedTime() const
+	FORCEINLINE double getElapsedTime() const
 	{
 		LARGE_INTEGER t2;
 		QueryPerformanceCounter(&t2);
 		return static_cast<double>(t2.QuadPart - t1.QuadPart) / f.QuadPart;
 	}
 
+	FORCEINLINE number getCPUCycles() const
+	{
+		ULONG64 cycleTime2;
+		QueryProcessCycleTime(GetCurrentProcess(), &cycleTime2);
+		return cycleTime2 - cycleTime1;
+	}
+
 private:
 	LARGE_INTEGER f, t1;
+	ULONG64 cycleTime1;
 };
 
 extern number(*udiv128)(number numhi, number numlo, number den, number* rem);

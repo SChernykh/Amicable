@@ -61,14 +61,14 @@ static NOINLINE void ProfileGuidedOptimization_Instrument_WorkerThread(number da
 		case 3:
 			{
 				number k = 0;
-				SearchLargePrimes(&k, CompileTimeParams::MainPrimeTableBound + 1, CompileTimeParams::SafeLimit);
+				SearchLargePrimes(&k, SearchLimit::MainPrimeTableBound + 1, SearchLimit::SafeLimit);
 			}
 			break;
 
 		case 4:
 			{
 				number k = 0;
-				SearchLargePrimes(&k, CompileTimeParams::SafeLimit / 5, CompileTimeParams::SafeLimit);
+				SearchLargePrimes(&k, SearchLimit::SafeLimit / 5, SearchLimit::SafeLimit);
 			}
 			break;
 
@@ -101,7 +101,9 @@ NOINLINE void ProfileGuidedOptimization_Instrument()
 
 	signal(SIGSEGV, sigsegv_handler);
 
-	RangeGen::Init();
+	g_PrintNumbers = false;
+
+	RangeGen::Init(nullptr, nullptr, nullptr, nullptr, 1);
 
 	const number NumWorkerThreads = 6;
 

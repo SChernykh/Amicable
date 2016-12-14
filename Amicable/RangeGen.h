@@ -33,8 +33,8 @@ struct RangeData
 class RangeGen
 {
 public:
-	static void Init();
-	static void Run(number numThreads);
+	static void Init(char* startFrom, char* stopAt, RangeData* outStartFromRange, Factor* outStopAtFactors, unsigned int largestPrimePower);
+	static void Run(number numThreads, char* startFrom, char* stopAt, unsigned int largestPrimePower, number startPrime, number primeLimit);
 	static bool Iterate(RangeData& range);
 
 	static number cpu_cycles;
@@ -45,18 +45,27 @@ private:
 
 	struct StackFrame
 	{
-		number value, sum, q0, q, sum_q;
-		unsigned int max_prime;
-		int start_j;
+		number value, sum;
 	};
 
 	template<unsigned int largest_prime_power> static bool Iterate(RangeData& range);
-	static void WorkerThread(unsigned int* result);
+
+	struct WorkerThreadParams
+	{
+		unsigned int* result;
+		const RangeData* rangeToCheckFirst;
+		const Factor* stopAtFactors;
+		number startPrime;
+		number primeLimit;
+		unsigned int startLargestPrimePower;
+	};
+
+	static void WorkerThread(WorkerThreadParams* params);
 
 private:
 	static CRITICAL_SECTION lock;
-	static StackFrame search_stack[16];
-	static CACHE_ALIGNED Factor factors[16];
+	static CACHE_ALIGNED StackFrame search_stack[MaxPrimeFactors];
+	static CACHE_ALIGNED Factor factors[MaxPrimeFactors];
 	static int search_stack_depth;
 	static int prev_search_stack_depth;
 	static unsigned int cur_largest_prime_power;
