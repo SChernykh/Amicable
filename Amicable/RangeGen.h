@@ -37,8 +37,6 @@ public:
 	static void Run(number numThreads, char* startFrom, char* stopAt, unsigned int largestPrimePower, number startPrime, number primeLimit);
 	static bool Iterate(RangeData& range);
 
-	static number cpu_cycles;
-
 private:
 	FORCEINLINE RangeGen() { InitializeCriticalSection(&lock); }
 	FORCEINLINE ~RangeGen() { DeleteCriticalSection(&lock);}

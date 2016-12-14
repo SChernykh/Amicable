@@ -10,7 +10,6 @@ int RangeGen::search_stack_depth;
 int RangeGen::prev_search_stack_depth;
 unsigned int RangeGen::cur_largest_prime_power;
 volatile number RangeGen::SharedCounterForSearch;
-number RangeGen::cpu_cycles;
 
 RangeGen RangeGen::RangeGen_instance;
 
@@ -174,13 +173,14 @@ recurse_return:
 			}
 		}
 	}
-	--search_stack_depth;
-	if (search_stack_depth >= 0)
+	if (search_stack_depth > 0)
 	{
+		--search_stack_depth;
 		--s;
 		--f;
 		goto recurse_begin;
 	}
+	search_stack_depth = -1;
 	return false;
 }
 
@@ -228,9 +228,9 @@ bool RangeGen::Iterate(RangeData& range)
 }
 
 template<typename T>
-FORCEINLINE int ParseFactorization(char* factorization, T callback)
+FORCEINLINE unsigned int ParseFactorization(char* factorization, T callback)
 {
-	int numFactors = 0;
+	unsigned int numFactors = 0;
 	int counter = 0;
 	number prev_p = 0;
 	number p = 0;
@@ -296,7 +296,7 @@ FORCEINLINE int ParseFactorization(char* factorization, T callback)
 
 				++numFactors;
 
-				if (numFactors >= static_cast<int>(MaxPrimeFactors))
+				if (numFactors >= MaxPrimeFactors)
 				{
 					std::cerr << "Factorization '" << factorization << "' is incorrect: too many prime factors" << std::endl;
 					abort();
@@ -332,8 +332,8 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 
 	if (startFrom)
 	{
-		const int numFactors = ParseFactorization(startFrom,
-			[startFrom](number p, unsigned int k, int p_index, int factor_index)
+		const unsigned int numFactors = ParseFactorization(startFrom,
+			[startFrom](number p, unsigned int k, int p_index, unsigned int factor_index)
 			{
 				Factor& f = factors[factor_index];
 				f.p = p;
@@ -365,8 +365,8 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 			}
 		);
 
-		search_stack_depth = numFactors;
-		prev_search_stack_depth = numFactors;
+		search_stack_depth = static_cast<int>(numFactors);
+		prev_search_stack_depth = static_cast<int>(numFactors);
 
 		StackFrame* s = search_stack + search_stack_depth;
 		Factor* f = factors + search_stack_depth;
@@ -398,7 +398,7 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 		{
 			// Skip overabundant numbers
 			const bool is_deficient = (s[1].sum - s[1].value < s[1].value);
-			if (is_deficient || !OverAbundant(factors, numFactors - 1, s[1].value, s[1].sum, 2))
+			if (is_deficient || !OverAbundant(factors, static_cast<int>(numFactors) - 1, s[1].value, s[1].sum, 2))
 			{
 				if (!is_deficient || (s[1].sum * sum_q - value_to_check > value_to_check))
 				{
@@ -407,7 +407,7 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 					range.start_prime = q0;
 					range.index_start_prime = static_cast<unsigned int>(start_j);
 					memcpy(range.factors, factors, sizeof(Factor) * numFactors);
-					range.last_factor_index = numFactors - 1;
+					range.last_factor_index = static_cast<int>(numFactors) - 1;
 				}
 			}
 		}
@@ -416,7 +416,7 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 	if (stopAt)
 	{
 		ParseFactorization(stopAt,
-			[outStopAtFactors](number p, unsigned int k, int /*p_index*/, int factor_index)
+			[outStopAtFactors](number p, unsigned int k, int /*p_index*/, unsigned int factor_index)
 			{
 				outStopAtFactors[factor_index].p = p;
 				outStopAtFactors[factor_index].k = k;
@@ -443,7 +443,7 @@ NOINLINE void RangeGen::Run(number numThreads, char* startFrom, char* stopAt, un
 
 	std::vector<std::thread> threads;
 
-	Timer t(true);
+	Timer t;
 
 	unsigned int* num_pairs = reinterpret_cast<unsigned int*>(alloca(sizeof(unsigned int) * numThreads));
 	WorkerThreadParams* params = reinterpret_cast<WorkerThreadParams*>(alloca(sizeof(WorkerThreadParams) * numThreads));
@@ -462,8 +462,6 @@ NOINLINE void RangeGen::Run(number numThreads, char* startFrom, char* stopAt, un
 	{
 		threads[i].join();
 	}
-
-	cpu_cycles = t.getCPUCycles();
 
 	unsigned int numFoundPairsTotal = 0;
 	for (number i = 0; i < numThreads; ++i)

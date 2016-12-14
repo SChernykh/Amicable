@@ -15,7 +15,7 @@ static NOINLINE void ProfileGuidedOptimization_Instrument_WorkerThread(number da
 
 	Timer t;
 
-	SUPPRESS_WARNING(4611)
+	PRAGMA_WARNING(suppress : 4611)
 	if (setjmp(locWorkerThreadJumpBuffer))
 	{
 		const double dt = t.getElapsedTime();

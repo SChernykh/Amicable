@@ -258,25 +258,23 @@ FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetS
 	// This means that (M * value) must be <= (number(-1) / N)
 	// Otherwise it's not divisible by N
 	number q = a * PrimeInverses[PrimeIndex].first;
-	if (q <= PrimeInverses[PrimeIndex].second)
+	if (UNLIKELY(q <= PrimeInverses[PrimeIndex].second))
 	{
-		a = q;
-		number n = p;
-		number curSum = p + 1;
+		const number prevSumA = sumA;
+		number nextSumA = prevSumA * (p + 1);
 		number curPower = 0;
 		for (;;)
 		{
-			q = a * PrimeInverses2[PrimeIndex].first;
+			a = q;
+			q *= PrimeInverses2[PrimeIndex].first;
 			if (q > PrimeInverses2[PrimeIndex].second)
 			{
 				break;
 			}
-			n *= p;
-			a = q;
+			nextSumA = nextSumA * p + prevSumA;
 			++curPower;
-			curSum += n;
 		}
-		sumA *= curSum;
+		sumA = nextSumA;
 
 		// If a number is fully factored, then exit immediately
 		if (a < CompileTimePrimes<PrimeIndex + 1>::value * CompileTimePrimes<PrimeIndex + 1>::value)
@@ -645,7 +643,7 @@ FORCEINLINE number InitialCheck(const number n1, const number targetSum, number&
 	unsigned long bitIndex;
 	_BitScanForward64(&bitIndex, n2);
 	number n2TargetSum = targetSum;
-	__assume(n2TargetSum > 0);
+	ASSUME(n2TargetSum > 0);
 	if (bitIndex > 0)
 	{
 		n2 >>= bitIndex;
@@ -655,7 +653,7 @@ FORCEINLINE number InitialCheck(const number n1, const number targetSum, number&
 
 		sum = (number(1) << (bitIndex + 1)) - 1;
 		n2TargetSum = targetSum * locPowersOf2DivisibilityData[bitIndex - 1][0];
-		__assume(n2TargetSum > 0);
+		ASSUME(n2TargetSum > 0);
 		if (n2TargetSum > locPowersOf2DivisibilityData[bitIndex - 1][1])
 			return 0;
 	}

@@ -122,12 +122,7 @@ int main(int argc, char* argv[])
 		Timer t;
 		RangeGen::Run(numThreads, startFrom, stopAt, largestPrimePower, startPrime, primeLimit);
 		const double dt = t.getElapsedTime();
-
-		printf("completed in %f seconds\n%u pairs found\n%e CPU cycles\n\n",
-			dt,
-			GetNumFoundPairsInThisThread(),
-			static_cast<double>(RangeGen::cpu_cycles)
-		);
+		printf("completed in %f seconds\n%u pairs found\n\n", dt, GetNumFoundPairsInThisThread());
 	} while (!g_PrintNumbers);
 
 	return 0;

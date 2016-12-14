@@ -1,20 +1,29 @@
 #pragma once
 
-#pragma warning(disable : 4619)
+#ifdef _MSC_VER
+#define PRAGMA_WARNING(...) __pragma(warning(__VA_ARGS__))
+#define _Pragma(...)
+#elif __GNUG__
+#define PRAGMA_WARNING(...)
+#else
+static_assert(false, "This compiler is not supported");
+#endif
 
-#pragma warning(disable : 4324)
-#pragma warning(disable : 4350)
-#pragma warning(disable : 4505)
-#pragma warning(disable : 4514)
-#pragma warning(disable : 4592)
-#pragma warning(disable : 4710)
-#pragma warning(disable : 4711)
-#pragma warning(disable : 4820)
+PRAGMA_WARNING(disable : 4619)
 
-#pragma warning(push, 1)
-#pragma warning(disable : 4265)
-#pragma warning(disable : 4365)
-#pragma warning(disable : 4571)
+PRAGMA_WARNING(disable : 4324)
+PRAGMA_WARNING(disable : 4350)
+PRAGMA_WARNING(disable : 4505)
+PRAGMA_WARNING(disable : 4514)
+PRAGMA_WARNING(disable : 4592)
+PRAGMA_WARNING(disable : 4710)
+PRAGMA_WARNING(disable : 4711)
+PRAGMA_WARNING(disable : 4820)
+
+PRAGMA_WARNING(push, 1)
+PRAGMA_WARNING(disable : 4265)
+PRAGMA_WARNING(disable : 4365)
+PRAGMA_WARNING(disable : 4571)
 
 typedef unsigned char byte;
 typedef unsigned long long int number;
@@ -26,7 +35,7 @@ typedef unsigned long long int number;
 #include <vector>
 #include <thread>
 
-#pragma warning(pop)
+PRAGMA_WARNING(pop)
 
 #include "Platform.h"
 #include "Definitions.h"

@@ -20,13 +20,6 @@ template <typename T, number N> char(*ArraySizeHelper(T(&)[N]))[N];
 typedef unsigned long DWORD;
 typedef long long __int64;
 
-FORCEINLINE number _umul128(number a, number b, number* h)
-{
-	const unsigned __int128 result = static_cast<unsigned __int128>(a) * b;
-	*h = static_cast<number>(result >> 64);
-	return static_cast<number>(result);
-}
-
 FORCEINLINE void _BitScanReverse64(unsigned long* index, unsigned long long mask)
 {
 	*index = static_cast<unsigned long>(63 - __builtin_clzll(mask));
@@ -70,15 +63,14 @@ FORCEINLINE int LeaveCriticalSection(CRITICAL_SECTION* lock)
 	return (pthread_mutex_unlock(lock) == 0) ? 1 : 0;
 }
 
-#define SUPPRESS_WARNING(X)
-
 #define IF_CONSTEXPR(X) \
 	static_assert((X) || !(X), "Error: "#X" is not a constexpr"); \
 	if (X)
 
 #define __popcnt64 __builtin_popcountll
 
-#define __assume(cond) do { if (!(cond)) __builtin_unreachable(); } while (0)
+#define ASSUME(cond) do { if (!(cond)) __builtin_unreachable(); } while (0)
+#define UNLIKELY(cond) __builtin_expect(cond, 0)
 
 #define _InterlockedIncrement(X) (__sync_fetch_and_add(X, 1) + 1)
 
@@ -90,10 +82,8 @@ FORCEINLINE int LeaveCriticalSection(CRITICAL_SECTION* lock)
 class Timer
 {
 public:
-	FORCEINLINE explicit Timer(bool count_cycles = false)
+	FORCEINLINE explicit Timer()
 	{
-		(void) count_cycles;
-
 		clock_gettime(CLOCK_REALTIME, &t1);
 	}
 
@@ -102,32 +92,6 @@ public:
 		timespec t2;
 		clock_gettime(CLOCK_REALTIME, &t2);
 		return (t2.tv_sec - t1.tv_sec) + (t2.tv_nsec - t1.tv_nsec) * 1e-9;
-	}
-
-	FORCEINLINE number getCPUCycles() const
-	{
-		const double dt = getElapsedTime();
-
-		std::string s;
-		int numCPUs = 0;
-		double totalFreqMHz = 0.0;
-		std::ifstream f("/proc/cpuinfo");
-		while (!f.eof())
-		{
-			std::getline(f, s);
-			if (s.find("cpu MHz") != std::string::npos)
-			{
-				const size_t offset = s.find(':');
-				if (offset != std::string::npos)
-				{
-					++numCPUs;
-					totalFreqMHz += atof(s.c_str() + offset + 1);
-				}
-			}
-		}
-		f.close();
-
-		return static_cast<number>(dt * totalFreqMHz * 1e6 / numCPUs);
 	}
 
 private:
@@ -150,6 +114,39 @@ FORCEINLINE void Sleep(DWORD ms)
 		t.tv_nsec = static_cast<long>((sleepTime - t.tv_sec) * 1e9);
 		nanosleep(&t, nullptr);
 	}
+}
+
+FORCEINLINE bool IsPopcntAvailable()
+{
+	unsigned int cpuid_data[4] = {};
+	__get_cpuid(1, &cpuid_data[0], &cpuid_data[1], &cpuid_data[2], &cpuid_data[3]);
+	return (cpuid_data[2] & (1 << 23)) != 0;
+}
+
+FORCEINLINE void* AllocateSystemMemory(number size, bool is_executable)
+{
+	return mmap(0, size, is_executable ? (PROT_READ | PROT_WRITE | PROT_EXEC) : (PROT_READ | PROT_WRITE), MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+}
+
+FORCEINLINE void DisableAccessToMemory(void* ptr, number size)
+{
+	mprotect(ptr, size, PROT_NONE);
+}
+
+FORCEINLINE void ForceRoundUpFloatingPoint()
+{
+	fesetround(FE_UPWARD);
+}
+
+// All code that doesn't pass "-Wpedantic" must be below this comment
+
+#pragma GCC system_header
+
+FORCEINLINE number _umul128(number a, number b, number* h)
+{
+	const unsigned __int128 result = static_cast<unsigned __int128>(a) * b;
+	*h = static_cast<number>(result >> 64);
+	return static_cast<number>(result);
 }
 
 FORCEINLINE number udiv128(number numhi, number numlo, number den, number* rem)
@@ -184,26 +181,4 @@ FORCEINLINE void sub128(number a_lo, number a_hi, number b_lo, number b_hi, numb
 FORCEINLINE byte leq128(number a_lo, number a_hi, number b_lo, number b_hi)
 {
 	return (static_cast<__int128>(((static_cast<unsigned __int128>(a_hi) << 64) + a_lo) - ((static_cast<unsigned __int128>(b_hi) << 64) + b_lo)) <= 0) ? 1 : 0;
-}
-
-FORCEINLINE bool IsPopcntAvailable()
-{
-	unsigned int cpuid_data[4] = {};
-	__get_cpuid(1, &cpuid_data[0], &cpuid_data[1], &cpuid_data[2], &cpuid_data[3]);
-	return (cpuid_data[2] & (1 << 23)) != 0;
-}
-
-FORCEINLINE void* AllocateSystemMemory(number size, bool is_executable)
-{
-	return mmap(0, size, is_executable ? (PROT_READ | PROT_WRITE | PROT_EXEC) : (PROT_READ | PROT_WRITE), MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-}
-
-FORCEINLINE void DisableAccessToMemory(void* ptr, number size)
-{
-	mprotect(ptr, size, PROT_NONE);
-}
-
-FORCEINLINE void ForceRoundUpFloatingPoint()
-{
-	fesetround(FE_UPWARD);
 }

@@ -468,7 +468,7 @@ void PrimeTablesInit()
 
 	for (number p = 3, index = 1; p <= SearchLimit::PrimeInversesBound; p += privNextPrimeShifts[index++] * ShiftMultiplier)
 	{
-		SUPPRESS_WARNING(4146)
+		PRAGMA_WARNING(suppress : 4146)
 		const number p_inv = -modular_inverse64(p);
 		const number p_max = number(-1) / p;
 		if (p_inv * p != 1)

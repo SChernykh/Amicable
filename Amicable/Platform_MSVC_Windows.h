@@ -1,12 +1,12 @@
 #pragma once
 
-#pragma warning(push, 1)
-#pragma warning(disable : 4668)
+PRAGMA_WARNING(push, 1)
+PRAGMA_WARNING(disable : 4668)
 #include <SDKDDKVer.h>
 #include <Windows.h>
 #include <tchar.h>
 #include <intrin.h>
-#pragma warning(pop)
+PRAGMA_WARNING(pop)
 
 #undef min
 #undef max
@@ -21,16 +21,17 @@
 
 #define FORCEINLINE __forceinline
 
+#define ASSUME(cond) __assume(cond)
+#define UNLIKELY(cond) cond
+
 #define CACHE_ALIGNED __declspec(align(64))
 
 #define THREAD_LOCAL __declspec(thread)
 
 #define CRITICAL_SECTION_INITIALIZER {}
 
-#define SUPPRESS_WARNING(X) __pragma(warning(suppress : X))
-
 #define IF_CONSTEXPR(X) \
-	SUPPRESS_WARNING(4127) \
+	PRAGMA_WARNING(suppress : 4127) \
 	static_assert((X) || !(X), "Error: "#X" is not a constexpr"); \
 	if (X)
 
@@ -40,14 +41,10 @@
 class Timer
 {
 public:
-	FORCEINLINE explicit Timer(bool count_cycles = false)
+	FORCEINLINE explicit Timer()
 	{
 		QueryPerformanceFrequency(&f);
 		QueryPerformanceCounter(&t1);
-		if (count_cycles)
-		{
-			QueryProcessCycleTime(GetCurrentProcess(), &cycleTime1);
-		}
 	}
 
 	FORCEINLINE double getElapsedTime() const
@@ -57,16 +54,8 @@ public:
 		return static_cast<double>(t2.QuadPart - t1.QuadPart) / f.QuadPart;
 	}
 
-	FORCEINLINE number getCPUCycles() const
-	{
-		ULONG64 cycleTime2;
-		QueryProcessCycleTime(GetCurrentProcess(), &cycleTime2);
-		return cycleTime2 - cycleTime1;
-	}
-
 private:
 	LARGE_INTEGER f, t1;
-	ULONG64 cycleTime1;
 };
 
 extern number(*udiv128)(number numhi, number numlo, number den, number* rem);

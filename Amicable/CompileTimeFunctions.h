@@ -67,10 +67,10 @@ struct Max
 	};
 };
 
-#pragma warning(push)
+PRAGMA_WARNING(push)
 
 // Disable this warning here because number overflows are the essence of this algorithm: it computes everything modulo 2^64.
-#pragma warning(disable : 4307) // warning C4307: '*' : integral constant overflow
+PRAGMA_WARNING(disable : 4307) // warning C4307: '*' : integral constant overflow
 
 template<number x1, number x2, number v1, number v2>
 struct ExtendedEuclidCompileTime
@@ -133,7 +133,7 @@ struct MultiplicativeInverseEven
 	};
 };
 
-#pragma warning(pop)
+PRAGMA_WARNING(pop)
 
 template<number N> struct CompileTimePrimes;
 

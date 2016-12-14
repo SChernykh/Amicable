@@ -2,8 +2,8 @@
 
 #include "sprp_bases.inl"
 
-#pragma warning(push, 1)
-#pragma warning(disable : 4146 4838)
+PRAGMA_WARNING(push, 1)
+PRAGMA_WARNING(disable : 4146 4838)
 
 static FORCEINLINE number mont_prod64(const number a, const number b, const number n, const number npi)
 {
@@ -181,4 +181,4 @@ static FORCEINLINE bool efficient_mr64(const number N)
 	return true;
 }
 
-#pragma warning(pop)
+PRAGMA_WARNING(pop)
