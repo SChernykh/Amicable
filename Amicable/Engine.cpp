@@ -385,7 +385,7 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 		return;
 	number n2_sqrt4 = Root4(n2);
 
-	const byte* shift = NextPrimeShifts + CompileTimePrimesCount;
+	const byte* shift = NextPrimeShifts + CompileTimePrimesCount * 2;
 	number p = CompileTimePrimes<CompileTimePrimesCount>::value;
 	while (p <= n2_sqrt4)
 	{
@@ -428,7 +428,8 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 		if (MaximumSumOfDivisorsN(n2, numPrimesCheckedSoFar, indexForMaximumSumOfDivisorsN) < n2TargetSum)
 			return;
 
-		p += *(shift++) * ShiftMultiplier;
+		p += *shift * ShiftMultiplier;
+		shift += 2;
 	}
 
 	// Here p^4 > n2, so n2 can have at most 3 factors
@@ -490,7 +491,8 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 		if (MaximumSumOfDivisors3(n2, p, q) < n2TargetSum)
 			return;
 
-		p += *(shift++) * ShiftMultiplier;
+		p += *shift * ShiftMultiplier;
+		shift += 2;
 		++numPrimesCheckedSoFar;
 	}
 
@@ -681,6 +683,12 @@ NOINLINE void CheckPairNoInline(const number n1, const number targetSum)
 NOINLINE void SearchRange(const RangeData& r)
 {
 	number prime_limit = (SearchLimit::value - 1) / r.value;
+	if (prime_limit > SearchLimit::MainPrimeTableBound)
+	{
+		prime_limit = SearchLimit::MainPrimeTableBound;
+	}
+
+	unsigned int is_over_abundant_mask = 0;
 	if (r.sum - r.value < r.value)
 	{
 		const number prime_limit2 = (r.sum - 1) / (r.value * 2 - r.sum);
@@ -689,45 +697,33 @@ NOINLINE void SearchRange(const RangeData& r)
 			prime_limit = prime_limit2;
 		}
 	}
-	if (prime_limit > SearchLimit::MainPrimeTableBound)
+	else
 	{
-		prime_limit = SearchLimit::MainPrimeTableBound;
+		const Factor* f = r.factors;
+		const int k = r.last_factor_index;
+		is_over_abundant_mask |= OverAbundant(f, k, r.value, r.sum, 2 * 5) << 1;
+		is_over_abundant_mask |= OverAbundant(f, k, r.value, r.sum, 2 * 7) << 2;
+		is_over_abundant_mask |= OverAbundant(f, k, r.value, r.sum, 2 * 11) << 4;
+		is_over_abundant_mask |= (((is_over_abundant_mask & 0x06) || OverAbundant(f, k, r.value, r.sum, 2 * 5 * 7)) ? byte(1) : byte(0)) << 3;
+		is_over_abundant_mask |= (((is_over_abundant_mask & 0x12) || OverAbundant(f, k, r.value, r.sum, 2 * 5 * 11)) ? byte(1) : byte(0)) << 5;
+		is_over_abundant_mask |= (((is_over_abundant_mask & 0x14) || OverAbundant(f, k, r.value, r.sum, 2 * 7 * 11)) ? byte(1) : byte(0)) << 6;
+		is_over_abundant_mask |= (((is_over_abundant_mask & 0x7E) || OverAbundant(f, k, r.value, r.sum, 2 * 5 * 7 * 11)) ? byte(1) : byte(0)) << 7;
+		is_over_abundant_mask <<= 8;
 	}
 
-	unsigned int is_over_abundant_mask = 0;
-	const Factor* f = r.factors;
-	const int k = r.last_factor_index;
-	is_over_abundant_mask |= OverAbundant(f, k, r.value, r.sum, 2 * 5) << 1;
-	is_over_abundant_mask |= OverAbundant(f, k, r.value, r.sum, 2 * 7) << 2;
-	is_over_abundant_mask |= OverAbundant(f, k, r.value, r.sum, 2 * 11) << 4;
-	is_over_abundant_mask |= (((is_over_abundant_mask & 0x06) || OverAbundant(f, k, r.value, r.sum, 2 * 5 * 7)) ? byte(1) : byte(0)) << 3;
-	is_over_abundant_mask |= (((is_over_abundant_mask & 0x12) || OverAbundant(f, k, r.value, r.sum, 2 * 5 * 11)) ? byte(1) : byte(0)) << 5;
-	is_over_abundant_mask |= (((is_over_abundant_mask & 0x14) || OverAbundant(f, k, r.value, r.sum, 2 * 7 * 11)) ? byte(1) : byte(0)) << 6;
-	is_over_abundant_mask |= (((is_over_abundant_mask & 0x7E) || OverAbundant(f, k, r.value, r.sum, 2 * 5 * 7 * 11)) ? byte(1) : byte(0)) << 7;
-
-	const byte* is_not_over_abundant_mod_385 = IsNotOverAbundantMod385 + (is_over_abundant_mask << 8);
-
 	number q = r.start_prime;
-	unsigned int sum_q_mod_385 = (q + 1) % 385;
-	const byte* shift = NextPrimeShifts + r.index_start_prime;
+	const byte* shift = NextPrimeShifts + r.index_start_prime * 2;
 	const number m = r.value;
 	const number sum_m = r.sum;
 	while (q <= prime_limit)
 	{
-		if (is_not_over_abundant_mod_385[sum_q_mod_385])
+		const unsigned int shiftData = *reinterpret_cast<const unsigned int*>(shift);
+		shift += 2;
+		const number prev_q = q;
+		q += (shiftData & 255) * ShiftMultiplier;
+		if ((shiftData & is_over_abundant_mask) == 0)
 		{
-			CheckPair(m * q, sum_m * (q + 1));
-		}
-		const unsigned int cur_shift = static_cast<unsigned int>(*(shift++));
-		q += cur_shift * ShiftMultiplier;
-		sum_q_mod_385 += cur_shift * ShiftMultiplier;
-
-#if !DYNAMIC_SEARCH_LIMIT
-		static_assert(SearchLimit::MainPrimeTableBound < 22367084959, "Prime gaps can be greater than 385 starting with 22367084959. The following code won't work.");
-#endif
-		if (sum_q_mod_385 >= 385)
-		{
-			sum_q_mod_385 -= 385;
+			CheckPair(m * prev_q, sum_m * (prev_q + 1));
 		}
 	}
 }
@@ -752,21 +748,22 @@ NOINLINE void SearchRangeSquared(const RangeData& r)
 	}
 
 	number q = r.start_prime;
-	const byte* shift = NextPrimeShifts + r.index_start_prime;
+	const byte* shift = NextPrimeShifts + r.index_start_prime * 2;
 	const number m = r.value;
 	const number sum_m = r.sum;
 	while (q < prime_limit)
 	{
 		const number q2 = q * q;
 		CheckPair(m * q2, sum_m * (q2 + q + 1));
-		q += static_cast<unsigned int>(*(shift++)) * ShiftMultiplier;
+		q += static_cast<unsigned int>(*shift) * ShiftMultiplier;
+		shift += 2;
 	}
 }
 
 NOINLINE void SearchRangeCubed(const RangeData& r)
 {
 	number q = r.start_prime;
-	const byte* shift = NextPrimeShifts + r.index_start_prime;
+	const byte* shift = NextPrimeShifts + r.index_start_prime * 2;
 	const number m = r.value;
 	const number sum_m = r.sum;
 	for (;;)
@@ -785,7 +782,8 @@ NOINLINE void SearchRangeCubed(const RangeData& r)
 			break;
 		}
 		CheckPair(value, sum_m * (q3 + q2 + q + 1));
-		q += static_cast<unsigned int>(*(shift++)) * ShiftMultiplier;
+		q += static_cast<unsigned int>(*shift) * ShiftMultiplier;
+		shift += 2;
 	}
 }
 
@@ -795,7 +793,7 @@ NOINLINE void SearchLargePrimes(volatile number* SharedCounterForSearch, const n
 	{
 		FORCEINLINE void operator()(number curPrime)
 		{
-			const unsigned int mask = CandidatesDataMask[GetLinearSearchDataRemainder(curPrime + 1)];
+			const unsigned int mask = CandidatesDataMask[Mod385(curPrime + 1)];
 			for (const auto& candidate : CandidatesData)
 			{
 				if (candidate.is_not_over_abundant_mask & mask)

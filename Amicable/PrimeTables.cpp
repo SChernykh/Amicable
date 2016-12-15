@@ -8,7 +8,6 @@ byte* privNextPrimeShifts = nullptr;
 const SumEstimateData* privSumEstimates[SumEstimatesSize];
 CACHE_ALIGNED number privSumEstimatesBeginP[SumEstimatesSize];
 CACHE_ALIGNED number privSumEstimatesBeginQ[SumEstimatesSize];
-CACHE_ALIGNED byte privIsNotOverAbundantMod385[128 * 512];
 std::vector<AmicableCandidate> privCandidatesData;
 CACHE_ALIGNED unsigned char privCandidatesDataMask[5 * 7 * 11];
 std::pair<number, number>* privPrimeInverses = nullptr;
@@ -300,7 +299,7 @@ FORCEINLINE void SearchCandidates(Factor* factors, const number value, const num
 	int start_i = (depth == 0) ? 0 : (factors[depth - 1].index + 1);
 
 	Factor& f = factors[depth];
-	f.p = (depth == 0) ? 2 : (factors[depth - 1].p + NextPrimeShifts[factors[depth - 1].index] * ShiftMultiplier);
+	f.p = (depth == 0) ? 2 : (factors[depth - 1].p + NextPrimeShifts[factors[depth - 1].index * 2] * ShiftMultiplier);
 
 	// A check to ensure that m is not divisible by 6
 	IF_CONSTEXPR(depth == 1)
@@ -320,7 +319,7 @@ FORCEINLINE void SearchCandidates(Factor* factors, const number value, const num
 
 	// Check only 2, 3, 5 as the smallest prime factor because the smallest abundant number coprime to 2*3*5 is ~2*10^25
 	const unsigned int max_prime = static_cast<unsigned int>((depth > 0) ? ((SearchLimit::LinearLimit / 20) + 1) : 7);
-	for (f.index = start_i; f.p < max_prime; f.p += NextPrimeShifts[f.index] * ShiftMultiplier, ++f.index)
+	for (f.index = start_i; f.p < max_prime; f.p += NextPrimeShifts[f.index * 2] * ShiftMultiplier, ++f.index)
 	{
 		number h;
 		number next_value = _umul128(value, f.p, &h);
@@ -442,8 +441,18 @@ void PrimeTablesInit()
 		nPrimeInverses = CompileTimePrimesCount;
 	}
 
-	privPrimeInverses = reinterpret_cast<std::pair<number, number>*>(AllocateSystemMemory((((nPrimeInverses + 3) / 4) * 4) * sizeof(std::pair<number, number>) + nPrimes, false));
+	privPrimeInverses = reinterpret_cast<std::pair<number, number>*>(AllocateSystemMemory((((nPrimeInverses + 3) / 4) * 4) * sizeof(std::pair<number, number>) + (nPrimes + (nPrimes & 1)) * 2, false));
 	privNextPrimeShifts = reinterpret_cast<byte*>(privPrimeInverses + (((nPrimeInverses + 3) / 4) * 4));
+
+	byte overAbundantIndexConversion[385];
+	for (unsigned int i = 0; i < 385; ++i)
+	{
+		unsigned int index = 0;
+		if (i * MultiplicativeInverse<5>::value <= number(-1) / 5) index += 1;
+		if (i * MultiplicativeInverse<7>::value <= number(-1) / 7) index += 2;
+		if (i * MultiplicativeInverse<11>::value <= number(-1) / 11) index += 4;
+		overAbundantIndexConversion[i] = static_cast<byte>(1 << index);
+	}
 
 	nPrimes = 0;
 	for (PrimeIterator it(2); it.Get() <= SearchLimit::MainPrimeTableBound;)
@@ -462,11 +471,12 @@ void PrimeTablesInit()
 			std::cerr << "Primes gap is 512 or greater, decrease MainPrimeTableBound";
 			abort();
 		}
-		privNextPrimeShifts[nPrimes] = static_cast<byte>((q - p) / ShiftMultiplier);
+		privNextPrimeShifts[nPrimes * 2] = static_cast<byte>((q - p) / ShiftMultiplier);
+		privNextPrimeShifts[nPrimes * 2 + 1] = overAbundantIndexConversion[Mod385(p + 1)];
 		++nPrimes;
 	}
 
-	for (number p = 3, index = 1; p <= SearchLimit::PrimeInversesBound; p += privNextPrimeShifts[index++] * ShiftMultiplier)
+	for (number p = 3, index = 1; p <= SearchLimit::PrimeInversesBound; p += privNextPrimeShifts[index * 2] * ShiftMultiplier, ++index)
 	{
 		PRAGMA_WARNING(suppress : 4146)
 		const number p_inv = -modular_inverse64(p);
@@ -570,26 +580,5 @@ void PrimeTablesInit()
 	{
 		privSumEstimatesBeginP[j] = (j + 1 < SumEstimatesSize) ? privSumEstimates[j + 1][IS_NUM_ELIGIBLE_BEGIN].P : number(-1);
 		privSumEstimatesBeginQ[j] = privSumEstimates[j][IS_NUM_ELIGIBLE_BEGIN].Q;
-	}
-
-	byte overAbundantIndexConversion[385];
-	for (unsigned int i = 0; i < 385; ++i)
-	{
-		unsigned int index = 0;
-		if (i * MultiplicativeInverse<5>::value <= number(-1) / 5) index += 1;
-		if (i * MultiplicativeInverse<7>::value <= number(-1) / 7) index += 2;
-		if (i * MultiplicativeInverse<11>::value <= number(-1) / 11) index += 4;
-		overAbundantIndexConversion[i] = static_cast<byte>(1 << index);
-	}
-
-	memset(privIsNotOverAbundantMod385, 1, 385);
-	for (unsigned int is_over_abundant_mask = 2; is_over_abundant_mask < 256; is_over_abundant_mask += 2)
-	{
-		byte* p385 = privIsNotOverAbundantMod385 + (is_over_abundant_mask << 8);
-		const unsigned int is_not_over_abundant_mask = ~is_over_abundant_mask;
-		for (unsigned int i = 0; i < 385; ++i)
-		{
-			p385[i] = static_cast<byte>((is_not_over_abundant_mask & overAbundantIndexConversion[i]) ? 1 : 0);
-		}
 	}
 }

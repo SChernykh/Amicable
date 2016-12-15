@@ -151,7 +151,7 @@ NOINLINE bool TestAmicableCandidates()
 				return false;
 			}
 
-			const unsigned int mask = CandidatesDataMask[GetLinearSearchDataRemainder(max_factor.first + 1)];
+			const unsigned int mask = CandidatesDataMask[Mod385(max_factor.first + 1)];
 			if ((it->is_not_over_abundant_mask & mask) == 0)
 			{
 				std::cerr << "LinearSearchData has invalid is_not_over_abundant_mask for " << m << std::endl;
@@ -194,7 +194,7 @@ NOINLINE bool TestMaximumSumOfDivisors3()
 		if (curEstimate < minEstimate)
 			minEstimate = curEstimate;
 		p1 += *shift1 ? *shift1 * ShiftMultiplier : 1ULL;
-		++shift1;
+		shift1 += 2;
 	}
 
 	shift1 = NextPrimeShifts;
@@ -203,7 +203,7 @@ NOINLINE bool TestMaximumSumOfDivisors3()
 	{
 		const byte* shift2 = shift1;
 		number p2 = p1 + (*shift2 ? *shift2 * ShiftMultiplier : 1ULL);
-		++shift2;
+		shift2 += 2;
 		for (int j = 0; j < N; ++j)
 		{
 			{
@@ -265,10 +265,10 @@ NOINLINE bool TestMaximumSumOfDivisors3()
 					minEstimate = curEstimate;
 			}
 			p2 += *shift2 ? *shift2 * ShiftMultiplier : 1ULL;
-			++shift2;
+			shift2 += 2;
 		}
 		p1 += *shift1 ? *shift1 * ShiftMultiplier : 1ULL;
-		++shift1;
+		shift1 += 2;
 	}
 
 	shift1 = NextPrimeShifts;
@@ -277,12 +277,12 @@ NOINLINE bool TestMaximumSumOfDivisors3()
 	{
 		const byte* shift2 = shift1;
 		number p2 = p1 + (*shift2 ? *shift2 * ShiftMultiplier : 1ULL);
-		++shift2;
+		shift2 += 2;
 		for (int j = 0; j < N; ++j)
 		{
 			const byte* shift3 = shift2;
 			number p3 = p2 + (*shift3 ? *shift3 * ShiftMultiplier : 1ULL);
-			++shift3;
+			shift3 += 2;
 			for (int k = 0; k < N; ++k)
 			{
 				number a = p1 * p2 * p3;
@@ -329,13 +329,13 @@ NOINLINE bool TestMaximumSumOfDivisors3()
 				if (curEstimate < minEstimate)
 					minEstimate = curEstimate;
 				p3 += *shift3 ? *shift3 * ShiftMultiplier : 1ULL;
-				++shift3;
+				shift3 += 2;
 			}
 			p2 += *shift2 ? *shift2 * ShiftMultiplier : 1ULL;
-			++shift2;
+			shift2 += 2;
 		}
 		p1 += *shift1 ? *shift1 * ShiftMultiplier : 1ULL;
-		++shift1;
+		shift1 += 2;
 	}
 	return true;
 }

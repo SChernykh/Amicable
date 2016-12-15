@@ -36,7 +36,7 @@ recurse_begin:
 
 	start_i = (search_stack_depth == 0) ? 0 : (factors[search_stack_depth - 1].index + 1);
 
-	f->p = (search_stack_depth == 0) ? 2 : (factors[search_stack_depth - 1].p + NextPrimeShifts[factors[search_stack_depth - 1].index] * ShiftMultiplier);
+	f->p = (search_stack_depth == 0) ? 2 : (factors[search_stack_depth - 1].p + NextPrimeShifts[factors[search_stack_depth - 1].index * 2] * ShiftMultiplier);
 
 	// A check to ensure that m is not divisible by 6
 	if (search_stack_depth == 1)
@@ -51,7 +51,7 @@ recurse_begin:
 		}
 	}
 
-	for (f->index = start_i; f->p <= SearchLimit::PrimeInversesBound; f->p += NextPrimeShifts[f->index] * ShiftMultiplier, ++f->index)
+	for (f->index = start_i; f->p <= SearchLimit::PrimeInversesBound; f->p += NextPrimeShifts[f->index * 2] * ShiftMultiplier, ++f->index)
 	{
 		number h;
 		s[1].value = _umul128(s->value, f->p, &h);
@@ -71,7 +71,7 @@ recurse_begin:
 		for (;;)
 		{
 			start_j = f->index + 1;
-			q0 = f->p + NextPrimeShifts[f->index] * ShiftMultiplier;
+			q0 = f->p + NextPrimeShifts[f->index * 2] * ShiftMultiplier;
 
 			// A check to ensure that m*q is not divisible by 6
 			if (search_stack_depth == 0)
@@ -276,7 +276,8 @@ FORCEINLINE unsigned int ParseFactorization(char* factorization, T callback)
 					}
 					while (p1 < p)
 					{
-						p1 += NextPrimeShifts[index_p1++] * ShiftMultiplier;
+						p1 += NextPrimeShifts[index_p1 * 2] * ShiftMultiplier;
+						++index_p1;
 					}
 				}
 
@@ -374,7 +375,7 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 		range.value = 0;
 
 		int start_j = f->index + 1;
-		number q0 = f->p + NextPrimeShifts[f->index] * ShiftMultiplier;
+		number q0 = f->p + NextPrimeShifts[f->index * 2] * ShiftMultiplier;
 
 		// A check to ensure that m*q is not divisible by 6
 		if (search_stack_depth == 0)

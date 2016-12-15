@@ -92,7 +92,7 @@ extern CACHE_ALIGNED std::pair<number, number> privPrimeInverses2[CompileTimePri
 #define PrimeInverses ((const std::pair<number, number>*)(privPrimeInverses))
 #define PrimeInverses2 ((const std::pair<number, number>*)(privPrimeInverses2))
 
-FORCEINLINE number GetLinearSearchDataRemainder(const number n)
+FORCEINLINE number Mod385(const number n)
 {
 	number highProduct;
 	static_assert(ARRAYSIZE(privCandidatesDataMask) == 5 * 7 * 11, "!!! Recalculate these constants (12265886968492584971ULL and 8) if ARRAYSIZE(privLinearSearchDataIndex) changes !!!");
@@ -119,10 +119,6 @@ extern CACHE_ALIGNED number privSumEstimatesBeginQ[SumEstimatesSize];
 #define SumEstimates ((const SumEstimateData * const * const)(privSumEstimates))
 #define SumEstimatesBeginP (((const number* const)(privSumEstimatesBeginP)))
 #define SumEstimatesBeginQ (((const number* const)(privSumEstimatesBeginQ)))
-
-extern CACHE_ALIGNED byte privIsNotOverAbundantMod385[128 * 512];
-
-#define IsNotOverAbundantMod385 ((const byte*)(privIsNotOverAbundantMod385))
 
 FORCEINLINE number GCD(number a, number b)
 {
