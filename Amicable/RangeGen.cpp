@@ -427,7 +427,7 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 			const bool is_deficient = (s[1].sum - s[1].value < s[1].value);
 			if (is_deficient || !OverAbundant<2>(factors, static_cast<int>(numFactors) - 1, s[1].value, s[1].sum, static_cast<number>((cur_largest_prime_power & 1) ? 2 : 1)))
 			{
-				if (!is_deficient || (s[1].sum * sum_q - value_to_check > value_to_check))
+				if (!is_deficient || is_abundant_q(s[1].sum, sum_q, value_to_check))
 				{
 					range.value = s[1].value;
 					range.sum = s[1].sum;
