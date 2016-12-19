@@ -5,6 +5,8 @@
 
 NOINLINE bool TestCheckPair()
 {
+	g_PrintNumbers = false;
+
 	const char* files[] = { "c2_3.txt", "c2_4.txt", "c2_5.txt", "c2_6.txt", "c2_7.txt", "c2_8.txt", "c2_9.txt", "c2_10.txt", "c2_11.txt", "c2_12.txt", "c2_13.txt", "c2_14.txt", "c2_15.txt", "c2_16.txt", "c2_17.txt", "c2_18.txt", "c2_19.txt" };
 	for (const char* name : files)
 	{
@@ -27,7 +29,7 @@ NOINLINE bool TestCheckPair()
 				return false;
 			}
 
-			if (m > SearchLimit::value)
+			if (m >= SearchLimit::value)
 				break;
 
 			buf[0] = '\0';
@@ -81,7 +83,7 @@ NOINLINE bool TestGeneric(T test)
 				return false;
 			}
 
-			if (m > SearchLimit::value)
+			if (m >= SearchLimit::value)
 				break;
 
 			const size_t len = strlen(buf);

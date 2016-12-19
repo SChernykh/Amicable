@@ -47,6 +47,10 @@ static NOINLINE void ProfileGuidedOptimization_Instrument_WorkerThread(number da
 			break;
 
 		case 1:
+			r.start_prime = 7;
+			r.index_start_prime = 3;
+			r.value = 20;
+			r.sum = 42;
 			SearchRangeSquared(r);
 			break;
 
@@ -73,9 +77,17 @@ static NOINLINE void ProfileGuidedOptimization_Instrument_WorkerThread(number da
 			break;
 
 		case 5:
+			for (unsigned int k = 1; k <= 3; ++k)
 			{
-				RangeData tmp;
-				do {} while (RangeGen::Iterate(tmp));
+				RangeData tmp = {};
+				RangeGen::Init(nullptr, nullptr, nullptr, nullptr, k);
+				for (int i = 0; i < 25000; ++i)
+				{
+					if (!RangeGen::Iterate(tmp))
+					{
+						break;
+					}
+				}
 			}
 			break;
 		}
@@ -120,7 +132,7 @@ NOINLINE void ProfileGuidedOptimization_Instrument()
 
 	// Just disable access to some crucial data structures to crash running threads.
 	// Access violation will be caught and the thread will then finish gracefully, saving all profiling data.
-	DisableAccessToMemory(privPrimeInverses, 65536);
+	DisableAccessToMemory(privPrimeInverses, 4096);
 
 	for (number i = 0; i < threads.size(); ++i)
 	{

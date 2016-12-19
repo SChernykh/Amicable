@@ -13,6 +13,15 @@ volatile number RangeGen::SharedCounterForSearch;
 
 RangeGen RangeGen::RangeGen_instance;
 
+static FORCEINLINE bool is_abundant_q(const number sum, const number sum_q, const number value_to_check)
+{
+	// sum * sum_q can be >= 2^64 when SearchLimit::value is large enough, so use 128-bit arithmetic here
+	number s2[2];
+	s2[0] = _umul128(sum, sum_q, &s2[1]);
+	sub128(s2[0], s2[1], value_to_check, 0, s2, s2 + 1);
+	return (s2[0] > value_to_check) || s2[1];
+}
+
 template<unsigned int largest_prime_power>
 NOINLINE bool RangeGen::Iterate(RangeData& range)
 {
@@ -95,6 +104,13 @@ recurse_begin:
 					q = _umul128(q, q0, &h);
 					if (h)
 					{
+						if (f->k == 1)
+						{
+							--search_stack_depth;
+							--s;
+							--f;
+							goto recurse_begin;
+						}
 						break;
 					}
 					sum_q += q;
@@ -105,10 +121,20 @@ recurse_begin:
 					q = _umul128(q, q0, &h);
 					if (h)
 					{
+						if (f->k == 1)
+						{
+							--search_stack_depth;
+							--s;
+							--f;
+							goto recurse_begin;
+						}
 						break;
 					}
 					sum_q += q;
 				}
+
+				// We don't need to check if sum_q fits in 64 bits because q < SearchLimit::value / s[1].value,
+				// where s[1].value must be >= 20 for s[1].value * q to be amicable number
 
 				const number value_to_check = _umul128(s[1].value, q, &h);
 				if ((value_to_check >= SearchLimit::value) || h)
@@ -125,9 +151,9 @@ recurse_begin:
 
 				// Skip overabundant numbers
 				const bool is_deficient = (s[1].sum - s[1].value < s[1].value);
-				if (is_deficient || !OverAbundant(factors, search_stack_depth, s[1].value, s[1].sum, static_cast<number>((largest_prime_power & 1) ? 2 : 1)))
+				if (is_deficient || !OverAbundant<(largest_prime_power & 1) ? 2 : 1>(factors, search_stack_depth, s[1].value, s[1].sum, (largest_prime_power & 1) ? 2 : 1))
 				{
-					if (!is_deficient || (s[1].sum * sum_q - value_to_check > value_to_check))
+					if (!is_deficient || is_abundant_q(s[1].sum, sum_q, value_to_check))
 					{
 						range.value = s[1].value;
 						range.sum = s[1].sum;
@@ -399,7 +425,7 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 		{
 			// Skip overabundant numbers
 			const bool is_deficient = (s[1].sum - s[1].value < s[1].value);
-			if (is_deficient || !OverAbundant(factors, static_cast<int>(numFactors) - 1, s[1].value, s[1].sum, 2))
+			if (is_deficient || !OverAbundant<2>(factors, static_cast<int>(numFactors) - 1, s[1].value, s[1].sum, static_cast<number>((cur_largest_prime_power & 1) ? 2 : 1)))
 			{
 				if (!is_deficient || (s[1].sum * sum_q - value_to_check > value_to_check))
 				{

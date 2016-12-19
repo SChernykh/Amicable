@@ -274,24 +274,25 @@ NOINLINE number GetMaxSumRatio(const PrimeIterator& p, const number limit, numbe
 	return udiv128(r, 0, result.N, &r) + 1;
 }
 
+template<number sum_coeff_max_factor>
 NOINLINE byte OverAbundantNoInline(const Factor* f, int last_factor_index, const number value, const number sum, number sum_for_gcd_coeff)
 {
-	return OverAbundant(f, last_factor_index, value, sum, sum_for_gcd_coeff);
+	return OverAbundant<sum_coeff_max_factor>(f, last_factor_index, value, sum, sum_for_gcd_coeff);
 }
 
 template<int depth>
 FORCEINLINE void SearchCandidates(Factor* factors, const number value, const number sum)
 {
-	if ((sum - value >= value) && !OverAbundantNoInline(factors, depth - 1, value, sum, 2))
+	if ((sum - value >= value) && !OverAbundantNoInline<2>(factors, depth - 1, value, sum, 2))
 	{
 		unsigned char is_over_abundant_mask = 0;
-		is_over_abundant_mask |= OverAbundantNoInline(factors, depth - 1, value, sum, 2 * 5) << 1;
-		is_over_abundant_mask |= OverAbundantNoInline(factors, depth - 1, value, sum, 2 * 7) << 2;
-		is_over_abundant_mask |= OverAbundantNoInline(factors, depth - 1, value, sum, 2 * 11) << 4;
-		is_over_abundant_mask |= (((is_over_abundant_mask & 0x06) || OverAbundantNoInline(factors, depth - 1, value, sum, 2 * 5 * 7)) ? byte(1) : byte(0)) << 3;
-		is_over_abundant_mask |= (((is_over_abundant_mask & 0x12) || OverAbundantNoInline(factors, depth - 1, value, sum, 2 * 5 * 11)) ? byte(1) : byte(0)) << 5;
-		is_over_abundant_mask |= (((is_over_abundant_mask & 0x14) || OverAbundantNoInline(factors, depth - 1, value, sum, 2 * 7 * 11)) ? byte(1) : byte(0)) << 6;
-		is_over_abundant_mask |= (((is_over_abundant_mask & 0x7E) || OverAbundantNoInline(factors, depth - 1, value, sum, 2 * 5 * 7 * 11)) ? byte(1) : byte(0)) << 7;
+		is_over_abundant_mask |= OverAbundantNoInline<5>(factors, depth - 1, value, sum, 2 * 5) << 1;
+		is_over_abundant_mask |= OverAbundantNoInline<7>(factors, depth - 1, value, sum, 2 * 7) << 2;
+		is_over_abundant_mask |= OverAbundantNoInline<11>(factors, depth - 1, value, sum, 2 * 11) << 4;
+		is_over_abundant_mask |= (((is_over_abundant_mask & 0x06) || OverAbundantNoInline<7>(factors, depth - 1, value, sum, 2 * 5 * 7)) ? byte(1) : byte(0)) << 3;
+		is_over_abundant_mask |= (((is_over_abundant_mask & 0x12) || OverAbundantNoInline<11>(factors, depth - 1, value, sum, 2 * 5 * 11)) ? byte(1) : byte(0)) << 5;
+		is_over_abundant_mask |= (((is_over_abundant_mask & 0x14) || OverAbundantNoInline<11>(factors, depth - 1, value, sum, 2 * 7 * 11)) ? byte(1) : byte(0)) << 6;
+		is_over_abundant_mask |= (((is_over_abundant_mask & 0x7E) || OverAbundantNoInline<11>(factors, depth - 1, value, sum, 2 * 5 * 7 * 11)) ? byte(1) : byte(0)) << 7;
 
 		privCandidatesData.emplace_back(AmicableCandidate(static_cast<unsigned int>(value), static_cast<unsigned int>(sum), is_over_abundant_mask));
 	}

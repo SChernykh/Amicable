@@ -239,11 +239,12 @@ struct Factor
 	number q_max;
 };
 
-FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const number value, const number sum, number sum_for_gcd_coeff)
+template<number sum_coeff_max_factor>
+FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const number value, const number sum, const number sum_coeff)
 {
 	number g = 1;
 	number sum_g = 1;
-	number sum_for_gcd = sum * sum_for_gcd_coeff;
+	number sum_for_gcd = sum;
 
 	const Factor* last_factor = f + last_factor_index;
 
@@ -251,12 +252,19 @@ FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const numb
 	{
 		DWORD power_of_2;
 		_BitScanForward64(&power_of_2, sum_for_gcd);
+
+		IF_CONSTEXPR(sum_coeff_max_factor > 1)
+		{
+			DWORD power_of_2_sum_coeff;
+			_BitScanForward64(&power_of_2_sum_coeff, sum_coeff);
+			power_of_2 += power_of_2_sum_coeff;
+		}
+
 		const DWORD k = static_cast<DWORD>(f->k);
 		if (power_of_2 > k)
 		{
 			power_of_2 = k;
 		}
-		sum_for_gcd >>= power_of_2;
 		g <<= power_of_2;
 		sum_g <<= power_of_2;
 		sum_g = sum_g * 2 - 1;
@@ -271,6 +279,14 @@ FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const numb
 			const number q = sum_for_gcd * f->p_inv;
 			if (q > f->q_max)
 			{
+				IF_CONSTEXPR(sum_coeff_max_factor > 2)
+				{
+					if ((f->p <= sum_coeff_max_factor) && (sum_coeff * f->p_inv <= f->q_max))
+					{
+						g *= f->p;
+						sum_g = sum_g * f->p + prev_sum_g;
+					}
+				}
 				break;
 			}
 			sum_for_gcd = q;

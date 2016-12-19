@@ -51,10 +51,7 @@ class PrimeFinderTemplated : public PrimeFinder
 public:
 	PrimeFinderTemplated(PrimeSieve& ps, const PreSieve& preSieve, T&& callback) : PrimeFinder(ps, preSieve), myCallback(callback) {}
 
-private:
-	T& myCallback;
-
-	virtual void segmentFinished(const byte_t* sieve, uint_t sieveSize)
+	NOINLINE virtual void segmentFinished(const byte_t* sieve, uint_t sieveSize)
 	{
 		uint64_t base = getSegmentLow();
 		for (uint_t i = 0; i < sieveSize; i += 8, base += NUMBERS_PER_BYTE * 8)
@@ -67,6 +64,9 @@ private:
 		}
 	}
 
+	T& myCallback;
+
+private:
 	DISALLOW_COPY_AND_ASSIGN(PrimeFinderTemplated);
 };
 

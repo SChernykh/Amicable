@@ -701,13 +701,13 @@ NOINLINE void SearchRange(const RangeData& r)
 	{
 		const Factor* f = r.factors;
 		const int k = r.last_factor_index;
-		is_over_abundant_mask |= OverAbundant(f, k, r.value, r.sum, 2 * 5) << 1;
-		is_over_abundant_mask |= OverAbundant(f, k, r.value, r.sum, 2 * 7) << 2;
-		is_over_abundant_mask |= OverAbundant(f, k, r.value, r.sum, 2 * 11) << 4;
-		is_over_abundant_mask |= (((is_over_abundant_mask & 0x06) || OverAbundant(f, k, r.value, r.sum, 2 * 5 * 7)) ? byte(1) : byte(0)) << 3;
-		is_over_abundant_mask |= (((is_over_abundant_mask & 0x12) || OverAbundant(f, k, r.value, r.sum, 2 * 5 * 11)) ? byte(1) : byte(0)) << 5;
-		is_over_abundant_mask |= (((is_over_abundant_mask & 0x14) || OverAbundant(f, k, r.value, r.sum, 2 * 7 * 11)) ? byte(1) : byte(0)) << 6;
-		is_over_abundant_mask |= (((is_over_abundant_mask & 0x7E) || OverAbundant(f, k, r.value, r.sum, 2 * 5 * 7 * 11)) ? byte(1) : byte(0)) << 7;
+		is_over_abundant_mask |= OverAbundant<5>(f, k, r.value, r.sum, 2 * 5) << 1;
+		is_over_abundant_mask |= OverAbundant<7>(f, k, r.value, r.sum, 2 * 7) << 2;
+		is_over_abundant_mask |= OverAbundant<11>(f, k, r.value, r.sum, 2 * 11) << 4;
+		is_over_abundant_mask |= (((is_over_abundant_mask & 0x06) || OverAbundant<7>(f, k, r.value, r.sum, 2 * 5 * 7)) ? byte(1) : byte(0)) << 3;
+		is_over_abundant_mask |= (((is_over_abundant_mask & 0x12) || OverAbundant<11>(f, k, r.value, r.sum, 2 * 5 * 11)) ? byte(1) : byte(0)) << 5;
+		is_over_abundant_mask |= (((is_over_abundant_mask & 0x14) || OverAbundant<11>(f, k, r.value, r.sum, 2 * 7 * 11)) ? byte(1) : byte(0)) << 6;
+		is_over_abundant_mask |= (((is_over_abundant_mask & 0x7E) || OverAbundant<11>(f, k, r.value, r.sum, 2 * 5 * 7 * 11)) ? byte(1) : byte(0)) << 7;
 		is_over_abundant_mask <<= 8;
 	}
 
@@ -787,28 +787,66 @@ NOINLINE void SearchRangeCubed(const RangeData& r)
 	}
 }
 
-NOINLINE void SearchLargePrimes(volatile number* SharedCounterForSearch, const number StartPrime, const number PrimeLimit)
+namespace primesieve
 {
-	struct Callback
+	class PrimeFinderLargePrimes final : public PrimeFinder
 	{
-		FORCEINLINE void operator()(number curPrime)
+	public:
+		PrimeFinderLargePrimes(PrimeSieve& ps, const PreSieve& preSieve) : PrimeFinder(ps, preSieve) {}
+
+		FORCEINLINE void Init(const number rangeBegin)
 		{
-			const unsigned int mask = CandidatesDataMask[Mod385(curPrime + 1)];
-			for (const auto& candidate : CandidatesData)
+			auto it = std::lower_bound(CandidatesData.begin(), CandidatesData.end(), rangeBegin, [](const AmicableCandidate& candidate, number k)
 			{
-				if (candidate.is_not_over_abundant_mask & mask)
+				number h;
+				const number m = _umul128(k, candidate.value, &h);
+				return ((m < SearchLimit::value) && (h == 0));
+			});
+			last_candidate = CandidatesData.data() + (it - CandidatesData.begin()) - 1;
+		}
+
+		NOINLINE virtual void segmentFinished(const byte_t* sieve, uint_t sieveSize)
+		{
+			uint64_t base = getSegmentLow();
+			for (uint_t i = 0; i < sieveSize; i += 8, base += NUMBERS_PER_BYTE * 8)
+			{
+				uint64_t bits = littleendian_cast<uint64_t>(&sieve[i]); 
+				while (bits != 0)
 				{
-					const number n1 = curPrime * candidate.value;
-					if (n1 > SearchLimit::value)
+					const number curPrime = getNextPrime(&bits, base);
+
+					const unsigned int mask = CandidatesDataMask[Mod385(curPrime + 1)];
+					while (last_candidate >= CandidatesData.data())
 					{
-						break;
+						number h;
+						const number m = _umul128(curPrime, last_candidate->value, &h);
+						if ((m < SearchLimit::value) && (h == 0))
+						{
+							break;
+						}
+						--last_candidate;
 					}
-					CheckPair(n1, (curPrime + 1) * candidate.sum);
+
+					for (const AmicableCandidate* candidate = CandidatesData.data(); candidate <= last_candidate; ++candidate)
+					{
+						if (candidate->is_not_over_abundant_mask & mask)
+						{
+							CheckPair(curPrime * candidate->value, (curPrime + 1) * candidate->sum);
+						}
+					}
 				}
 			}
 		}
-	} c;
 
+	private:
+		const AmicableCandidate* last_candidate;
+
+		DISALLOW_COPY_AND_ASSIGN(PrimeFinderLargePrimes);
+	};
+}
+
+NOINLINE void SearchLargePrimes(volatile number* SharedCounterForSearch, const number StartPrime, const number PrimeLimit)
+{
 	primesieve::PrimeSieve s;
 
 	number curRangeEnd = StartPrime - 1;
@@ -844,6 +882,27 @@ NOINLINE void SearchLargePrimes(volatile number* SharedCounterForSearch, const n
 				curRangeEnd = PrimeLimit;
 		} while (localCounter < sharedCounterValue);
 
-		s.sieveTemplated(curRangeBegin, curRangeEnd, c);
+		s.setStart(curRangeBegin);
+		s.setStop(curRangeEnd);
+
+		primesieve::PreSieve preSieve(curRangeBegin, curRangeEnd);
+		primesieve::PrimeFinderLargePrimes finder(s, preSieve);
+		finder.Init(curRangeBegin);
+
+		unsigned int p = 3;
+		const byte* shift = NextPrimeShifts + 2;
+		while (p <= preSieve.getLimit())
+		{
+			p += *shift * ShiftMultiplier;
+			shift += 2;
+		}
+		while (p <= finder.getSqrtStop())
+		{
+			finder.addSievingPrime(p);
+			p += *shift * ShiftMultiplier;
+			shift += 2;
+		}
+
+		finder.sieve();
 	} while (curRangeEnd < PrimeLimit);
 }
