@@ -64,16 +64,16 @@ struct AmicableCandidate
 {
 	AmicableCandidate() {}
 
-	AmicableCandidate(unsigned int _value, unsigned int _sum, unsigned char is_over_abundant_mask)
+	AmicableCandidate(unsigned int _value, unsigned int _sum, unsigned char _is_over_abundant_mask)
 		: value(_value)
 		, sum(_sum)
-		, is_not_over_abundant_mask(static_cast<unsigned char>(~is_over_abundant_mask))
+		, is_over_abundant_mask(static_cast<unsigned char>(_is_over_abundant_mask))
 	{
 	}
 
 	unsigned int value;
 	unsigned int sum;
-	unsigned char is_not_over_abundant_mask;
+	unsigned char is_over_abundant_mask;
 };
 #pragma pack(pop)
 

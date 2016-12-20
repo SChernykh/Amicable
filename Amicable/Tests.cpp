@@ -5,9 +5,7 @@
 
 NOINLINE bool TestCheckPair()
 {
-	g_PrintNumbers = false;
-
-	const char* files[] = { "c2_3.txt", "c2_4.txt", "c2_5.txt", "c2_6.txt", "c2_7.txt", "c2_8.txt", "c2_9.txt", "c2_10.txt", "c2_11.txt", "c2_12.txt", "c2_13.txt", "c2_14.txt", "c2_15.txt", "c2_16.txt", "c2_17.txt", "c2_18.txt", "c2_19.txt" };
+	const char* files[] = { "c2_3.txt", "c2_4.txt", "c2_5.txt", "c2_6.txt", "c2_7.txt", "c2_8.txt", "c2_9.txt", "c2_10.txt", "c2_11.txt", "c2_12.txt", "c2_13.txt", "c2_14.txt", "c2_15.txt", "c2_16.txt", "c2_17.txt", "c2_18.txt", "c2_19.txt", "c2_20.txt" };
 	for (const char* name : files)
 	{
 		std::ifstream f(name);
@@ -22,35 +20,38 @@ NOINLINE bool TestCheckPair()
 			buf[0] = '\0';
 			f.getline(buf, sizeof(buf)); // M and factorization
 
-			number m;
-			if (sscanf_s(buf, "%llu", &m) != 1)
-			{
-				std::cerr << buf << " is not a valid number" << std::endl;
-				return false;
-			}
+			number m[2];
+			atoi128(buf, m[0], m[1]);
 
-			if (m >= SearchLimit::value)
+			if (m[1] || (m[0] >= SearchLimit::value))
 				break;
 
 			buf[0] = '\0';
 			f.getline(buf, sizeof(buf)); // N and factorization
 
-			number n;
-			if (sscanf_s(buf, "%llu", &n) != 1)
-			{
-				std::cerr << buf << " is not a valid number" << std::endl;
-				return false;
-			}
+			number n[2];
+			atoi128(buf, n[0], n[1]);
 
 			buf[0] = '\0';
 			f.getline(buf, sizeof(buf)); // empty line
 
 			const number oldNumPairs = GetNumFoundPairsInThisThread();
-			CheckPairNoInline(m, m + n);
+			number sum[2];
+			add128(m[0], m[1], n[0], n[1], sum, sum + 1);
+			CheckPair128NoInline(m[0], sum[0], sum[1]);
 			if (GetNumFoundPairsInThisThread() != oldNumPairs + 1)
 			{
-				std::cerr << "CheckPair didn't recognize " << m << ", " << n << " as a valid amicable pair" << std::endl;
+				std::cerr << "CheckPair128 didn't recognize " << m[0] << " as a valid amicable number" << std::endl;
 				return false;
+			}
+			if (!sum[1])
+			{
+				CheckPairNoInline(m[0], sum[0]);
+				if (GetNumFoundPairsInThisThread() != oldNumPairs + 2)
+				{
+					std::cerr << "CheckPair didn't recognize " << m[0] << " as a valid amicable number" << std::endl;
+					return false;
+				}
 			}
 		}
 	}
@@ -60,7 +61,7 @@ NOINLINE bool TestCheckPair()
 template<typename T>
 NOINLINE bool TestGeneric(T test)
 {
-	const char* files[] = { "c2_3.txt", "c2_4.txt", "c2_5.txt", "c2_6.txt", "c2_7.txt", "c2_8.txt", "c2_9.txt", "c2_10.txt", "c2_11.txt", "c2_12.txt", "c2_13.txt", "c2_14.txt", "c2_15.txt", "c2_16.txt", "c2_17.txt", "c2_18.txt", "c2_19.txt" };
+	const char* files[] = { "c2_3.txt", "c2_4.txt", "c2_5.txt", "c2_6.txt", "c2_7.txt", "c2_8.txt", "c2_9.txt", "c2_10.txt", "c2_11.txt", "c2_12.txt", "c2_13.txt", "c2_14.txt", "c2_15.txt", "c2_16.txt", "c2_17.txt", "c2_18.txt", "c2_19.txt", "c2_20.txt" };
 	std::vector<std::pair<number, number>> factorization;
 	for (const char* name : files)
 	{
@@ -76,50 +77,46 @@ NOINLINE bool TestGeneric(T test)
 			buf[0] = '\0';
 			f.getline(buf, sizeof(buf)); // M and factorization
 
-			number m;
-			if (sscanf_s(buf, "%llu", &m) != 1)
-			{
-				std::cerr << buf << " is not a valid number" << std::endl;
-				return false;
-			}
+			number m[2];
+			atoi128(buf, m[0], m[1]);
 
-			if (m >= SearchLimit::value)
-				break;
-
-			const size_t len = strlen(buf);
-			const char* factor_begin = nullptr;
-			factorization.clear();
-			for (size_t i = 0; i <= len; ++i)
+			if ((m[0] < SearchLimit::value) && !m[1])
 			{
-				if (!isdigit(buf[i]))
+				const size_t len = strlen(buf);
+				const char* factor_begin = nullptr;
+				factorization.clear();
+				for (size_t i = 0; i <= len; ++i)
 				{
-					if (factor_begin)
+					if (!isdigit(buf[i]))
 					{
-						number p;
-						if (sscanf_s(factor_begin, "%llu", &p) == 1)
+						if (factor_begin)
 						{
-							number factor_power = 1;
-							if (buf[i] == '^')
+							number p;
+							if (sscanf_s(factor_begin, "%llu", &p) == 1)
 							{
-								sscanf_s(buf + i + 1, "%llu", &factor_power);
+								number factor_power = 1;
+								if (buf[i] == '^')
+								{
+									sscanf_s(buf + i + 1, "%llu", &factor_power);
+								}
+								factorization.emplace_back(std::pair<number, number>(p, factor_power));
 							}
-							factorization.emplace_back(std::pair<number, number>(p, factor_power));
+							factor_begin = nullptr;
 						}
-						factor_begin = nullptr;
-					}
-					if ((buf[i] == '=') || (buf[i] == '*'))
-					{
-						factor_begin = buf + i + 1;
+						if ((buf[i] == '=') || (buf[i] == '*'))
+						{
+							factor_begin = buf + i + 1;
+						}
 					}
 				}
-			}
-			std::sort(factorization.begin(), factorization.end(), [](const std::pair<number, number>& a, const std::pair<number, number>& b)
-			{
-				return a.first < b.first;
-			});
-			if (!test(m, factorization))
-			{
-				return false;
+				std::sort(factorization.begin(), factorization.end(), [](const std::pair<number, number>& a, const std::pair<number, number>& b)
+				{
+					return a.first < b.first;
+				});
+				if (!test(m[0], factorization))
+				{
+					return false;
+				}
 			}
 
 			buf[0] = '\0';
@@ -154,9 +151,9 @@ NOINLINE bool TestAmicableCandidates()
 			}
 
 			const unsigned int mask = CandidatesDataMask[Mod385(max_factor.first + 1)];
-			if ((it->is_not_over_abundant_mask & mask) == 0)
+			if (it->is_over_abundant_mask & mask)
 			{
-				std::cerr << "LinearSearchData has invalid is_not_over_abundant_mask for " << m << std::endl;
+				std::cerr << "LinearSearchData has invalid is_over_abundant_mask for " << m << std::endl;
 				return false;
 			}
 		}

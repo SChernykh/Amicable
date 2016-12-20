@@ -324,7 +324,7 @@ FORCEINLINE void SearchCandidates(Factor* factors, const number value, const num
 	{
 		number h;
 		number next_value = _umul128(value, f.p, &h);
-		if ((next_value >= SearchLimit::LinearLimit) || h)
+		if ((next_value >= SearchLimit::value / SearchLimit::LinearLimit) || h)
 		{
 			return;
 		}
@@ -339,7 +339,7 @@ FORCEINLINE void SearchCandidates(Factor* factors, const number value, const num
 			SearchCandidates<depth + 1>(factors, next_value, next_sum);
 
 			next_value = _umul128(next_value, f.p, &h);
-			if ((next_value >= SearchLimit::LinearLimit) || h)
+			if ((next_value >= SearchLimit::value / SearchLimit::LinearLimit) || h)
 			{
 				break;
 			}
@@ -362,29 +362,12 @@ template<> FORCEINLINE void SearchCandidates<10>(Factor*, const number, const nu
 
 void GenerateCandidates()
 {
-	privCandidatesData.reserve(SearchLimit::LinearLimit / 30);
+	privCandidatesData.reserve(SearchLimit::value / SearchLimit::LinearLimit / 30);
 
 	Factor factors[16];
 	SearchCandidates<0>(factors, 1, 1);
 
 	std::sort(privCandidatesData.begin(), privCandidatesData.end(), [](const AmicableCandidate& a, const AmicableCandidate& b){ return a.value < b.value; });
-
-	memset(privCandidatesDataMask, 1, sizeof(privCandidatesDataMask));
-
-	for (unsigned int i = 0; i < ARRAYSIZE(privCandidatesDataMask); i += 5)
-	{
-		privCandidatesDataMask[i] <<= 1;
-	}
-
-	for (unsigned int i = 0; i < ARRAYSIZE(privCandidatesDataMask); i += 7)
-	{
-		privCandidatesDataMask[i] <<= 2;
-	}
-
-	for (unsigned int i = 0; i < ARRAYSIZE(privCandidatesDataMask); i += 11)
-	{
-		privCandidatesDataMask[i] <<= 4;
-	}
 }
 
 void PrimeTablesInit()
@@ -445,14 +428,13 @@ void PrimeTablesInit()
 	privPrimeInverses = reinterpret_cast<std::pair<number, number>*>(AllocateSystemMemory((((nPrimeInverses + 3) / 4) * 4) * sizeof(std::pair<number, number>) + (nPrimes + (nPrimes & 1)) * 2, false));
 	privNextPrimeShifts = reinterpret_cast<byte*>(privPrimeInverses + (((nPrimeInverses + 3) / 4) * 4));
 
-	byte overAbundantIndexConversion[385];
 	for (unsigned int i = 0; i < 385; ++i)
 	{
 		unsigned int index = 0;
 		if (i * MultiplicativeInverse<5>::value <= number(-1) / 5) index += 1;
 		if (i * MultiplicativeInverse<7>::value <= number(-1) / 7) index += 2;
 		if (i * MultiplicativeInverse<11>::value <= number(-1) / 11) index += 4;
-		overAbundantIndexConversion[i] = static_cast<byte>(1 << index);
+		privCandidatesDataMask[i] = static_cast<byte>(1 << index);
 	}
 
 	nPrimes = 0;
@@ -473,7 +455,7 @@ void PrimeTablesInit()
 			abort();
 		}
 		privNextPrimeShifts[nPrimes * 2] = static_cast<byte>((q - p) / ShiftMultiplier);
-		privNextPrimeShifts[nPrimes * 2 + 1] = overAbundantIndexConversion[Mod385(p + 1)];
+		privNextPrimeShifts[nPrimes * 2 + 1] = privCandidatesDataMask[Mod385(p + 1)];
 		++nPrimes;
 	}
 

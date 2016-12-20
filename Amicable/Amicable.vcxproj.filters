@@ -134,6 +134,9 @@
     <ClInclude Include="CompileTimeFunctions.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="inverses128.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">

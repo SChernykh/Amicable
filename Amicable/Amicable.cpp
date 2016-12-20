@@ -50,6 +50,8 @@ int main(int argc, char* argv[])
 
 		if (strcmp(argv[i], "/test") == 0)
 		{
+			g_PrintNumbers = false;
+
 			std::cout << "Testing CheckPair()...";
 			flush(std::cout);
 			if (!TestCheckPair())

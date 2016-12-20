@@ -335,19 +335,18 @@ unsigned int GetNumFoundPairsInThisThread()
 
 bool g_PrintNumbers = true;
 
-NOINLINE void NumberFound(const number n1, const number targetSum)
+NOINLINE void NumberFound(const number n1)
 {
 	++NumFoundPairs;
 	if (g_PrintNumbers)
 	{
-		const number n2 = targetSum - n1;
-		printf("%s%llu, %llu\n", (n2 <= n1) ? "!!! " : "", n1, n2);
+		printf("%llu\n", n1);
 	}
 }
 
 FORCEINLINE number Root4(const number n)
 {
-	return static_cast<number>(static_cast<__int64>(sqrt(sqrt(static_cast<__int64>(n)))));
+	return static_cast<number>(static_cast<__int64>(sqrt(sqrt(n))));
 }
 
 FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, number n2TargetSum, number n2, number sum)
@@ -362,7 +361,7 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 			sum *= n2 + 1;
 
 		if (sum == targetSum)
-			NumberFound(n1, targetSum);
+			NumberFound(n1);
 
 		return;
 	}
@@ -409,7 +408,7 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 			if (n2 == 1)
 			{
 				if (sum == targetSum)
-					NumberFound(n1, targetSum);
+					NumberFound(n1);
 				return;
 			}
 
@@ -439,7 +438,7 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 		if (!IsPerfectSquareCandidate(n2))
 			return;
 
-		p = static_cast<number>(static_cast<__int64>(sqrt(static_cast<__int64>(n2))));
+		p = static_cast<number>(static_cast<__int64>(sqrt(n2)));
 		const number p2 = p * p;
 		if (p2 != n2)
 			return;
@@ -447,7 +446,7 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 		// a perfect square which has at most 3 factors can be only of the form "n=p^2"
 		// so we can just check this case and exit
 		if (p2 + p + 1 == n2TargetSum)
-			NumberFound(n1, targetSum);
+			NumberFound(n1);
 
 		return;
 	}
@@ -474,7 +473,7 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 			if (n2 == 1)
 			{
 				if (sum == targetSum)
-					NumberFound(n1, targetSum);
+					NumberFound(n1);
 				return;
 			}
 
@@ -589,7 +588,7 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 						p = (B - sqrt_D) / 2;
 						q = (B + sqrt_D) / 2;
 						if (p * q == n2)
-							NumberFound(n1, targetSum);
+							NumberFound(n1);
 						return;
 					}
 				}
@@ -602,14 +601,14 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 				const number p_squared = p * p;
 				if (p_squared == n2)
 					if (p_squared + p + 1 == n2TargetSum)
-						NumberFound(n1, targetSum);
+						NumberFound(n1);
 			}
 		}
 		else
 		{
 			// n2 + 1 == n2TargetSum, n2 must be a prime number
 			if (IsPrime(n2))
-				NumberFound(n1, targetSum);
+				NumberFound(n1);
 		}
 
 		// There are no other cases, so just exit now
@@ -620,7 +619,12 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 		sum *= n2 + 1;
 
 	if (sum == targetSum)
-		NumberFound(n1, targetSum);
+		NumberFound(n1);
+}
+
+NOINLINE static void CheckPairInternalNoInline(const number n1, const number targetSum, number n2TargetSum, number n2, number sum)
+{
+	CheckPairInternal(n1, targetSum, n2TargetSum, n2, sum);
 }
 
 #define X(N) {MultiplicativeInverse<(number(1) << (N + 2)) - 1>::value, number(-1) / ((number(1) << (N + 2)) - 1)}
@@ -680,6 +684,138 @@ NOINLINE void CheckPairNoInline(const number n1, const number targetSum)
 	CheckPair(n1, targetSum);
 }
 
+struct InverseData128
+{
+	unsigned char shift;
+	number inverse[2];
+	number max_value[2];
+};
+
+#include "inverses128.h"
+
+FORCEINLINE number InitialCheck128(const number n1, number targetSumLow, number targetSumHigh, number& n2)
+{
+	number n2_128[2];
+	sub128(targetSumLow, targetSumHigh, n1, 0, n2_128, n2_128 + 1);
+
+	unsigned long powerOf2;
+	if (n2_128[0])
+	{
+		_BitScanForward64(&powerOf2, n2_128[0]);
+		shr128(n2_128[0], n2_128[1], static_cast<unsigned char>(powerOf2));
+	}
+	else
+	{
+		_BitScanForward64(&powerOf2, n2_128[1]);
+		n2_128[0] = n2_128[1] >> powerOf2;
+		n2_128[1] = 0;
+		powerOf2 += 64;
+	}
+
+	if (powerOf2 > 0)
+	{
+		const number (&data)[2][2] = locPowersOf2_128DivisibilityData[powerOf2];
+
+		number q[2];
+		q[0] = _umul128(targetSumLow, data[0][0], &q[1]);
+		q[1] += targetSumLow * data[0][1] + targetSumHigh * data[0][0];
+		if ((q[1] > data[1][1]) || ((q[1] == data[1][1]) && (q[0] > data[1][0])))
+		{
+			return 0;
+		}
+		targetSumLow = q[0];
+		targetSumHigh = q[1];
+	}
+
+	for (unsigned int i = 0; targetSumHigh && (i < ARRAYSIZE(locPrimeInverses_128)); ++i)
+	{
+		const number(&prime_inverse)[2][2] = locPrimeInverses_128[i];
+
+		number powerOf_p;
+		for (powerOf_p = 0;; ++powerOf_p)
+		{
+			number q[2];
+			q[0] = _umul128(n2_128[0], prime_inverse[0][0], &q[1]);
+			q[1] += n2_128[0] * prime_inverse[0][1] + n2_128[1] * prime_inverse[0][0];
+			if ((q[1] > prime_inverse[1][1]) || (((q[1] == prime_inverse[1][1])) && (q[0] > prime_inverse[1][0])))
+			{
+				break;
+			}
+			n2_128[0] = q[0];
+			n2_128[1] = q[1];
+		}
+
+		if (powerOf_p > 0)
+		{
+			const InverseData128& data = locPowersOfP_128DivisibilityData[i][powerOf_p];
+
+			if (data.shift)
+			{
+				if (targetSumLow & ((1 << data.shift) - 1))
+				{
+					return 0;
+				}
+				shr128(targetSumLow, targetSumHigh, data.shift);
+			}
+
+			number q[2];
+			q[0] = _umul128(targetSumLow, data.inverse[0], &q[1]);
+			q[1] += targetSumLow * data.inverse[1] + targetSumHigh * data.inverse[0];
+			if ((q[1] > data.max_value[1]) || (((q[1] == data.max_value[1])) && (q[0] > data.max_value[0])))
+			{
+				return 0;
+			}
+
+			targetSumLow = q[0];
+			targetSumHigh = q[1];
+		}
+	}
+
+	n2 = n2_128[0];
+
+	ASSUME(targetSumLow > 0);
+	return targetSumLow;
+}
+
+FORCEINLINE void CheckPair128(const number n1, number targetSumLow, number targetSumHigh)
+{
+	number n2;
+	const number n2TargetSum = InitialCheck128(n1, targetSumLow, targetSumHigh, n2);
+	if (n2TargetSum)
+		CheckPairInternalNoInline(n1, n2TargetSum, n2TargetSum, n2, 1);
+}
+
+NOINLINE void CheckPair128NoInline(const number n1, number targetSumLow, number targetSumHigh)
+{
+	CheckPair128(n1, targetSumLow, targetSumHigh);
+}
+
+template<bool HandleLargeSums> void CheckPairSafeImpl(const number m, const number target_sum1, const number target_sum2);
+
+template<> FORCEINLINE void CheckPairSafeImpl<false>(const number m, const number target_sum1, const number target_sum2)
+{
+	CheckPair(m, target_sum1 * target_sum2);
+}
+
+template<> FORCEINLINE void CheckPairSafeImpl<true>(const number m, const number target_sum1, const number target_sum2)
+{
+	number targetSumHi;
+	const number targetSum = _umul128(target_sum1, target_sum2, &targetSumHi);
+	if (targetSumHi == 0)
+	{
+		CheckPair(m, targetSum);
+	}
+	else
+	{
+		CheckPair128(m, targetSum, targetSumHi);
+	}
+}
+
+FORCEINLINE void CheckPairSafe(const number m, const number target_sum1, const number target_sum2)
+{
+	CheckPairSafeImpl<number(-1) / 3 < SearchLimit::value>(m, target_sum1, target_sum2);
+}
+
 NOINLINE void SearchRange(const RangeData& r)
 {
 	number prime_limit = (SearchLimit::value - 1) / r.value;
@@ -723,7 +859,7 @@ NOINLINE void SearchRange(const RangeData& r)
 		q += (shiftData & 255) * ShiftMultiplier;
 		if ((shiftData & is_over_abundant_mask) == 0)
 		{
-			CheckPair(m * prev_q, sum_m * (prev_q + 1));
+			CheckPairSafe(m * prev_q, sum_m, prev_q + 1);
 		}
 	}
 }
@@ -754,7 +890,7 @@ NOINLINE void SearchRangeSquared(const RangeData& r)
 	while (q < prime_limit)
 	{
 		const number q2 = q * q;
-		CheckPair(m * q2, sum_m * (q2 + q + 1));
+		CheckPairSafe(m * q2, sum_m, q2 + q + 1);
 		q += static_cast<unsigned int>(*shift) * ShiftMultiplier;
 		shift += 2;
 	}
@@ -781,7 +917,7 @@ NOINLINE void SearchRangeCubed(const RangeData& r)
 		{
 			break;
 		}
-		CheckPair(value, sum_m * (q3 + q2 + q + 1));
+		CheckPairSafe(value, sum_m, q3 + q2 + q + 1);
 		q += static_cast<unsigned int>(*shift) * ShiftMultiplier;
 		shift += 2;
 	}
@@ -829,9 +965,9 @@ namespace primesieve
 
 					for (const AmicableCandidate* candidate = CandidatesData.data(); candidate <= last_candidate; ++candidate)
 					{
-						if (candidate->is_not_over_abundant_mask & mask)
+						if ((candidate->is_over_abundant_mask & mask) == 0)
 						{
-							CheckPair(curPrime * candidate->value, (curPrime + 1) * candidate->sum);
+							CheckPairSafe(curPrime * candidate->value, candidate->sum, curPrime + 1);
 						}
 					}
 				}

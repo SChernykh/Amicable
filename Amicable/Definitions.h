@@ -76,10 +76,10 @@ enum SearchLimit : number
 	//value = 1000000000000000000,
 
 	// Search up to 10^19, ~1955600 pairs
-	//value = 10000000000000000000,
+	//value = 10000000000000000000ULL,
 
 	// Search up to 2^64, ~2401900 pairs
-	//value = 18446744073709551615,
+	//value = 18446744073709551615ULL,
 
 	// Linear search starts when p >= SearchLimit::LinearLimit
 	// It iterates over 1 * p, 2 * p, 3 * p, ... until it reaches SearchLimit::value
@@ -140,43 +140,6 @@ enum SearchLimit : number
 	// SearchLimit::value / 20 is also the best possible bound because 220 = 20 * 11
 	SafeLimit = value / 20,
 };
-
-// Let S(n) be the sum of all divisors of n
-// Factorization in general form has k distinct primes: n = P1^e1*P2^e2*...*Pk^ek, P1 < P2 < ... < Pk
-//
-// Smallest number with 16 distinct primes in factorization is:
-// 2 * 3 * 5 * 7 * 11 * 13 * 17 * 19 * 23 * 29 * 31 * 37 * 41 * 43 * 47 * 53 = 32589158477190044730 ~ 1.766662 * 2^64 > 2^64
-//
-// Therefore, if n <= 2^64, it'll have at most 15 distinct primes in factorization
-//
-// Let's estimate the maximum value of S(n) / n, n <= 2^64:
-// S(n) / n = multiply(i = 1...k, (Pi^(ei + 1) - 1) / (Pi^ei * (Pi - 1)))
-//
-// Divide numerator and denominator by Pi^ei for each i:
-// S(n) / n = multiply(i = 1...k, (Pi - Pi^-ei) / (Pi - 1))
-//
-// Since Pi^-ei > 0, we can estimate each multiplier to be < Pi / (Pi - 1):
-// S(n) / n < F(n) = multiply(i = 1...k, Pi / (Pi - 1))
-//
-// f(x) = x / (x - 1) is a monotonic function:
-// f'(x + 1) = ((x + 1) / x)' = (1 + 1 / x)' = -1 / x^2,
-// f'(x) = -1 / (x - 1)^2 < 0, so it's monotonically decreasing for all x > 1: 1 < x1 <= x2 implies that f(x1) >= f(x2)
-//
-// Let's get back to F(n). If we replace P1, ..., Pk distinct primes with _first_ k primes, each multiplier will increase or remain the same, because:
-// 2 <= P1, 3 <= P2, 5 <= P3, ..., kth prime <= Pk
-//
-// F(n) <= multiply(i = 1...k, (ith prime) / (ith prime - 1))
-//
-// We've come to this: S(n) / n < F(n) <= multiply(i = 1...k, (ith prime) / (ith prime - 1))
-// And we know that if n <= 2^64 then k <= 15, so S(n) / n < 2 / 1 * 3 / 2 * 5 / 4 * ... * 47 / 46 = 7.2095926010299534105882364948723...
-// S(n) < n * 7.2095926010299534105882364948723...
-//
-// S(n) must be less than 2^64 which means that n must be < 2^64 / 7.2095926010299534105882364948723... = 2.558638898829633279... * 10^18
-// So 2.558638898829633279... * 10^18 is a theoretical limit
-//
-// But the practical limit is 7 * 10^18 - it's approximately where we start getting pairs with pair sum >= 2^64
-// The first actually missed known pair is (7364096816271422535, 11119300665402788793) with pair sum 1.0019869852272140775539810420014 * 2^64
-static_assert(SearchLimit::value <= 7000000000000000000ULL, "Search limit is too large, some pairs can be missed");
 
 #endif
 
@@ -245,3 +208,5 @@ FORCEINLINE number StrToNumber(const char* s)
 	}
 	return result;
 }
+
+void atoi128(const char* s, number &numlo, number &numhi);

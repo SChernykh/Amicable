@@ -93,6 +93,12 @@ FORCEINLINE byte leq128(number a_lo, number a_hi, number b_lo, number b_hi)
 #endif
 }
 
+FORCEINLINE void shr128(number& lo, number& hi, unsigned char count)
+{
+	lo = __shiftright128(lo, hi, count);
+	hi >>= count;
+}
+
 FORCEINLINE bool IsPopcntAvailable()
 {
 	int cpuid_data[4];

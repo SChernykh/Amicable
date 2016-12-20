@@ -182,3 +182,11 @@ FORCEINLINE byte leq128(number a_lo, number a_hi, number b_lo, number b_hi)
 {
 	return (static_cast<__int128>(((static_cast<unsigned __int128>(a_hi) << 64) + a_lo) - ((static_cast<unsigned __int128>(b_hi) << 64) + b_lo)) <= 0) ? 1 : 0;
 }
+
+FORCEINLINE void shr128(number& lo, number& hi, unsigned char count)
+{
+	unsigned __int128 t = (static_cast<unsigned __int128>(hi) << 64) + lo;
+	t >>= count;
+	lo = static_cast<number>(t);
+	hi = static_cast<number>(t >> 64);
+}
