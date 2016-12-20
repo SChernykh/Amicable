@@ -396,7 +396,7 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 		prev_search_stack_depth = static_cast<int>(numFactors);
 
 		StackFrame* s = search_stack + search_stack_depth;
-		Factor* f = factors + search_stack_depth;
+		Factor* f = factors + search_stack_depth - 1;
 		RangeData& range = *outStartFromRange;
 		range.value = 0;
 
@@ -404,7 +404,7 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 		number q0 = f->p + NextPrimeShifts[f->index * 2] * ShiftMultiplier;
 
 		// A check to ensure that m*q is not divisible by 6
-		if (search_stack_depth == 0)
+		if (search_stack_depth == 1)
 		{
 			// factors[0].p is 2
 			// q is 3
@@ -420,17 +420,17 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 		number sum_q = q0 + 1;
 
 		number h;
-		const number value_to_check = _umul128(s[1].value, q, &h);
+		const number value_to_check = _umul128(s->value, q, &h);
 		if ((value_to_check < SearchLimit::value) && !h)
 		{
 			// Skip overabundant numbers
-			const bool is_deficient = (s[1].sum - s[1].value < s[1].value);
-			if (is_deficient || !OverAbundant<2>(factors, static_cast<int>(numFactors) - 1, s[1].value, s[1].sum, static_cast<number>((cur_largest_prime_power & 1) ? 2 : 1)))
+			const bool is_deficient = (s->sum - s->value < s->value);
+			if (is_deficient || !OverAbundant<2>(factors, static_cast<int>(numFactors) - 1, s->value, s->sum, static_cast<number>((cur_largest_prime_power & 1) ? 2 : 1)))
 			{
-				if (!is_deficient || is_abundant_q(s[1].sum, sum_q, value_to_check))
+				if (!is_deficient || is_abundant_q(s->sum, sum_q, value_to_check))
 				{
-					range.value = s[1].value;
-					range.sum = s[1].sum;
+					range.value = s->value;
+					range.sum = s->sum;
 					range.start_prime = q0;
 					range.index_start_prime = static_cast<unsigned int>(start_j);
 					memcpy(range.factors, factors, sizeof(Factor) * numFactors);
