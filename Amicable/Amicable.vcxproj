@@ -117,6 +117,7 @@
     <ClInclude Include="CompileTimeFunctions.h" />
     <ClInclude Include="Definitions.h" />
     <ClInclude Include="Engine.h" />
+    <ClInclude Include="inverses128.h" />
     <ClInclude Include="PGO_Helper.h" />
     <ClInclude Include="Platform_GCC_Linux.h" />
     <ClInclude Include="Platform_MSVC_Windows.h" />
