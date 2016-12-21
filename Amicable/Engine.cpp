@@ -281,7 +281,9 @@ FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetS
 			return true;
 
 		// found new prime factor, let's check that N is not abundant yet
-		if (sumA * (a + 1) > targetSum)
+		number h;
+		const number minSum = _umul128(sumA, a + 1, &h);
+		if ((minSum > targetSum) || h)
 			return false;
 
 		IF_CONSTEXPR((PrimeIndex > IS_NUM_ELIGIBLE_BEGIN * 2) && ((PrimeIndex & 7) != 0) && (((PrimeIndex + 1) & 7) != 0))
@@ -813,7 +815,11 @@ template<> FORCEINLINE void CheckPairSafeImpl<true>(const number m, const number
 
 FORCEINLINE void CheckPairSafe(const number m, const number target_sum1, const number target_sum2)
 {
+#if DYNAMIC_SEARCH_LIMIT
+	CheckPairSafeImpl<true>(m, target_sum1, target_sum2);
+#else
 	CheckPairSafeImpl<number(-1) / 3 < SearchLimit::value>(m, target_sum1, target_sum2);
+#endif
 }
 
 NOINLINE void SearchRange(const RangeData& r)
