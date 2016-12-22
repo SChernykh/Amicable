@@ -22,6 +22,40 @@ static FORCEINLINE bool is_abundant_q(const number sum, const number sum_q, cons
 	return (s2[0] > value_to_check) || s2[1];
 }
 
+static FORCEINLINE bool whole_branch_deficient(number value, number sum, const Factor* f)
+{
+	if (sum - value >= value)
+	{
+		return false;
+	}
+
+	number sumHi = 0;
+	number value1 = value;
+	number p = f->p;
+	const byte* shift = NextPrimeShifts + f->index * 2;
+	for (;;)
+	{
+		p += *shift * ShiftMultiplier;
+		shift += 2;
+		number h;
+		value = _umul128(value, p, &h);
+		if ((value >= SearchLimit::value) || h)
+		{
+			break;
+		}
+
+		// sigma(p^k) / p^k =
+		// (p^(k+1) - 1) / (p^k * (p - 1)) = 
+		// (p - p^-k) / (p-1) <
+		// p / (p-1)
+		value1 *= p - 1;
+		sum = _umul128(sum, p, &sumHi);
+	}
+	sub128(sum, sumHi, value1, 0, &sum, &sumHi);
+
+	return ((sum < value1) && !sumHi);
+}
+
 template<unsigned int largest_prime_power>
 NOINLINE bool RangeGen::Iterate(RangeData& range)
 {
@@ -30,6 +64,9 @@ NOINLINE bool RangeGen::Iterate(RangeData& range)
 
 	int start_i, start_j;
 	number q0, q, sum_q;
+
+#define RECURSE ++search_stack_depth; ++s; ++f; goto recurse_begin
+#define RETURN --search_stack_depth; --s; --f; goto recurse_begin
 
 recurse_begin:
 	const bool is_return = (search_stack_depth < prev_search_stack_depth);
@@ -66,10 +103,7 @@ recurse_begin:
 		s[1].value = _umul128(s->value, f->p, &h);
 		if ((s[1].value >= SearchLimit::value) || h)
 		{
-			--search_stack_depth;
-			--s;
-			--f;
-			goto recurse_begin;
+			RETURN;
 		}
 		s[1].sum = s->sum * (f->p + 1);
 
@@ -106,10 +140,7 @@ recurse_begin:
 					{
 						if (f->k == 1)
 						{
-							--search_stack_depth;
-							--s;
-							--f;
-							goto recurse_begin;
+							RETURN;
 						}
 						break;
 					}
@@ -123,10 +154,7 @@ recurse_begin:
 					{
 						if (f->k == 1)
 						{
-							--search_stack_depth;
-							--s;
-							--f;
-							goto recurse_begin;
+							RETURN;
 						}
 						break;
 					}
@@ -141,10 +169,7 @@ recurse_begin:
 				{
 					if (f->k == 1)
 					{
-						--search_stack_depth;
-						--s;
-						--f;
-						goto recurse_begin;
+						RETURN;
 					}
 					break;
 				}
@@ -168,10 +193,10 @@ recurse_begin:
 						return true;
 					}
 
-					++search_stack_depth;
-					++s;
-					++f;
-					goto recurse_begin;
+					if (!whole_branch_deficient(s[1].value, s[1].sum, f))
+					{
+						RECURSE;
+					}
 				}
 			}
 
@@ -201,10 +226,7 @@ recurse_return:
 	}
 	if (search_stack_depth > 0)
 	{
-		--search_stack_depth;
-		--s;
-		--f;
-		goto recurse_begin;
+		RETURN;
 	}
 	search_stack_depth = -1;
 	return false;
