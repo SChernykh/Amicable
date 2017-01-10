@@ -114,8 +114,8 @@ int main(int argc, char* argv[])
 
 		if (((strcmp(argv[i], "/large_primes_range") == 0) || (strcmp(argv[i], "/lpr") == 0)) && (i + 2 < argc))
 		{
-			startPrime = static_cast<unsigned int>(StrToNumber(argv[++i]));
-			primeLimit = static_cast<unsigned int>(StrToNumber(argv[++i]));
+			startPrime = StrToNumber(argv[++i]);
+			primeLimit = StrToNumber(argv[++i]);
 		}
 	}
 
