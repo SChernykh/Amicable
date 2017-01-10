@@ -523,6 +523,7 @@ NOINLINE void RangeGen::Run(number numThreads, char* startFrom, char* stopAt, un
 NOINLINE void RangeGen::WorkerThread(WorkerThreadParams* params)
 {
 	SetNumFoundPairsInThisThread(0);
+	ForceRoundUpFloatingPoint();
 
 	if (params->startPrime && params->primeLimit)
 	{
