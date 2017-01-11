@@ -42,6 +42,8 @@ FORCEINLINE number _rotr64(number value, int shift)
 #include <cpuid.h>
 #include <time.h>
 #include <alloca.h>
+#include <sys/resource.h>
+#include <unistd.h>
 
 #define CRITICAL_SECTION pthread_mutex_t
 #define CRITICAL_SECTION_INITIALIZER PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP
@@ -136,6 +138,16 @@ FORCEINLINE void DisableAccessToMemory(void* ptr, number size)
 FORCEINLINE void ForceRoundUpFloatingPoint()
 {
 	fesetround(FE_UPWARD);
+}
+
+FORCEINLINE int GetCurrentPriority()
+{
+	return getpriority(PRIO_PROCESS, 0);
+}
+
+FORCEINLINE int SetCurrentPriority(int priority)
+{
+	return nice(priority);
 }
 
 // All code that doesn't pass "-Wpedantic" must be below this comment

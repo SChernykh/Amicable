@@ -520,8 +520,11 @@ NOINLINE void RangeGen::Run(number numThreads, char* startFrom, char* stopAt, un
 	SetNumFoundPairsInThisThread(numFoundPairsTotal);
 }
 
+static const int locMainThreadPriority = GetCurrentPriority();
+
 NOINLINE void RangeGen::WorkerThread(WorkerThreadParams* params)
 {
+	SetCurrentPriority(locMainThreadPriority);
 	SetNumFoundPairsInThisThread(0);
 	ForceRoundUpFloatingPoint();
 
