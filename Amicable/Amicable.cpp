@@ -5,8 +5,25 @@
 #include "PGO_Helper.h"
 #include "Tests.h"
 
+PRAGMA_WARNING(push, 1)
+PRAGMA_WARNING(disable : 4917)
+#include <boinc_api.h>
+PRAGMA_WARNING(pop)
+
 int main(int argc, char* argv[])
 {
+	BOINC_OPTIONS options;
+	boinc_options_defaults(options);
+	options.multi_thread = true;
+
+	const int boinc_init_result = boinc_init_options(&options);
+	if (boinc_init_result)
+	{
+		char buf[256];
+		fprintf(stderr, "%s boinc_init returned %d\n", boinc_msg_prefix(buf, sizeof(buf)), boinc_init_result);
+		exit(boinc_init_result);
+	}
+
 #if DYNAMIC_SEARCH_LIMIT
 	if (argc < 2)
 	{
@@ -24,9 +41,6 @@ int main(int argc, char* argv[])
 	SearchLimit::SafeLimit = SearchLimit::value / 20;
 #endif
 
-	PrimeTablesInit();
-
-	number numThreads = 0;
 	char* startFrom = nullptr;
 	char* stopAt = nullptr;
 	unsigned int largestPrimePower = 1;
@@ -44,12 +58,14 @@ int main(int argc, char* argv[])
 		if (strcmp(argv[i], "/instrument") == 0)
 		{
 			// Quickly generate profile data for all hot (most used) code paths
+			PrimeTablesInit();
 			ProfileGuidedOptimization_Instrument();
 			return 0;
 		}
 
 		if (strcmp(argv[i], "/test") == 0)
 		{
+			PrimeTablesInit();
 			g_PrintNumbers = false;
 
 			std::cout << "Testing CheckPair()...";
@@ -84,11 +100,6 @@ int main(int argc, char* argv[])
 			return 0;
 		}
 
-		if ((strcmp(argv[i], "/threads") == 0) && (i + 1 < argc))
-		{
-			numThreads = static_cast<number>(atoi(argv[++i]));
-		}
-
 		if ((strcmp(argv[i], "/from") == 0) && (i + 1 < argc))
 		{
 			startFrom = argv[++i];
@@ -119,13 +130,25 @@ int main(int argc, char* argv[])
 		}
 	}
 
-	do
-	{
-		Timer t;
-		RangeGen::Run(numThreads, startFrom, stopAt, largestPrimePower, startPrime, primeLimit);
-		const double dt = t.getElapsedTime();
-		printf("completed in %f seconds\n%u pairs found\n\n", dt, GetNumFoundPairsInThisThread());
-	} while (!g_PrintNumbers);
+	PrimeTablesInit(!(startPrime && primeLimit), (startPrime && primeLimit) || !stopAt);
 
+	APP_INIT_DATA aid;
+	boinc_get_init_data(aid);
+
+	std::string resolved_name;
+	const int boinc_resolve_result = boinc_resolve_filename_s("output.txt", resolved_name);
+	if (boinc_resolve_result)
+	{
+		char buf[256];
+		fprintf(stderr, "%s boinc_resolve_filename returned %d\n", boinc_msg_prefix(buf, sizeof(buf)), boinc_resolve_result);
+		exit(boinc_resolve_result);
+	}
+
+	g_outputFile = boinc_fopen(resolved_name.c_str(), "w");
+
+	RangeGen::Run(static_cast<number>(ceil(aid.ncpus)), startFrom, stopAt, largestPrimePower, startPrime, primeLimit);
+
+	fclose(g_outputFile);
+	boinc_finish(0);
 	return 0;
 }

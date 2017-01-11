@@ -52,7 +52,7 @@ enum SearchLimit : number
 	//value = 10000000000,
 
 	// Search up to 10^11, 3340 pairs
-	value = 100000000000,
+	//value = 100000000000,
 
 	// Search up to 10^12, 7642 pairs
 	//value = 1000000000000,
@@ -79,7 +79,7 @@ enum SearchLimit : number
 	//value = 10000000000000000000ULL,
 
 	// Search up to 2^64, ~2401900 pairs
-	//value = 18446744073709551615ULL,
+	value = 18446744073709551615ULL,
 
 	// Linear search starts when p >= SearchLimit::LinearLimit
 	// It iterates over 1 * p, 2 * p, 3 * p, ... until it reaches SearchLimit::value

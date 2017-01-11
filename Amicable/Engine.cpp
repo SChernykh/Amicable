@@ -336,13 +336,15 @@ unsigned int GetNumFoundPairsInThisThread()
 }
 
 bool g_PrintNumbers = true;
+FILE* g_outputFile = nullptr;
 
 NOINLINE void NumberFound(const number n1)
 {
 	++NumFoundPairs;
 	if (g_PrintNumbers)
 	{
-		printf("%llu\n", n1);
+		fprintf(g_outputFile, "%llu\n", n1);
+		fflush(g_outputFile);
 	}
 }
 

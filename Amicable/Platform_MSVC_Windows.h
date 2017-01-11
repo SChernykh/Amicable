@@ -2,6 +2,12 @@
 
 PRAGMA_WARNING(push, 1)
 PRAGMA_WARNING(disable : 4668)
+
+// Target Windows XP or better
+#define WINVER 0x0501
+#define _WIN32_WINNT 0x0501
+#define _WIN32_WINDOWS 0x0501
+
 #include <SDKDDKVer.h>
 #include <Windows.h>
 #include <tchar.h>

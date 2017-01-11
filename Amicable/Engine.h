@@ -18,3 +18,4 @@ void SetNumFoundPairsInThisThread(unsigned int value);
 unsigned int GetNumFoundPairsInThisThread();
 
 extern bool g_PrintNumbers;
+extern FILE* g_outputFile;

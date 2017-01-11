@@ -370,7 +370,7 @@ void GenerateCandidates()
 	std::sort(privCandidatesData.begin(), privCandidatesData.end(), [](const AmicableCandidate& a, const AmicableCandidate& b){ return a.value < b.value; });
 }
 
-void PrimeTablesInit()
+void PrimeTablesInit(bool doSmallPrimes, bool doLargePrimes)
 {
 	memset(bitOffset, -1, sizeof(bitOffset));
 	for (byte b = 0; b < PrimeTableParameters::NumOffsets; ++b)
@@ -387,10 +387,16 @@ void PrimeTablesInit()
 	number nPrimes = 0;
 	number nPrimeInverses = 0;
 
+	number curPrimeInversesBound = SearchLimit::PrimeInversesBound;
+	if (!doSmallPrimes)
+	{
+		curPrimeInversesBound = SearchLimit::LinearLimit / 20;
+	}
+
 	if (IsPopcntAvailable())
 	{
 		number* data = reinterpret_cast<number*>(MainPrimeTable.data());
-		const number primeInversesBoundBytes = ((SearchLimit::PrimeInversesBound / PrimeTableParameters::Modulo) + 1) * (PrimeTableParameters::NumOffsets / Byte::Bits) - 1;
+		const number primeInversesBoundBytes = ((curPrimeInversesBound / PrimeTableParameters::Modulo) + 1) * (PrimeTableParameters::NumOffsets / Byte::Bits) - 1;
 
 		number* e = reinterpret_cast<number*>(MainPrimeTable.data() + primeInversesBoundBytes);
 		for (; data <= e; ++data)
@@ -408,7 +414,7 @@ void PrimeTablesInit()
 	else
 	{
 		PrimeIterator it(2);
-		for (; it.Get() <= SearchLimit::PrimeInversesBound; ++it)
+		for (; it.Get() <= curPrimeInversesBound; ++it)
 		{
 			++nPrimes;
 		}
@@ -459,7 +465,7 @@ void PrimeTablesInit()
 		++nPrimes;
 	}
 
-	for (number p = 3, index = 1; p <= SearchLimit::PrimeInversesBound; p += privNextPrimeShifts[index * 2] * ShiftMultiplier, ++index)
+	for (number p = 3, index = 1; p <= curPrimeInversesBound; p += privNextPrimeShifts[index * 2] * ShiftMultiplier, ++index)
 	{
 		PRAGMA_WARNING(suppress : 4146)
 		const number p_inv = -modular_inverse64(p);
@@ -482,7 +488,10 @@ void PrimeTablesInit()
 	// Gather data for linear search and do preliminary filtering
 	// All filters combined leave 971348 numbers out of the first 1000000
 	// It's a great speed-up compared to the recursive search
-	GenerateCandidates();
+	if (doLargePrimes)
+	{
+		GenerateCandidates();
+	}
 
 	// PQ corresponds to tables P and Q in lemma 2.1 from
 	// "Computation of All the Amicable Pairs Below 10^10 By H.J.J.te Riele": http://www.ams.org/journals/mcom/1986-47-175/S0025-5718-1986-0842142-3/S0025-5718-1986-0842142-3.pdf

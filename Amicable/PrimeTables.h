@@ -1,6 +1,6 @@
 #pragma once
 
-void PrimeTablesInit();
+void PrimeTablesInit(bool doSmallPrimes = true, bool doLargePrimes = true);
 number CalculatePrimes(number aLowerBound, number anUpperBound, std::vector<byte>& anOutPrimes);
 bool IsPrime(number n);
 
