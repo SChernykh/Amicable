@@ -144,11 +144,40 @@ int main(int argc, char* argv[])
 		exit(boinc_resolve_result);
 	}
 
-	g_outputFile = boinc_fopen(resolved_name.c_str(), "w");
-
+	g_outputFile = boinc_fopen(resolved_name.c_str(), "ab+");
 	RangeGen::Run(static_cast<number>(ceil(aid.ncpus)), startFrom, stopAt, largestPrimePower, startPrime, primeLimit);
 
+	// Now sort all numbers found so far
+	rewind(g_outputFile);
+	std::vector<number> found_numbers;
+	while (!feof(g_outputFile))
+	{
+		char buf[32];
+		if (!fgets(buf, sizeof(buf), g_outputFile))
+		{
+			break;
+		}
+		const number m = StrToNumber(buf);
+		if (m)
+		{
+			found_numbers.push_back(m);
+		}
+	}
 	fclose(g_outputFile);
+
+	std::sort(found_numbers.begin(), found_numbers.end());
+
+	// Remove all duplicates
+	found_numbers.erase(std::unique(found_numbers.begin(), found_numbers.end()), found_numbers.end());
+
+	// And write remaining sorted numbers back to the output file
+	g_outputFile = boinc_fopen(resolved_name.c_str(), "wb");
+	for (number m : found_numbers)
+	{
+		fprintf(g_outputFile, "%llu\n", m);
+	}
+	fclose(g_outputFile);
+
 	boinc_finish(0);
 	return 0;
 }
