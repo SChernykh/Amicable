@@ -545,7 +545,18 @@ NOINLINE void RangeGen::WorkerThread(WorkerThreadParams* params)
 	{
 		if (params->rangeToCheckFirst)
 		{
-			SearchRange(*params->rangeToCheckFirst);
+			switch (params->startLargestPrimePower)
+			{
+			case 1:
+				SearchRange(*params->rangeToCheckFirst);
+				break;
+			case 2:
+				SearchRangeSquared(*params->rangeToCheckFirst);
+				break;
+			case 3:
+				SearchRangeCubed(*params->rangeToCheckFirst);
+				break;
+			}
 		}
 
 		enum
