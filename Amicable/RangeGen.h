@@ -54,6 +54,7 @@ private:
 	{
 		RangeData curRange;
 		unsigned int curLargestPrimePower;
+		number total_numbers_checked;
 	};
 
 	struct WorkerThreadParams
@@ -63,7 +64,7 @@ private:
 		number startPrime;
 		number primeLimit;
 		unsigned int startLargestPrimePower;
-		WorkerThreadState* volatile stateToSave;
+		WorkerThreadState stateToSave;
 		volatile bool finished;
 	};
 

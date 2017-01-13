@@ -2,11 +2,10 @@
 #include "PrimeTables.h"
 #include "Engine.h"
 #include "RangeGen.h"
-#include <atomic>
 #include <sstream>
 
 PRAGMA_WARNING(push, 1)
-PRAGMA_WARNING(disable : 4917)
+PRAGMA_WARNING(disable : 4091 4917)
 #include <boinc_api.h>
 PRAGMA_WARNING(pop)
 
@@ -511,6 +510,8 @@ NOINLINE void RangeGen::Run(number numThreads, char* startFrom, char* stopAt, un
 				if (first_token_end)
 				{
 					total_numbers_checked = StrToNumber(checkpoint_buf);
+					const double f = total_numbers_checked / total_numbers_to_check;
+					boinc_fraction_done((f > 1.0) ? 1.0 : f);
 					do
 					{
 						++first_token_end;
@@ -544,7 +545,6 @@ NOINLINE void RangeGen::Run(number numThreads, char* startFrom, char* stopAt, un
 		params[i].startPrime = startPrime;
 		params[i].primeLimit = primeLimit;
 		params[i].startLargestPrimePower = largestPrimePower;
-		params[i].stateToSave = nullptr;
 		params[i].finished = false;
 		threads.emplace_back(std::thread(WorkerThread, &params[i]));
 	}
@@ -565,48 +565,34 @@ NOINLINE void RangeGen::CheckpointThread(WorkerThreadParams* params, number numW
 	std::string checkpoint_name, data;
 	boinc_resolve_filename_s(CHECKPOINT_LOGICAL_NAME, checkpoint_name);
 
-	WorkerThreadState mostLaggingThreadState = {};
-	mostLaggingThreadState.curLargestPrimePower = std::numeric_limits<unsigned int>::max();
-
-	WorkerThreadState* threadState = reinterpret_cast<WorkerThreadState*>(alloca(sizeof(WorkerThreadState) * numWorkerThreads));
-
 	while (!allDone)
 	{
 		Sleep(1000);
 		if (boinc_time_to_checkpoint())
 		{
-			// Save how many numbers have been checked so far
-			const number numbers_checked = total_numbers_checked;
+			WorkerThreadState mostLaggingThreadState = {};
+			mostLaggingThreadState.curLargestPrimePower = std::numeric_limits<unsigned int>::max();
 
-			// Request threads to save factorizations they're going to check now
+			// Find the most lagging thread and use this thread's state as current checkpoint
+			EnterCriticalSection(&lock);
+
 			for (number i = 0; i < numWorkerThreads; ++i)
 			{
-				params[i].stateToSave = threadState + i;
-			}
-
-			// Find the most lagging thread and use this thread's factorization as current checkpoint
-			for (number i = 0; i < numWorkerThreads; ++i)
-			{
-				while (params[i].stateToSave && !params[i].finished)
-				{
-					Sleep(1);
-				}
-
 				if (!params[i].finished)
 				{
 					bool is_less = false;
 
-					if (threadState[i].curLargestPrimePower < mostLaggingThreadState.curLargestPrimePower)
+					if (params[i].stateToSave.curLargestPrimePower < mostLaggingThreadState.curLargestPrimePower)
 					{
 						is_less = true;
 					}
-					else if (threadState[i].curLargestPrimePower == mostLaggingThreadState.curLargestPrimePower)
+					else if (params[i].stateToSave.curLargestPrimePower == mostLaggingThreadState.curLargestPrimePower)
 					{
 						const Factor (&mainFactors)[MaxPrimeFactors] = mostLaggingThreadState.curRange.factors;
-						const Factor (&curFactors)[MaxPrimeFactors] = threadState[i].curRange.factors;
+						const Factor (&curFactors)[MaxPrimeFactors] = params[i].stateToSave.curRange.factors;
 
 						number j;
-						for (j = 0; j <= static_cast<number>(threadState[i].curRange.last_factor_index); ++j)
+						for (j = 0; j <= static_cast<number>(params[i].stateToSave.curRange.last_factor_index); ++j)
 						{
 							if (curFactors[j].p != mainFactors[j].p)
 							{
@@ -620,29 +606,25 @@ NOINLINE void RangeGen::CheckpointThread(WorkerThreadParams* params, number numW
 							}
 						}
 
-						if (j > static_cast<number>(threadState[i].curRange.last_factor_index))
+						if (j > static_cast<number>(params[i].stateToSave.curRange.last_factor_index))
 						{
-							is_less = (threadState[i].curRange.last_factor_index < mostLaggingThreadState.curRange.last_factor_index);
+							is_less = (params[i].stateToSave.curRange.last_factor_index < mostLaggingThreadState.curRange.last_factor_index);
 						}
 					}
 
 					if (is_less)
 					{
-						mostLaggingThreadState = threadState[i];
-						Factor (&mainFactors)[MaxPrimeFactors] = mostLaggingThreadState.curRange.factors;
-						for (number j = static_cast<number>(mostLaggingThreadState.curRange.last_factor_index) + 1; j < MaxPrimeFactors; ++j)
-						{
-							mainFactors[j].p = 0;
-							mainFactors[j].k = 0;
-						}
+						mostLaggingThreadState = params[i].stateToSave;
 					}
 				}
 			}
 
+			LeaveCriticalSection(&lock);
+
 			std::stringstream s;
 
 			// First write how many numbers have been checked so far
-			s << numbers_checked << ' ';
+			s << mostLaggingThreadState.total_numbers_checked << ' ';
 
 			// Then factorization from most lagging thread
 			Factor (&mainFactors)[MaxPrimeFactors] = mostLaggingThreadState.curRange.factors;
@@ -788,23 +770,20 @@ NOINLINE void RangeGen::WorkerThread(WorkerThreadParams* params)
 
 					++range_write_index;
 				}
+
+				if (range_read_index != range_write_index)
+				{
+					params->stateToSave.curRange = ranges[range_read_index % RangesReadAheadSize];
+					params->stateToSave.curLargestPrimePower = range_largest_prime_power[range_read_index % RangesReadAheadSize];
+					params->stateToSave.total_numbers_checked = total_numbers_checked;
+				}
+
 				LeaveCriticalSection(&lock);
 			}
 
 			if (range_read_index == range_write_index)
 			{
 				break;
-			}
-
-			WorkerThreadState* stateToSave = params->stateToSave;
-			if (stateToSave)
-			{
-				stateToSave->curRange = ranges[range_read_index % RangesReadAheadSize];
-				stateToSave->curLargestPrimePower = range_largest_prime_power[range_read_index % RangesReadAheadSize];
-
-				std::atomic_thread_fence(std::memory_order_seq_cst);
-
-				params->stateToSave = nullptr;
 			}
 
 			switch (range_largest_prime_power[range_read_index % RangesReadAheadSize])

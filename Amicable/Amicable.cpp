@@ -6,7 +6,7 @@
 #include "Tests.h"
 
 PRAGMA_WARNING(push, 1)
-PRAGMA_WARNING(disable : 4917)
+PRAGMA_WARNING(disable : 4091 4917)
 #include <boinc_api.h>
 PRAGMA_WARNING(pop)
 
