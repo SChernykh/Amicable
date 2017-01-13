@@ -37,6 +37,8 @@ public:
 	static void Run(number numThreads, char* startFrom, char* stopAt, unsigned int largestPrimePower, number startPrime, number primeLimit);
 	static bool Iterate(RangeData& range);
 
+	static double total_numbers_to_check;
+
 private:
 	FORCEINLINE RangeGen() { InitializeCriticalSection(&lock); }
 	FORCEINLINE ~RangeGen() { DeleteCriticalSection(&lock);}
@@ -48,16 +50,24 @@ private:
 
 	template<unsigned int largest_prime_power> static bool Iterate(RangeData& range);
 
+	struct WorkerThreadState
+	{
+		RangeData curRange;
+		unsigned int curLargestPrimePower;
+	};
+
 	struct WorkerThreadParams
 	{
-		unsigned int* result;
 		const RangeData* rangeToCheckFirst;
 		const Factor* stopAtFactors;
 		number startPrime;
 		number primeLimit;
 		unsigned int startLargestPrimePower;
+		WorkerThreadState* volatile stateToSave;
+		volatile bool finished;
 	};
 
+	static void CheckpointThread(WorkerThreadParams* params, number numWorkerThreads);
 	static void WorkerThread(WorkerThreadParams* params);
 
 private:
@@ -68,6 +78,8 @@ private:
 	static int prev_search_stack_depth;
 	static unsigned int cur_largest_prime_power;
 	static volatile number SharedCounterForSearch;
+	static number total_numbers_checked;
+	static volatile bool allDone;
 
 	static RangeGen RangeGen_instance;
 };

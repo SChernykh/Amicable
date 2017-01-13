@@ -24,6 +24,8 @@ int main(int argc, char* argv[])
 		exit(boinc_init_result);
 	}
 
+	boinc_fraction_done(0.0);
+
 #if DYNAMIC_SEARCH_LIMIT
 	if (argc < 2)
 	{
@@ -127,6 +129,11 @@ int main(int argc, char* argv[])
 		{
 			startPrime = StrToNumber(argv[++i]);
 			primeLimit = StrToNumber(argv[++i]);
+		}
+
+		if ((strcmp(argv[i], "/task_size") == 0) && (i + 1 < argc))
+		{
+			RangeGen::total_numbers_to_check = atof(argv[++i]);
 		}
 	}
 

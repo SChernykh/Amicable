@@ -824,7 +824,7 @@ FORCEINLINE void CheckPairSafe(const number m, const number target_sum1, const n
 #endif
 }
 
-NOINLINE void SearchRange(const RangeData& r)
+NOINLINE number SearchRange(const RangeData& r)
 {
 	number prime_limit = (SearchLimit::value - 1) / r.value;
 	if (prime_limit > SearchLimit::MainPrimeTableBound)
@@ -870,9 +870,11 @@ NOINLINE void SearchRange(const RangeData& r)
 			CheckPairSafe(m * prev_q, sum_m, prev_q + 1);
 		}
 	}
+
+	return static_cast<number>(shift - (NextPrimeShifts + r.index_start_prime * 2)) / 2;
 }
 
-NOINLINE void SearchRangeSquared(const RangeData& r)
+NOINLINE number SearchRangeSquared(const RangeData& r)
 {
 	number prime_limit = static_cast<number>(sqrt(static_cast<double>(SearchLimit::value) / r.value)) + 1;
 	if (r.sum - r.value < r.value)
@@ -902,9 +904,11 @@ NOINLINE void SearchRangeSquared(const RangeData& r)
 		q += static_cast<unsigned int>(*shift) * ShiftMultiplier;
 		shift += 2;
 	}
+
+	return static_cast<number>(shift - (NextPrimeShifts + r.index_start_prime * 2)) / 2;
 }
 
-NOINLINE void SearchRangeCubed(const RangeData& r)
+NOINLINE number SearchRangeCubed(const RangeData& r)
 {
 	number q = r.start_prime;
 	const byte* shift = NextPrimeShifts + r.index_start_prime * 2;
@@ -929,6 +933,8 @@ NOINLINE void SearchRangeCubed(const RangeData& r)
 		q += static_cast<unsigned int>(*shift) * ShiftMultiplier;
 		shift += 2;
 	}
+
+	return static_cast<number>(shift - (NextPrimeShifts + r.index_start_prime * 2)) / 2;
 }
 
 namespace primesieve

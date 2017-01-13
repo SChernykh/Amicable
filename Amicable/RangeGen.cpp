@@ -2,14 +2,26 @@
 #include "PrimeTables.h"
 #include "Engine.h"
 #include "RangeGen.h"
+#include <atomic>
+#include <sstream>
+
+PRAGMA_WARNING(push, 1)
+PRAGMA_WARNING(disable : 4917)
+#include <boinc_api.h>
+PRAGMA_WARNING(pop)
 
 CRITICAL_SECTION RangeGen::lock = CRITICAL_SECTION_INITIALIZER;
-CACHE_ALIGNED RangeGen::StackFrame RangeGen::search_stack[16];
-CACHE_ALIGNED Factor RangeGen::factors[16];
+CACHE_ALIGNED RangeGen::StackFrame RangeGen::search_stack[MaxPrimeFactors];
+CACHE_ALIGNED Factor RangeGen::factors[MaxPrimeFactors];
 int RangeGen::search_stack_depth;
 int RangeGen::prev_search_stack_depth;
 unsigned int RangeGen::cur_largest_prime_power;
 volatile number RangeGen::SharedCounterForSearch;
+number RangeGen::total_numbers_checked;
+double RangeGen::total_numbers_to_check = 1e12;
+volatile bool RangeGen::allDone = false;
+
+const char* const CHECKPOINT_LOGICAL_NAME = "amicable_checkpoint";
 
 RangeGen RangeGen::RangeGen_instance;
 
@@ -184,11 +196,16 @@ recurse_begin:
 						range.sum = s[1].sum;
 						range.start_prime = q0;
 						range.index_start_prime = static_cast<unsigned int>(start_j);
-						IF_CONSTEXPR(largest_prime_power == 1)
+						for (unsigned int i = 0; i <= static_cast<unsigned int>(search_stack_depth); ++i)
 						{
-							memcpy(range.factors, factors, sizeof(Factor) * (search_stack_depth + 1));
-							range.last_factor_index = search_stack_depth;
+							range.factors[i] = factors[i];
 						}
+						for (unsigned int i = static_cast<unsigned int>(search_stack_depth) + 1; i < MaxPrimeFactors; ++i)
+						{
+							range.factors[i].p = 0;
+							range.factors[i].k = 0;
+						}
+						range.last_factor_index = search_stack_depth;
 						++search_stack_depth;
 						return true;
 					}
@@ -377,7 +394,6 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 	prev_search_stack_depth = 0;
 	cur_largest_prime_power = largestPrimePower;
 	SharedCounterForSearch = 0;
-	memset(factors, -1, sizeof(factors));
 
 	if (startFrom)
 	{
@@ -478,6 +494,34 @@ NOINLINE void RangeGen::Run(number numThreads, char* startFrom, char* stopAt, un
 {
 	RangeData startFromRange;
 	Factor stopAtFactors[MaxPrimeFactors + 1] = {};
+
+	char checkpoint_buf[256];
+	std::string checkpoint_name;
+	boinc_resolve_filename_s(CHECKPOINT_LOGICAL_NAME, checkpoint_name);
+	FILE* checkpoint = boinc_fopen(checkpoint_name.c_str(), "r");
+	if (checkpoint)
+	{
+		if (fgets(checkpoint_buf, sizeof(checkpoint_buf), checkpoint))
+		{
+			char* end_of_data = strchr(checkpoint_buf, '#');
+			if (end_of_data)
+			{
+				*end_of_data = '\0';
+				char* first_token_end = strchr(checkpoint_buf, ' ');
+				if (first_token_end)
+				{
+					total_numbers_checked = StrToNumber(checkpoint_buf);
+					do
+					{
+						++first_token_end;
+					} while (*first_token_end == ' ');
+					startFrom = first_token_end;
+				}
+			}
+		}
+		fclose(checkpoint);
+	}
+
 	Init(startFrom, stopAt, &startFromRange, stopAtFactors, largestPrimePower);
 
 	if (numThreads == 0)
@@ -492,32 +536,144 @@ NOINLINE void RangeGen::Run(number numThreads, char* startFrom, char* stopAt, un
 
 	std::vector<std::thread> threads;
 
-	Timer t;
-
-	unsigned int* num_pairs = reinterpret_cast<unsigned int*>(alloca(sizeof(unsigned int) * numThreads));
 	WorkerThreadParams* params = reinterpret_cast<WorkerThreadParams*>(alloca(sizeof(WorkerThreadParams) * numThreads));
 	for (number i = 0; i < numThreads; ++i)
 	{
-		params[i].result = num_pairs + i;
 		params[i].rangeToCheckFirst = (startFrom && startFromRange.value && (i == 0)) ? &startFromRange : nullptr;
 		params[i].stopAtFactors = stopAt ? stopAtFactors : nullptr;
 		params[i].startPrime = startPrime;
 		params[i].primeLimit = primeLimit;
 		params[i].startLargestPrimePower = largestPrimePower;
+		params[i].stateToSave = nullptr;
+		params[i].finished = false;
 		threads.emplace_back(std::thread(WorkerThread, &params[i]));
 	}
+
+	std::thread checkpoint_thread(CheckpointThread, params, numThreads);
 
 	for (number i = 0; i < numThreads; ++i)
 	{
 		threads[i].join();
 	}
 
-	unsigned int numFoundPairsTotal = 0;
-	for (number i = 0; i < numThreads; ++i)
+	allDone = true;
+	checkpoint_thread.join();
+}
+
+NOINLINE void RangeGen::CheckpointThread(WorkerThreadParams* params, number numWorkerThreads)
+{
+	std::string checkpoint_name, data;
+	boinc_resolve_filename_s(CHECKPOINT_LOGICAL_NAME, checkpoint_name);
+
+	WorkerThreadState mostLaggingThreadState = {};
+	mostLaggingThreadState.curLargestPrimePower = std::numeric_limits<unsigned int>::max();
+
+	WorkerThreadState* threadState = reinterpret_cast<WorkerThreadState*>(alloca(sizeof(WorkerThreadState) * numWorkerThreads));
+
+	while (!allDone)
 	{
-		numFoundPairsTotal += num_pairs[i];
+		Sleep(1000);
+		if (boinc_time_to_checkpoint())
+		{
+			// Save how many numbers have been checked so far
+			const number numbers_checked = total_numbers_checked;
+
+			// Request threads to save factorizations they're going to check now
+			for (number i = 0; i < numWorkerThreads; ++i)
+			{
+				params[i].stateToSave = threadState + i;
+			}
+
+			// Find the most lagging thread and use this thread's factorization as current checkpoint
+			for (number i = 0; i < numWorkerThreads; ++i)
+			{
+				while (params[i].stateToSave && !params[i].finished)
+				{
+					Sleep(1);
+				}
+
+				if (!params[i].finished)
+				{
+					bool is_less = false;
+
+					if (threadState[i].curLargestPrimePower < mostLaggingThreadState.curLargestPrimePower)
+					{
+						is_less = true;
+					}
+					else if (threadState[i].curLargestPrimePower == mostLaggingThreadState.curLargestPrimePower)
+					{
+						const Factor (&mainFactors)[MaxPrimeFactors] = mostLaggingThreadState.curRange.factors;
+						const Factor (&curFactors)[MaxPrimeFactors] = threadState[i].curRange.factors;
+
+						number j;
+						for (j = 0; j <= static_cast<number>(threadState[i].curRange.last_factor_index); ++j)
+						{
+							if (curFactors[j].p != mainFactors[j].p)
+							{
+								is_less = (curFactors[j].p < mainFactors[j].p);
+								break;
+							}
+							else if (curFactors[j].k != mainFactors[j].k)
+							{
+								is_less = (curFactors[j].k < mainFactors[j].k);
+								break;
+							}
+						}
+
+						if (j > static_cast<number>(threadState[i].curRange.last_factor_index))
+						{
+							is_less = (threadState[i].curRange.last_factor_index < mostLaggingThreadState.curRange.last_factor_index);
+						}
+					}
+
+					if (is_less)
+					{
+						mostLaggingThreadState = threadState[i];
+						Factor (&mainFactors)[MaxPrimeFactors] = mostLaggingThreadState.curRange.factors;
+						for (number j = static_cast<number>(mostLaggingThreadState.curRange.last_factor_index) + 1; j < MaxPrimeFactors; ++j)
+						{
+							mainFactors[j].p = 0;
+							mainFactors[j].k = 0;
+						}
+					}
+				}
+			}
+
+			std::stringstream s;
+
+			// First write how many numbers have been checked so far
+			s << numbers_checked << ' ';
+
+			// Then factorization from most lagging thread
+			Factor (&mainFactors)[MaxPrimeFactors] = mostLaggingThreadState.curRange.factors;
+			for (number i = 0; i <= static_cast<number>(mostLaggingThreadState.curRange.last_factor_index); ++i)
+			{
+				if (i > 0)
+				{
+					s << '*';
+				}
+				s << mainFactors[i].p;
+				if (mainFactors[i].k > 1)
+				{
+					s << '^' << mainFactors[i].k;
+				}
+			}
+
+			// End of data marker
+			s << '#';
+
+			data = s.str();
+
+			FILE* f = boinc_fopen(checkpoint_name.c_str(), "wb");
+			if (f)
+			{
+				fwrite(data.c_str(), sizeof(char), data.length(), f);
+				fclose(f);
+			}
+
+			boinc_checkpoint_completed();
+		}
 	}
-	SetNumFoundPairsInThisThread(numFoundPairsTotal);
 }
 
 static const int locMainThreadPriority = GetCurrentPriority();
@@ -525,8 +681,9 @@ static const int locMainThreadPriority = GetCurrentPriority();
 NOINLINE void RangeGen::WorkerThread(WorkerThreadParams* params)
 {
 	SetCurrentPriority(locMainThreadPriority);
-	SetNumFoundPairsInThisThread(0);
 	ForceRoundUpFloatingPoint();
+
+	number numbers_checked = 0;
 
 	if (params->startPrime && params->primeLimit)
 	{
@@ -551,13 +708,13 @@ NOINLINE void RangeGen::WorkerThread(WorkerThreadParams* params)
 			switch (params->startLargestPrimePower)
 			{
 			case 1:
-				SearchRange(*params->rangeToCheckFirst);
+				numbers_checked += SearchRange(*params->rangeToCheckFirst);
 				break;
 			case 2:
-				SearchRangeSquared(*params->rangeToCheckFirst);
+				numbers_checked += SearchRangeSquared(*params->rangeToCheckFirst);
 				break;
 			case 3:
-				SearchRangeCubed(*params->rangeToCheckFirst);
+				numbers_checked += SearchRangeCubed(*params->rangeToCheckFirst);
 				break;
 			}
 		}
@@ -581,6 +738,15 @@ NOINLINE void RangeGen::WorkerThread(WorkerThreadParams* params)
 
 			if (is_locked)
 			{
+				if (numbers_checked)
+				{
+					total_numbers_checked += numbers_checked;
+					numbers_checked = 0;
+
+					const double f = total_numbers_checked / total_numbers_to_check;
+					boinc_fraction_done((f > 1.0) ? 1.0 : f);
+				}
+
 				while (range_write_index - range_read_index < RangesReadAheadSize)
 				{
 					if (!Iterate(ranges[range_write_index % RangesReadAheadSize]))
@@ -597,14 +763,23 @@ NOINLINE void RangeGen::WorkerThread(WorkerThreadParams* params)
 							break;
 						}
 
-						const Factor* f1 = params->stopAtFactors;
-						const Factor* f2 = factors;
-						while ((f1->p == f2->p) && (f1->k == f2->k))
+						bool done = false;
+						number i;
+						for (i = 0; i < MaxPrimeFactors; ++i)
 						{
-							++f1;
-							++f2;
+							if (factors[i].p != params->stopAtFactors[i].p)
+							{
+								done = (factors[i].p > params->stopAtFactors[i].p);
+								break;
+							}
+							else if (factors[i].k != params->stopAtFactors[i].k)
+							{
+								done = (factors[i].k > params->stopAtFactors[i].k);
+								break;
+							}
 						}
-						if (((f1->p == 0) && (f1->k == 0)) || (f1->p < f2->p) || ((f1->p == f2->p) && (f1->k < f2->k)))
+
+						if (done || (i == MaxPrimeFactors))
 						{
 							search_stack_depth = -1;
 							break;
@@ -621,16 +796,27 @@ NOINLINE void RangeGen::WorkerThread(WorkerThreadParams* params)
 				break;
 			}
 
+			WorkerThreadState* stateToSave = params->stateToSave;
+			if (stateToSave)
+			{
+				stateToSave->curRange = ranges[range_read_index % RangesReadAheadSize];
+				stateToSave->curLargestPrimePower = range_largest_prime_power[range_read_index % RangesReadAheadSize];
+
+				std::atomic_thread_fence(std::memory_order_seq_cst);
+
+				params->stateToSave = nullptr;
+			}
+
 			switch (range_largest_prime_power[range_read_index % RangesReadAheadSize])
 			{
 			case 1:
-				SearchRange(ranges[range_read_index % RangesReadAheadSize]);
+				numbers_checked += SearchRange(ranges[range_read_index % RangesReadAheadSize]);
 				break;
 			case 2:
-				SearchRangeSquared(ranges[range_read_index % RangesReadAheadSize]);
+				numbers_checked += SearchRangeSquared(ranges[range_read_index % RangesReadAheadSize]);
 				break;
 			case 3:
-				SearchRangeCubed(ranges[range_read_index % RangesReadAheadSize]);
+				numbers_checked += SearchRangeCubed(ranges[range_read_index % RangesReadAheadSize]);
 				break;
 			}
 			++range_read_index;
@@ -642,5 +828,5 @@ NOINLINE void RangeGen::WorkerThread(WorkerThreadParams* params)
 		}
 	}
 
-	*params->result = GetNumFoundPairsInThisThread();
+	params->finished = true;
 }

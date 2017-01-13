@@ -2,9 +2,9 @@
 
 struct RangeData;
 
-void SearchRange(const RangeData& r);
-void SearchRangeSquared(const RangeData& r);
-void SearchRangeCubed(const RangeData& r);
+number SearchRange(const RangeData& r);
+number SearchRangeSquared(const RangeData& r);
+number SearchRangeCubed(const RangeData& r);
 
 void SearchLargePrimes(volatile number* SharedCounterForSearch, const number StartPrime, const number PrimeLimit);
 
