@@ -2,6 +2,7 @@
 #include "PrimeTables.h"
 #include <algorithm>
 #include "sprp64.h"
+#include "primesieve.hpp"
 
 CACHE_ALIGNED SReciprocal privPrimeReciprocals[ReciprocalsTableSize];
 byte* privNextPrimeShifts = nullptr;
@@ -10,149 +11,45 @@ CACHE_ALIGNED number privSumEstimatesBeginP[SumEstimatesSize];
 CACHE_ALIGNED number privSumEstimatesBeginQ[SumEstimatesSize];
 std::vector<AmicableCandidate> privCandidatesData;
 CACHE_ALIGNED unsigned char privCandidatesDataMask[5 * 7 * 11];
-std::pair<number, number>* privPrimeInverses = nullptr;
+CACHE_ALIGNED std::pair<number, number> privPrimeInverses[CompileTimePrimesCount];
 CACHE_ALIGNED std::pair<number, number> privPrimeInverses2[CompileTimePrimesCount];
 
-std::vector<byte> MainPrimeTable;
+byte* MainPrimeTable = nullptr;
 byte bitOffset[PrimeTableParameters::Modulo];
 number bitMask[PrimeTableParameters::Modulo];
 
-number CalculatePrimes(number aLowerBound, number anUpperBound, std::vector<byte>& anOutPrimes)
+struct MainPrimeTableInitializer
 {
-	aLowerBound -= (aLowerBound % PrimeTableParameters::Modulo);
+	MainPrimeTableInitializer() : nPrimes(0) {}
 
-	static THREAD_LOCAL unsigned char* locGetRemainderCode = 0;
-	unsigned char* GetRemainderCode = locGetRemainderCode;
-	if (!GetRemainderCode)
+	FORCEINLINE void operator()(number p)
 	{
-		GetRemainderCode = locGetRemainderCode = (unsigned char*) AllocateSystemMemory(16, true);
-		unsigned char code[] =
+		++nPrimes;
+		if (p >= 11)
 		{
-			0xB8,0,0,0,0, // mov eax, 0
-			0xBA,0,0,0,0, // mov edx, 0
-			0xF7,0xF1,    // div ecx
-			0x8B,0xC2,    // mov eax, edx
-			0xC3,         // ret
-		};
-		memcpy(GetRemainderCode, code, sizeof(code));
+			const number bit = bitOffset[p % PrimeTableParameters::Modulo];
+			const number k = (p / PrimeTableParameters::Modulo) * PrimeTableParameters::NumOffsets + bit;
+			MainPrimeTable[k / Byte::Bits] |= (1 << (k % Byte::Bits));
+		}
 	}
-	*(unsigned int*)(GetRemainderCode + 1) = static_cast<unsigned int>(aLowerBound);
-	*(unsigned int*)(GetRemainderCode + 6) = static_cast<unsigned int>(aLowerBound >> 32);
-	number (*GetRemainder)(number) = (number(*)(number))((void*)(GetRemainderCode));
 
+	number nPrimes;
+};
+
+static number CalculateMainPrimeTable()
+{
 	// https://en.wikipedia.org/wiki/Prime_gap#Numerical_results
 	// Since we operate in the range 1..2^64, a gap = PrimeTableParameters::Modulo * 9 = 1890 is enough
-	anUpperBound = ((anUpperBound / PrimeTableParameters::Modulo) + 10) * PrimeTableParameters::Modulo;
-	const size_t arraySize = static_cast<size_t>((anUpperBound - aLowerBound + PrimeTableParameters::Modulo) / PrimeTableParameters::Modulo * (PrimeTableParameters::NumOffsets / Byte::Bits));
-	anOutPrimes.resize(arraySize);
-	byte* primes = anOutPrimes.data();
-	memset(primes, -1, arraySize);
-	number d = 11;
-	number sqr_d = 121;
+	const number upperBound = ((SearchLimit::MainPrimeTableBound / PrimeTableParameters::Modulo) + 10) * PrimeTableParameters::Modulo;
+	const size_t arraySize = static_cast<size_t>((upperBound + PrimeTableParameters::Modulo) / PrimeTableParameters::Modulo * (PrimeTableParameters::NumOffsets / Byte::Bits));
+	MainPrimeTable = reinterpret_cast<byte*>(AllocateSystemMemory(arraySize, false));
+	MainPrimeTable[0] = 1;
 
-	const number* sieveData = (const number*)(MainPrimeTable.data()) + 1;
-	number moduloIndex = 0;
-	number bitIndexShift = 0;
-	// Precomputed first 64 bits of MainPrimeTable
-	// They're not available when we're only starting to calculate MainPrimeTable
-	// So I just hard-coded them here
-	number curSieveChunk = 0xfafd7bbef7ffffffULL & ~number(3);
-	const unsigned int* PossiblePrimesForModuloPtr = NumbersCoprimeToModulo;
+	MainPrimeTableInitializer p;
+	primesieve::PrimeSieve sieve;
+	sieve.sieveTemplated(0, upperBound, p);
 
-	const number rangeSize = anUpperBound - aLowerBound;
-	const number GetRemainderBound = aLowerBound >> 32;
-	while (sqr_d <= anUpperBound)
-	{
-		number k = sqr_d;
-		if (k < aLowerBound)
-		{
-			if (d * 2 > GetRemainderBound)
-				break;
-			number k1 = aLowerBound % (d * 2);
-			number correction = 0;
-			if (k1 > d)
-				correction = d * 2;
-			k = d + correction - k1;
-		}
-		else
-			k -= aLowerBound;
-
-		for (; k <= rangeSize; k += d * 2)
-		{
-			const number mask = bitMask[k % PrimeTableParameters::Modulo];
-			if (mask)
-			{
-				number* chunk = reinterpret_cast<number*>(primes + (k / PrimeTableParameters::Modulo) * (PrimeTableParameters::NumOffsets / Byte::Bits));
-				*chunk &= mask;
-			}
-		}
-
-		while (!curSieveChunk)
-		{
-			curSieveChunk = *(sieveData++);
-
-			const number NextValuesModuloIndex = (PrimeTableParameters::Modulo / 2) | (number(PrimeTableParameters::Modulo / 2) << 16) | (number(PrimeTableParameters::Modulo) << 32);
-			const number NextValuesBitIndexShift = 16 | (32 << 16) | (number(0) << 32);
-
-			moduloIndex += ((NextValuesModuloIndex >> bitIndexShift) & 255) * 2;
-			bitIndexShift = (NextValuesBitIndexShift >> bitIndexShift) & 255;
-
-			PossiblePrimesForModuloPtr = NumbersCoprimeToModulo + bitIndexShift;
-		}
-
-		unsigned long bitIndex;
-		_BitScanForward64(&bitIndex, curSieveChunk);
-		curSieveChunk &= (curSieveChunk - 1);
-
-		d = moduloIndex + PossiblePrimesForModuloPtr[bitIndex];
-		sqr_d = d * d;
-	}
-
-	while (sqr_d <= anUpperBound)
-	{
-		number k = sqr_d;
-		if (k < aLowerBound)
-		{
-			const number k1 = GetRemainder(d * 2);
-			number correction = 0;
-			if (k1 > d)
-				correction = d * 2;
-			k = d + correction - k1;
-		}
-		else
-			k -= aLowerBound;
-
-		for (; k <= rangeSize; k += d * 2)
-		{
-			const number mask = bitMask[k % PrimeTableParameters::Modulo];
-			if (mask)
-			{
-				number* chunk = reinterpret_cast<number*>(primes + (k / PrimeTableParameters::Modulo) * (PrimeTableParameters::NumOffsets / Byte::Bits));
-				*chunk &= mask;
-			}
-		}
-
-		while (!curSieveChunk)
-		{
-			curSieveChunk = *(sieveData++);
-
-			const number NextValuesModuloIndex = (PrimeTableParameters::Modulo / 2) | (number(PrimeTableParameters::Modulo / 2) << 16) | (number(PrimeTableParameters::Modulo) << 32);
-			const number NextValuesBitIndexShift = 16 | (32 << 16) | (number(0) << 32);
-
-			moduloIndex += ((NextValuesModuloIndex >> bitIndexShift) & 255) * 2;
-			bitIndexShift = (NextValuesBitIndexShift >> bitIndexShift) & 255;
-
-			PossiblePrimesForModuloPtr = NumbersCoprimeToModulo + bitIndexShift;
-		}
-
-		unsigned long bitIndex;
-		_BitScanForward64(&bitIndex, curSieveChunk);
-		curSieveChunk &= (curSieveChunk - 1);
-
-		d = moduloIndex + PossiblePrimesForModuloPtr[bitIndex];
-		sqr_d = d * d;
-	}
-	return aLowerBound;
+	return p.nPrimes;
 }
 
 bool IsPrime(number n)
@@ -331,8 +228,11 @@ FORCEINLINE void SearchCandidates(Factor* factors, const number value, const num
 		number next_sum = sum * (f.p + 1);
 
 		f.k = 1;
-		f.p_inv = PrimeInverses[f.index].first;
-		f.q_max = PrimeInverses[f.index].second;
+
+		f.q_max = number(-1) / f.p;
+
+		PRAGMA_WARNING(suppress : 4146)
+		f.p_inv = -modular_inverse64(f.p);
 
 		for (;;)
 		{
@@ -370,7 +270,7 @@ void GenerateCandidates()
 	std::sort(privCandidatesData.begin(), privCandidatesData.end(), [](const AmicableCandidate& a, const AmicableCandidate& b){ return a.value < b.value; });
 }
 
-void PrimeTablesInit(bool doSmallPrimes, bool doLargePrimes)
+void PrimeTablesInit(bool doLargePrimes)
 {
 	memset(bitOffset, -1, sizeof(bitOffset));
 	for (byte b = 0; b < PrimeTableParameters::NumOffsets; ++b)
@@ -379,60 +279,12 @@ void PrimeTablesInit(bool doSmallPrimes, bool doLargePrimes)
 		bitMask[NumbersCoprimeToModulo[b]] = ~(1ULL << b);
 	}
 
-	CalculatePrimes(0, SearchLimit::MainPrimeTableBound, MainPrimeTable);
+	number nPrimes = CalculateMainPrimeTable();
 
 	// Make sure all floating point calculations round up
 	ForceRoundUpFloatingPoint();
 
-	number nPrimes = 0;
-	number nPrimeInverses = 0;
-
-	number curPrimeInversesBound = SearchLimit::PrimeInversesBound;
-	if (!doSmallPrimes)
-	{
-		curPrimeInversesBound = SearchLimit::LinearLimit / 20;
-	}
-
-	if (IsPopcntAvailable())
-	{
-		number* data = reinterpret_cast<number*>(MainPrimeTable.data());
-		const number primeInversesBoundBytes = ((curPrimeInversesBound / PrimeTableParameters::Modulo) + 1) * (PrimeTableParameters::NumOffsets / Byte::Bits) - 1;
-
-		number* e = reinterpret_cast<number*>(MainPrimeTable.data() + primeInversesBoundBytes);
-		for (; data <= e; ++data)
-		{
-			nPrimes += __popcnt64(*data);
-		}
-		nPrimeInverses = nPrimes;
-
-		e = reinterpret_cast<number*>(MainPrimeTable.data() + MainPrimeTable.size() - 1);
-		for (; data <= e; ++data)
-		{
-			nPrimes += __popcnt64(*data);
-		}
-	}
-	else
-	{
-		PrimeIterator it(2);
-		for (; it.Get() <= curPrimeInversesBound; ++it)
-		{
-			++nPrimes;
-		}
-		nPrimeInverses = nPrimes;
-
-		for (; it.Get() <= SearchLimit::MainPrimeTableBound; ++it)
-		{
-			++nPrimes;
-		}
-	}
-
-	if (nPrimeInverses < CompileTimePrimesCount)
-	{
-		nPrimeInverses = CompileTimePrimesCount;
-	}
-
-	privPrimeInverses = reinterpret_cast<std::pair<number, number>*>(AllocateSystemMemory((((nPrimeInverses + 3) / 4) * 4) * sizeof(std::pair<number, number>) + (nPrimes + (nPrimes & 1)) * 2, false));
-	privNextPrimeShifts = reinterpret_cast<byte*>(privPrimeInverses + (((nPrimeInverses + 3) / 4) * 4));
+	privNextPrimeShifts = reinterpret_cast<byte*>(AllocateSystemMemory((nPrimes + (nPrimes & 1)) * 2, false));
 
 	for (unsigned int i = 0; i < 385; ++i)
 	{
@@ -465,11 +317,13 @@ void PrimeTablesInit(bool doSmallPrimes, bool doLargePrimes)
 		++nPrimes;
 	}
 
-	for (number p = 3, index = 1; p <= curPrimeInversesBound; p += privNextPrimeShifts[index * 2] * ShiftMultiplier, ++index)
+	for (number p = 3, index = 1; index < CompileTimePrimesCount; p += privNextPrimeShifts[index * 2] * ShiftMultiplier, ++index)
 	{
+		const number p_max = number(-1) / p;
+
 		PRAGMA_WARNING(suppress : 4146)
 		const number p_inv = -modular_inverse64(p);
-		const number p_max = number(-1) / p;
+
 		if (p_inv * p != 1)
 		{
 			std::cerr << "modular_inverse64 failed";
@@ -478,11 +332,8 @@ void PrimeTablesInit(bool doSmallPrimes, bool doLargePrimes)
 
 		privPrimeInverses[index].first = p_inv;
 		privPrimeInverses[index].second = p_max;
-		if (index < CompileTimePrimesCount)
-		{
-			privPrimeInverses2[index].first = p_inv;
-			privPrimeInverses2[index].second = p_max;
-		}
+		privPrimeInverses2[index].first = p_inv;
+		privPrimeInverses2[index].second = p_max;
 	}
 
 	// Gather data for linear search and do preliminary filtering

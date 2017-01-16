@@ -2,6 +2,7 @@
 #include "PrimeTables.h"
 #include "Engine.h"
 #include "RangeGen.h"
+#include "sprp64.h"
 #include <sstream>
 
 PRAGMA_WARNING(push, 1)
@@ -119,8 +120,11 @@ recurse_begin:
 		s[1].sum = s->sum * (f->p + 1);
 
 		f->k = 1;
-		f->p_inv = PrimeInverses[f->index].first;
-		f->q_max = PrimeInverses[f->index].second;
+
+		f->q_max = number(-1) / f->p;
+
+		PRAGMA_WARNING(suppress : 4146)
+		f->p_inv = -modular_inverse64(f->p);
 
 		for (;;)
 		{
@@ -403,11 +407,15 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 				f.p = p;
 				f.k = k;
 				f.index = p_index;
-				f.p_inv = PrimeInverses[p_index].first;
-				f.q_max = PrimeInverses[p_index].second;
+
+				f.q_max = number(-1) / p;
+
+				PRAGMA_WARNING(suppress : 4146)
+				f.p_inv = -modular_inverse64(p);
+
 				if ((f.p > 2) && (f.p * f.p_inv != 1))
 				{
-					std::cerr << "Internal error: PrimeInverses table is incorrect" << std::endl;
+					std::cerr << "Internal error: modular_inverse64 table is incorrect" << std::endl;
 					abort();
 				}
 

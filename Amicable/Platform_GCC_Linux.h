@@ -118,13 +118,6 @@ FORCEINLINE void Sleep(DWORD ms)
 	}
 }
 
-FORCEINLINE bool IsPopcntAvailable()
-{
-	unsigned int cpuid_data[4] = {};
-	__get_cpuid(1, &cpuid_data[0], &cpuid_data[1], &cpuid_data[2], &cpuid_data[3]);
-	return (cpuid_data[2] & (1 << 23)) != 0;
-}
-
 FORCEINLINE void* AllocateSystemMemory(number size, bool is_executable)
 {
 	return mmap(0, size, is_executable ? (PROT_READ | PROT_WRITE | PROT_EXEC) : (PROT_READ | PROT_WRITE), MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);

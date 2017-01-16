@@ -1,7 +1,6 @@
 #pragma once
 
-void PrimeTablesInit(bool doSmallPrimes = true, bool doLargePrimes = true);
-number CalculatePrimes(number aLowerBound, number anUpperBound, std::vector<byte>& anOutPrimes);
+void PrimeTablesInit(bool doLargePrimes = true);
 bool IsPrime(number n);
 
 enum
@@ -77,12 +76,12 @@ struct AmicableCandidate
 };
 #pragma pack(pop)
 
-extern std::vector<byte> MainPrimeTable;
+extern byte* MainPrimeTable;
 extern byte bitOffset[PrimeTableParameters::Modulo];
 extern byte* privNextPrimeShifts;
 extern std::vector<AmicableCandidate> privCandidatesData;
 extern CACHE_ALIGNED unsigned char privCandidatesDataMask[5 * 7 * 11];
-extern std::pair<number, number>* privPrimeInverses;
+extern CACHE_ALIGNED std::pair<number, number> privPrimeInverses[CompileTimePrimesCount];
 extern CACHE_ALIGNED std::pair<number, number> privPrimeInverses2[CompileTimePrimesCount];
 
 #define NextPrimeShifts ((const byte* const)(privNextPrimeShifts))
@@ -152,7 +151,7 @@ FORCEINLINE number GCD(number a, number b)
 class PrimeIterator
 {
 public:
-	explicit FORCEINLINE PrimeIterator(const number* aSieveData = reinterpret_cast<const number*>(MainPrimeTable.data()))
+	explicit FORCEINLINE PrimeIterator(const number* aSieveData = reinterpret_cast<const number*>(MainPrimeTable))
 		: mySieveChunk(*aSieveData & ~number(1))
 		, mySieveData(aSieveData)
 		, myPossiblePrimesForModuloPtr(NumbersCoprimeToModulo)
@@ -162,7 +161,7 @@ public:
 	{
 	}
 
-	explicit PrimeIterator(number aStartNumber, const number* aSieveData = (const number*)(MainPrimeTable.data()))
+	explicit PrimeIterator(number aStartNumber, const number* aSieveData = (const number*)(MainPrimeTable))
 		: mySieveData(aSieveData)
 		, myPossiblePrimesForModuloPtr(NumbersCoprimeToModulo)
 	{

@@ -105,13 +105,6 @@ FORCEINLINE void shr128(number& lo, number& hi, unsigned char count)
 	hi >>= count;
 }
 
-FORCEINLINE bool IsPopcntAvailable()
-{
-	int cpuid_data[4];
-	__cpuid(cpuid_data, 1);
-	return (cpuid_data[2] & (1 << 23)) != 0;
-}
-
 FORCEINLINE void* AllocateSystemMemory(number size, bool is_executable)
 {
 	return VirtualAlloc(nullptr, size, MEM_COMMIT, static_cast<DWORD>(is_executable ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE));

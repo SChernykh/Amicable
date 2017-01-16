@@ -132,7 +132,7 @@ NOINLINE void ProfileGuidedOptimization_Instrument()
 
 	// Just disable access to some crucial data structures to crash running threads.
 	// Access violation will be caught and the thread will then finish gracefully, saving all profiling data.
-	DisableAccessToMemory(privPrimeInverses, 4096);
+	DisableAccessToMemory(privNextPrimeShifts, 4096);
 
 	for (number i = 0; i < threads.size(); ++i)
 	{

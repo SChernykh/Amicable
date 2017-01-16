@@ -137,7 +137,7 @@ int main(int argc, char* argv[])
 		}
 	}
 
-	PrimeTablesInit(!(startPrime && primeLimit), (startPrime && primeLimit) || !stopAt);
+	PrimeTablesInit((startPrime && primeLimit) || !stopAt);
 
 	APP_INIT_DATA aid;
 	boinc_get_init_data(aid);
