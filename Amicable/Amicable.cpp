@@ -8,13 +8,27 @@
 PRAGMA_WARNING(push, 1)
 PRAGMA_WARNING(disable : 4091 4917)
 #include <boinc_api.h>
+#include <diagnostics.h>
 PRAGMA_WARNING(pop)
+
+#if defined(_MSC_VER) && (_MSC_VER >= 1400)
+void AppInvalidParameterHandler(const wchar_t* /*expression*/, const wchar_t* /*function*/, const wchar_t* /*file*/, unsigned int /*line*/, uintptr_t /*pReserved*/)
+{
+	DebugBreak();
+}
+#endif
 
 int main(int argc, char* argv[])
 {
+#if defined(_MSC_VER) && (_MSC_VER >= 1400)
+	_set_invalid_parameter_handler(AppInvalidParameterHandler);
+#endif
+
 	BOINC_OPTIONS options;
 	boinc_options_defaults(options);
 	options.multi_thread = true;
+
+	boinc_init_diagnostics(BOINC_DIAG_REDIRECTSTDERR | BOINC_DIAG_TRACETOSTDERR);
 
 	const int boinc_init_result = boinc_init_options(&options);
 	if (boinc_init_result)
