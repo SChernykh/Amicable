@@ -666,11 +666,9 @@ NOINLINE void RangeGen::CheckpointThread(WorkerThreadParams* params, number numW
 	}
 }
 
-static const int locMainThreadPriority = GetCurrentPriority();
-
 NOINLINE void RangeGen::WorkerThread(WorkerThreadParams* params)
 {
-	SetCurrentPriority(locMainThreadPriority);
+	SetLowPriority();
 	ForceRoundUpFloatingPoint();
 
 	number numbers_checked = 0;

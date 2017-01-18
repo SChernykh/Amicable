@@ -121,12 +121,7 @@ FORCEINLINE void ForceRoundUpFloatingPoint()
 	_control87(_RC_UP, _MCW_RC);
 }
 
-FORCEINLINE int GetCurrentPriority()
+FORCEINLINE bool SetLowPriority()
 {
-	return GetThreadPriority(GetCurrentThread());
-}
-
-FORCEINLINE int SetCurrentPriority(int priority)
-{
-	return SetThreadPriority(GetCurrentThread(), priority);
+	return SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_IDLE) ? true : false;
 }

@@ -44,6 +44,7 @@ FORCEINLINE number _rotr64(number value, int shift)
 #include <alloca.h>
 #include <sys/resource.h>
 #include <unistd.h>
+#include <limits.h>
 
 #define CRITICAL_SECTION pthread_mutex_t
 #define CRITICAL_SECTION_INITIALIZER PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP
@@ -133,14 +134,11 @@ FORCEINLINE void ForceRoundUpFloatingPoint()
 	fesetround(FE_UPWARD);
 }
 
-FORCEINLINE int GetCurrentPriority()
+FORCEINLINE bool SetLowPriority()
 {
-	return getpriority(PRIO_PROCESS, 0);
-}
-
-FORCEINLINE int SetCurrentPriority(int priority)
-{
-	return nice(priority);
+	errno = 0;
+	const int result = nice(NZERO - 1);
+	return ((result != -1) || (errno == 0));
 }
 
 // All code that doesn't pass "-Wpedantic" must be below this comment
