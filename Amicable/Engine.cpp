@@ -378,6 +378,31 @@ FORCEINLINE number Root4(const number n)
 	return static_cast<number>(static_cast<__int64>(sqrt(sqrt(n))));
 }
 
+// Fast integer cube root. Returns number m such that m^3 <= n < (m+1)^3 for all n > 0
+FORCEINLINE number IntegerCbrt(const number n)
+{
+	if (n < 8)
+	{
+		return 1;
+	}
+
+	unsigned long index;
+	_BitScanReverse64(&index, n);
+
+	index = (index * ((65536 / 3) + 1)) >> 16;
+
+	number result = number(1) << index;
+	for (number cur_bit = result >> 1; cur_bit > 0; cur_bit >>= 1)
+	{
+		const number k = result | cur_bit;
+		if ((k <= 2642245) && (k * k * k <= n))
+		{
+			result = k;
+		}
+	}
+	return result;
+}
+
 FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, number n2TargetSum, number n2, number sum)
 {
 	number indexForMaximumSumOfDivisorsN;
