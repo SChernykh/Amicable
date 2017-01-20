@@ -296,7 +296,7 @@ void PrimeTablesInit(bool doLargePrimes)
 		bitMask[NumbersCoprimeToModulo[b]] = ~(1ULL << b);
 	}
 
-	const double nPrimesBound = (SearchLimit::MainPrimeTableBound < 1e5) ? 1e5 : SearchLimit::MainPrimeTableBound;
+	const double nPrimesBound = static_cast<double>((static_cast<number>(SearchLimit::MainPrimeTableBound) < 100000) ? 100000 : static_cast<number>(SearchLimit::MainPrimeTableBound));
 	const number nPrimesEstimate = static_cast<number>(nPrimesBound / (log(nPrimesBound) - 1.1));
 	privNextPrimeShifts = reinterpret_cast<byte*>(AllocateSystemMemory((nPrimesEstimate + (nPrimesEstimate & 1)) * 2, false));
 
