@@ -20,11 +20,24 @@ number bitMask[PrimeTableParameters::Modulo];
 
 struct MainPrimeTableInitializer
 {
-	MainPrimeTableInitializer() : nPrimes(0) {}
+	MainPrimeTableInitializer() : nPrimes(0), prev_p(0) {}
 
 	FORCEINLINE void operator()(number p)
 	{
+		if (nPrimes > 0)
+		{
+			if (nPrimes < ReciprocalsTableSize)
+			{
+				privPrimeReciprocals[nPrimes].Init(p);
+			}
+
+			privNextPrimeShifts[nPrimes * 2 - 2] = static_cast<byte>((p - prev_p) / ShiftMultiplier);
+			privNextPrimeShifts[nPrimes * 2 - 1] = privCandidatesDataMask[Mod385(prev_p + 1)];
+		}
+
+		prev_p = p;
 		++nPrimes;
+
 		if (p >= 11)
 		{
 			const number bit = bitOffset[p % PrimeTableParameters::Modulo];
@@ -34,6 +47,7 @@ struct MainPrimeTableInitializer
 	}
 
 	number nPrimes;
+	number prev_p;
 };
 
 static number CalculateMainPrimeTable()
@@ -272,6 +286,9 @@ void GenerateCandidates()
 
 void PrimeTablesInit(bool doLargePrimes)
 {
+	// Make sure all floating point calculations round up
+	ForceRoundUpFloatingPoint();
+
 	memset(bitOffset, -1, sizeof(bitOffset));
 	for (byte b = 0; b < PrimeTableParameters::NumOffsets; ++b)
 	{
@@ -279,12 +296,9 @@ void PrimeTablesInit(bool doLargePrimes)
 		bitMask[NumbersCoprimeToModulo[b]] = ~(1ULL << b);
 	}
 
-	number nPrimes = CalculateMainPrimeTable();
-
-	// Make sure all floating point calculations round up
-	ForceRoundUpFloatingPoint();
-
-	privNextPrimeShifts = reinterpret_cast<byte*>(AllocateSystemMemory((nPrimes + (nPrimes & 1)) * 2, false));
+	const double nPrimesBound = (SearchLimit::MainPrimeTableBound < 1e5) ? 1e5 : SearchLimit::MainPrimeTableBound;
+	const number nPrimesEstimate = static_cast<number>(nPrimesBound / (log(nPrimesBound) - 1.1));
+	privNextPrimeShifts = reinterpret_cast<byte*>(AllocateSystemMemory((nPrimesEstimate + (nPrimesEstimate & 1)) * 2, false));
 
 	for (unsigned int i = 0; i < 385; ++i)
 	{
@@ -295,27 +309,7 @@ void PrimeTablesInit(bool doLargePrimes)
 		privCandidatesDataMask[i] = static_cast<byte>(1 << index);
 	}
 
-	nPrimes = 0;
-	for (PrimeIterator it(2); it.Get() <= SearchLimit::MainPrimeTableBound;)
-	{
-		const number p = it.Get();
-
-		if ((p > 2) && (nPrimes < ReciprocalsTableSize))
-		{
-			privPrimeReciprocals[nPrimes].Init(p);
-		}
-
-		++it;
-		const number q = it.Get();
-		if (q - p >= 256 * ShiftMultiplier)
-		{
-			std::cerr << "Primes gap is 512 or greater, decrease MainPrimeTableBound";
-			abort();
-		}
-		privNextPrimeShifts[nPrimes * 2] = static_cast<byte>((q - p) / ShiftMultiplier);
-		privNextPrimeShifts[nPrimes * 2 + 1] = privCandidatesDataMask[Mod385(p + 1)];
-		++nPrimes;
-	}
+	CalculateMainPrimeTable();
 
 	for (number p = 3, index = 1; index < CompileTimePrimesCount; p += privNextPrimeShifts[index * 2] * ShiftMultiplier, ++index)
 	{
