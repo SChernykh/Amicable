@@ -18,7 +18,7 @@ struct SReciprocal
 	unsigned char increment;
 	unsigned char shift;
 
-	NOINLINE void Init(const number aDivisor)
+	FORCEINLINE void Init(const number aDivisor)
 	{
 		unsigned long bitIndex;
 		_BitScanReverse64(&bitIndex, aDivisor);
