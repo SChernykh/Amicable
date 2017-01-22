@@ -18,7 +18,7 @@ int RangeGen::prev_search_stack_depth;
 unsigned int RangeGen::cur_largest_prime_power;
 volatile number RangeGen::SharedCounterForSearch;
 number RangeGen::total_numbers_checked;
-double RangeGen::total_numbers_to_check = 5e11;
+double RangeGen::total_numbers_to_check = 2.5e11;
 volatile bool RangeGen::allDone = false;
 
 const char* const CHECKPOINT_LOGICAL_NAME = "amicable_checkpoint";
