@@ -478,51 +478,68 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 		return;
 	}
 
-	number n2_cbrt = IntegerCbrt(n2);
-	while (p <= n2_cbrt)
+	// Check the case when n2 is prime (it has 1 factor)
+	if (n2 + 1 == n2TargetSum)
 	{
-		number q;
-		if (PrimeReciprocals[numPrimesCheckedSoFar].Divide(n2, p, q))
+		if (IsPrime(n2))
 		{
-			number n = p;
-			number curSum = p + 1;
-			n2 = q;
-
-			while (p <= n2)
-			{
-				if (!PrimeReciprocals[numPrimesCheckedSoFar].Divide(n2, p, q))
-					break;
-				n *= p;
-				curSum += n;
-				n2 = q;
-			}
-			sum *= curSum;
-
-			if (n2 == 1)
-			{
-				if (sum == targetSum)
-					NumberFound(n1);
-				return;
-			}
-
-			// found new prime factor, let's check that N is not abundant yet
-			if (sum * (n2 + 1) > targetSum)
-				return;
-
-			// and then check that targetSum is still divisible by sum
-			n2TargetSum = targetSum / sum;
-			if ((targetSum % sum) != 0)
-				return;
-
-			n2_cbrt = IntegerCbrt(n2);
+			NumberFound(n1);
 		}
+		return;
+	}
 
-		if (MaximumSumOfDivisors3(n2, p, q) < n2TargetSum)
-			return;
+	// n2 must have 2 or 3 factors in order to have such n2TargetSum
+	// if n2 has 3 factors, then minimal possible sum of divisors is n2 + n2^(2/3) + n2^(1/3) + 1
+	// if target sum is less than this, then n2 must not have 3 factors in order to have such n2TargetSum
+	// So we only run the loop up to cube root of n2 only if target sum is >= than this
+	number n2_cbrt = IntegerCbrt(n2);
+	if (n2TargetSum > n2 + n2_cbrt * (n2_cbrt + 1))
+	{
+		while (p <= n2_cbrt)
+		{
+			number q;
+			if (PrimeReciprocals[numPrimesCheckedSoFar].Divide(n2, p, q))
+			{
+				number n = p;
+				number curSum = p + 1;
+				n2 = q;
 
-		p += *shift * ShiftMultiplier;
-		shift += 2;
-		++numPrimesCheckedSoFar;
+				while (p <= n2)
+				{
+					if (!PrimeReciprocals[numPrimesCheckedSoFar].Divide(n2, p, q))
+						break;
+					n *= p;
+					curSum += n;
+					n2 = q;
+				}
+				sum *= curSum;
+
+				if (n2 == 1)
+				{
+					if (sum == targetSum)
+						NumberFound(n1);
+					return;
+				}
+
+				// found new prime factor, let's check that N is not abundant yet
+				if (sum * (n2 + 1) > targetSum)
+					return;
+
+				// and then check that targetSum is still divisible by sum
+				n2TargetSum = targetSum / sum;
+				if ((targetSum % sum) != 0)
+					return;
+
+				n2_cbrt = IntegerCbrt(n2);
+			}
+
+			if (MaximumSumOfDivisors3(n2, p, q) < n2TargetSum)
+				return;
+
+			p += *shift * ShiftMultiplier;
+			shift += 2;
+			++numPrimesCheckedSoFar;
+		}
 	}
 
 	// Here p^3 > n2, so n2 can have at most 2 factors
@@ -617,7 +634,7 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 					{
 						p = (B - sqrt_D) / 2;
 						q = (B + sqrt_D) / 2;
-						if (p * q == n2)
+						if ((p * q == n2) && IsPrime(p) && IsPrime(q))
 							NumberFound(n1);
 						return;
 					}
@@ -629,9 +646,8 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 			{
 				p = static_cast<number>(sqrt(static_cast<double>(n2)));
 				const number p_squared = p * p;
-				if (p_squared == n2)
-					if (p_squared + p + 1 == n2TargetSum)
-						NumberFound(n1);
+				if ((p_squared == n2) && (p_squared + p + 1 == n2TargetSum) && IsPrime(p))
+					NumberFound(n1);
 			}
 		}
 		else
