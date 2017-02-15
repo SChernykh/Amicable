@@ -737,7 +737,8 @@ NOINLINE void RangeGen::WorkerThread(WorkerThreadParams* params)
 
 				while (range_write_index - range_read_index < RangesReadAheadSize)
 				{
-					if (!Iterate(ranges[range_write_index % RangesReadAheadSize]))
+					RangeData& r = ranges[range_write_index % RangesReadAheadSize];
+					if (!Iterate(r))
 					{
 						break;
 					}
@@ -755,14 +756,14 @@ NOINLINE void RangeGen::WorkerThread(WorkerThreadParams* params)
 						number i;
 						for (i = 0; i < MaxPrimeFactors; ++i)
 						{
-							if (factors[i].p != params->stopAtFactors[i].p)
+							if (r.factors[i].p != params->stopAtFactors[i].p)
 							{
-								done = (factors[i].p > params->stopAtFactors[i].p);
+								done = (r.factors[i].p > params->stopAtFactors[i].p);
 								break;
 							}
-							else if (factors[i].k != params->stopAtFactors[i].k)
+							else if (r.factors[i].k != params->stopAtFactors[i].k)
 							{
-								done = (factors[i].k > params->stopAtFactors[i].k);
+								done = (r.factors[i].k > params->stopAtFactors[i].k);
 								break;
 							}
 						}
