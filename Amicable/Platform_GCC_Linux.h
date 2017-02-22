@@ -14,6 +14,10 @@
 
 #define THREAD_LOCAL thread_local
 
+#define sprintf_s sprintf
+
+#define PAUSE __builtin_ia32_pause
+
 template <typename T, number N> char(*ArraySizeHelper(T(&)[N]))[N];
 #define ARRAYSIZE(A) (sizeof(*ArraySizeHelper(A)))
 
@@ -42,6 +46,9 @@ FORCEINLINE number _rotr64(number value, int shift)
 #include <cpuid.h>
 #include <time.h>
 #include <alloca.h>
+#include <sys/resource.h>
+#include <unistd.h>
+#include <limits.h>
 
 #define CRITICAL_SECTION pthread_mutex_t
 #define CRITICAL_SECTION_INITIALIZER PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP
@@ -98,7 +105,9 @@ private:
 	timespec t1;
 };
 
-FORCEINLINE void Sleep(DWORD ms)
+FORCEINLINE number SetHighestTimerResolution() { return 0; }
+FORCEINLINE void SetTimerResoluion(const number) {}
+FORCEINLINE void HiResSleep(const double ms)
 {
 	Timer t0;
 	for (;;)
@@ -116,13 +125,6 @@ FORCEINLINE void Sleep(DWORD ms)
 	}
 }
 
-FORCEINLINE bool IsPopcntAvailable()
-{
-	unsigned int cpuid_data[4] = {};
-	__get_cpuid(1, &cpuid_data[0], &cpuid_data[1], &cpuid_data[2], &cpuid_data[3]);
-	return (cpuid_data[2] & (1 << 23)) != 0;
-}
-
 FORCEINLINE void* AllocateSystemMemory(number size, bool is_executable)
 {
 	return mmap(0, size, is_executable ? (PROT_READ | PROT_WRITE | PROT_EXEC) : (PROT_READ | PROT_WRITE), MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -136,6 +138,13 @@ FORCEINLINE void DisableAccessToMemory(void* ptr, number size)
 FORCEINLINE void ForceRoundUpFloatingPoint()
 {
 	fesetround(FE_UPWARD);
+}
+
+FORCEINLINE bool SetLowPriority()
+{
+	errno = 0;
+	const int result = nice(NZERO - 1);
+	return ((result != -1) || (errno == 0));
 }
 
 // All code that doesn't pass "-Wpedantic" must be below this comment

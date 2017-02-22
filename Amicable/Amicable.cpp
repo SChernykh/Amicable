@@ -1,12 +1,44 @@
 #include "stdafx.h"
 #include "PrimeTables.h"
-#include "Engine.h"
 #include "RangeGen.h"
-#include "PGO_Helper.h"
-#include "Tests.h"
+#include "OpenCL.h"
+
+PRAGMA_WARNING(push, 1)
+PRAGMA_WARNING(disable : 4091 4917)
+#include <boinc_api.h>
+#include <diagnostics.h>
+PRAGMA_WARNING(pop)
+
+#if defined(_MSC_VER) && (_MSC_VER >= 1400)
+void AppInvalidParameterHandler(const wchar_t* /*expression*/, const wchar_t* /*function*/, const wchar_t* /*file*/, unsigned int /*line*/, uintptr_t /*pReserved*/)
+{
+	DebugBreak();
+}
+#endif
 
 int main(int argc, char* argv[])
 {
+#if defined(_MSC_VER) && (_MSC_VER >= 1400)
+	_set_invalid_parameter_handler(AppInvalidParameterHandler);
+#endif
+
+	BOINC_OPTIONS options;
+	boinc_options_defaults(options);
+	options.normal_thread_priority = true;
+	options.multi_thread = true;
+
+	boinc_init_diagnostics(BOINC_DIAG_REDIRECTSTDERR | BOINC_DIAG_TRACETOSTDERR);
+
+	const int boinc_init_result = boinc_init_options(&options);
+	if (boinc_init_result)
+	{
+		char buf[256];
+		fprintf(stderr, "%s boinc_init returned %d\n", boinc_msg_prefix(buf, sizeof(buf)), boinc_init_result);
+		exit(boinc_init_result);
+	}
+
+	boinc_fraction_done(0.0);
+
 #if DYNAMIC_SEARCH_LIMIT
 	if (argc < 2)
 	{
@@ -24,9 +56,6 @@ int main(int argc, char* argv[])
 	SearchLimit::SafeLimit = SearchLimit::value / 20;
 #endif
 
-	PrimeTablesInit();
-
-	number numThreads = 0;
 	char* startFrom = nullptr;
 	char* stopAt = nullptr;
 	unsigned int largestPrimePower = 1;
@@ -36,59 +65,6 @@ int main(int argc, char* argv[])
 	// Parse command line parameters
 	for (int i = 1; i < argc; ++i)
 	{
-		if (strcmp(argv[i], "/bench") == 0)
-		{
-			g_PrintNumbers = false;
-		}
-
-		if (strcmp(argv[i], "/instrument") == 0)
-		{
-			// Quickly generate profile data for all hot (most used) code paths
-			ProfileGuidedOptimization_Instrument();
-			return 0;
-		}
-
-		if (strcmp(argv[i], "/test") == 0)
-		{
-			g_PrintNumbers = false;
-
-			std::cout << "Testing CheckPair()...";
-			flush(std::cout);
-			if (!TestCheckPair())
-			{
-				std::cerr << "CheckPair() test failed" << std::endl;
-				return 1;
-			}
-			std::cout << "done" << std::endl << "Testing amicable candidates...";
-			flush(std::cout);
-			if (!TestAmicableCandidates())
-			{
-				std::cerr << "Amicable candidates test failed" << std::endl;
-				return 2;
-			}
-			std::cout << "done" << std::endl << "Testing MaximumSumOfDivisors3()...";
-			flush(std::cout);
-			if (!TestMaximumSumOfDivisors3())
-			{
-				std::cerr << "MaximumSumOfDivisors3() test failed" << std::endl;
-				return 3;
-			}
-			std::cout << "done" << std::endl << "Testing primesieve...";
-			flush(std::cout);
-			if (!TestPrimeSieve())
-			{
-				std::cerr << "primesieve test failed" << std::endl;
-				return 4;
-			}
-			std::cout << "done" << std::endl << "All tests passed" << std::endl;
-			return 0;
-		}
-
-		if ((strcmp(argv[i], "/threads") == 0) && (i + 1 < argc))
-		{
-			numThreads = static_cast<number>(atoi(argv[++i]));
-		}
-
 		if ((strcmp(argv[i], "/from") == 0) && (i + 1 < argc))
 		{
 			startFrom = argv[++i];
@@ -117,15 +93,74 @@ int main(int argc, char* argv[])
 			startPrime = StrToNumber(argv[++i]);
 			primeLimit = StrToNumber(argv[++i]);
 		}
+
+		if ((strcmp(argv[i], "/task_size") == 0) && (i + 1 < argc))
+		{
+			RangeGen::total_numbers_to_check = atof(argv[++i]);
+		}
 	}
 
-	do
-	{
-		Timer t;
-		RangeGen::Run(numThreads, startFrom, stopAt, largestPrimePower, startPrime, primeLimit);
-		const double dt = t.getElapsedTime();
-		printf("completed in %f seconds\n%u pairs found\n\n", dt, GetNumFoundPairsInThisThread());
-	} while (!g_PrintNumbers);
+	std::cerr << "Initializing prime tables..." << std::flush;
+	PrimeTablesInit((startPrime && primeLimit) || !stopAt);
+	std::cerr << "done" << std::endl << std::flush;
 
+	APP_INIT_DATA aid;
+	boinc_get_init_data(aid);
+
+	std::string resolved_name;
+	const int boinc_resolve_result = boinc_resolve_filename_s("output.txt", resolved_name);
+	if (boinc_resolve_result)
+	{
+		char buf[256];
+		fprintf(stderr, "%s boinc_resolve_filename returned %d\n", boinc_msg_prefix(buf, sizeof(buf)), boinc_resolve_result);
+		exit(boinc_resolve_result);
+	}
+
+	g_outputFile = boinc_fopen(resolved_name.c_str(), "ab+");
+
+	bool cl_result;
+	{
+		OpenCL cl;
+		cl_result = cl.Run(argc, argv, startFrom, stopAt, largestPrimePower);
+	}
+
+	if (!cl_result)
+	{
+		boinc_finish(-1);
+		return -1;
+	}
+
+	// Now sort all numbers found so far
+	rewind(g_outputFile);
+	std::vector<number> found_numbers;
+	while (!feof(g_outputFile))
+	{
+		char buf[32];
+		if (!fgets(buf, sizeof(buf), g_outputFile))
+		{
+			break;
+		}
+		const number m = StrToNumber(buf);
+		if (m)
+		{
+			found_numbers.push_back(m);
+		}
+	}
+	fclose(g_outputFile);
+
+	std::sort(found_numbers.begin(), found_numbers.end());
+
+	// Remove all duplicates
+	found_numbers.erase(std::unique(found_numbers.begin(), found_numbers.end()), found_numbers.end());
+
+	// And write remaining sorted numbers back to the output file
+	g_outputFile = boinc_fopen(resolved_name.c_str(), "wb");
+	for (number m : found_numbers)
+	{
+		fprintf(g_outputFile, "%llu\n", m);
+	}
+	fclose(g_outputFile);
+
+	boinc_finish(0);
 	return 0;
 }

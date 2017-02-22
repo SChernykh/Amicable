@@ -24,6 +24,9 @@
     <Filter Include="3rdparty\primesieve\source">
       <UniqueIdentifier>{89d13af1-146e-4827-84c3-385efdd6914b}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\CL">
+      <UniqueIdentifier>{2946c981-c064-4b4c-9f3f-57a2ee79d1af}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="stdafx.h">
@@ -36,9 +39,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="sprp64.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="Engine.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\primesieve\include\primesieve\bits.hpp">
@@ -113,12 +113,6 @@
     <ClInclude Include="RangeGen.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="PGO_Helper.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="Tests.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="..\primesieve\include\primesieve_warnings.h">
       <Filter>3rdparty\primesieve\headers</Filter>
     </ClInclude>
@@ -134,7 +128,13 @@
     <ClInclude Include="CompileTimeFunctions.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="OpenCL.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="inverses128.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="kernel.cl.inl">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -146,9 +146,6 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="PrimeTables.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="Engine.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\primesieve\src\primesieve\EratBig.cpp">
@@ -190,17 +187,22 @@
     <ClCompile Include="RangeGen.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="PGO_Helper.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="Tests.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="Platform.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Definitions.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="OpenCL.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="inverses128.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="kernel.cl">
+      <Filter>Source Files\CL</Filter>
+    </CustomBuild>
   </ItemGroup>
 </Project>

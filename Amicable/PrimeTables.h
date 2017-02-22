@@ -1,14 +1,14 @@
 #pragma once
 
-void PrimeTablesInit();
-number CalculatePrimes(number aLowerBound, number anUpperBound, std::vector<byte>& anOutPrimes);
+void PrimeTablesInit(bool doLargePrimes = true);
 bool IsPrime(number n);
 
 enum
 {
 	// There are exactly 192725 primes below 2^(64/3)
 	// We can use this table for factorization when p^3 <= N < 2^64
-	ReciprocalsTableSize = 192725,
+	// Use 192768 because it's divisible by 256
+	ReciprocalsTableSize = 192768,
 };
 
 // Reciprocals are calculated using algorithm published in http://www.agner.org/optimize/optimizing_assembly.pdf (section 16.9 "Integer division by a constant")
@@ -19,7 +19,7 @@ struct SReciprocal
 	unsigned char increment;
 	unsigned char shift;
 
-	NOINLINE void Init(const number aDivisor)
+	FORCEINLINE void Init(const number aDivisor)
 	{
 		unsigned long bitIndex;
 		_BitScanReverse64(&bitIndex, aDivisor);
@@ -63,13 +63,7 @@ extern CACHE_ALIGNED SReciprocal privPrimeReciprocals[ReciprocalsTableSize];
 struct AmicableCandidate
 {
 	AmicableCandidate() {}
-
-	AmicableCandidate(unsigned int _value, unsigned int _sum, unsigned char _is_over_abundant_mask)
-		: value(_value)
-		, sum(_sum)
-		, is_over_abundant_mask(static_cast<unsigned char>(_is_over_abundant_mask))
-	{
-	}
+	AmicableCandidate(number _value, number _sum, unsigned char _is_over_abundant_mask);
 
 	unsigned int value;
 	unsigned int sum;
@@ -77,20 +71,33 @@ struct AmicableCandidate
 };
 #pragma pack(pop)
 
-extern std::vector<byte> MainPrimeTable;
+struct uint2
+{
+	unsigned int x;
+	unsigned int y;
+};
+
 extern byte bitOffset[PrimeTableParameters::Modulo];
-extern byte* privNextPrimeShifts;
+extern unsigned int PrimesCompactAllocationSize;
+extern uint2* privPrimesCompact;
+extern unsigned int NumPrimes;
 extern std::vector<AmicableCandidate> privCandidatesData;
 extern CACHE_ALIGNED unsigned char privCandidatesDataMask[5 * 7 * 11];
-extern std::pair<number, number>* privPrimeInverses;
-extern CACHE_ALIGNED std::pair<number, number> privPrimeInverses2[CompileTimePrimesCount];
+extern CACHE_ALIGNED std::pair<number, number> privPrimeInverses[ReciprocalsTableSize];
 
-#define NextPrimeShifts ((const byte* const)(privNextPrimeShifts))
+#define PrimesCompact ((const uint2* const)(privPrimesCompact))
 #define CandidatesData ((const std::vector<AmicableCandidate>&)(privCandidatesData))
 #define CandidatesDataMask ((const unsigned char*)(privCandidatesDataMask))
 
 #define PrimeInverses ((const std::pair<number, number>*)(privPrimeInverses))
-#define PrimeInverses2 ((const std::pair<number, number>*)(privPrimeInverses2))
+
+template<typename T>
+FORCEINLINE number GetNthPrime(T n)
+{
+	uint2 data = privPrimesCompact[n >> 2];
+	data.x += (data.y >> (30 - (n & 3) * 10)) & 1023;
+	return (static_cast<number>(data.x) << 1) + 1;
+}
 
 FORCEINLINE number Mod385(const number n)
 {
@@ -109,9 +116,12 @@ struct SumEstimateData
 enum
 {
 	SumEstimatesSize = 16,
+	SumEstimatesSize2 = 8192,
+	SumEstimatesSize2_GPU = SumEstimatesSize2 / 16,
 	IS_NUM_ELIGIBLE_BEGIN = 16,
 };
 
+extern CACHE_ALIGNED std::pair<number, number> PQ[SumEstimatesSize][SumEstimatesSize2];
 extern const SumEstimateData* privSumEstimates[SumEstimatesSize];
 extern CACHE_ALIGNED number privSumEstimatesBeginP[SumEstimatesSize];
 extern CACHE_ALIGNED number privSumEstimatesBeginQ[SumEstimatesSize];
@@ -152,81 +162,50 @@ FORCEINLINE number GCD(number a, number b)
 class PrimeIterator
 {
 public:
-	explicit FORCEINLINE PrimeIterator(const number* aSieveData = reinterpret_cast<const number*>(MainPrimeTable.data()))
-		: mySieveChunk(*aSieveData & ~number(1))
-		, mySieveData(aSieveData)
-		, myPossiblePrimesForModuloPtr(NumbersCoprimeToModulo)
-		, myModuloIndex(0)
-		, myBitIndexShift(0)
-		, myCurrentPrime(2)
-	{
-	}
+	FORCEINLINE PrimeIterator() : myIndex(0), myCurrentPrime(2) {}
 
-	explicit PrimeIterator(number aStartNumber, const number* aSieveData = (const number*)(MainPrimeTable.data()))
-		: mySieveData(aSieveData)
-		, myPossiblePrimesForModuloPtr(NumbersCoprimeToModulo)
+	explicit NOINLINE PrimeIterator(number aStartNumber)
 	{
-		if (aStartNumber < 2)
+		if (aStartNumber <= 2)
 		{
-			aStartNumber = 2;
+			myIndex = 0;
+			myCurrentPrime = 2;
+			return;
 		}
 
-		const number chunkIndex = ((aStartNumber / PrimeTableParameters::Modulo) * (PrimeTableParameters::NumOffsets / Byte::Bits)) / sizeof(number);
-		mySieveData = aSieveData + chunkIndex;
-		mySieveChunk = *mySieveData;
-		myModuloIndex = (chunkIndex / 3) * PrimeTableParameters::Modulo * 4 + (chunkIndex % 3) * PrimeTableParameters::Modulo;
-		myBitIndexShift = (chunkIndex % 3) * 16;
-		myPossiblePrimesForModuloPtr = NumbersCoprimeToModulo + myBitIndexShift;
-
-		myCurrentPrime = static_cast<number>(-1);
-		for (;;)
+		unsigned int a = 0;
+		unsigned int b = NumPrimes;
+		do
 		{
-			operator++();
-			if (myCurrentPrime >= aStartNumber)
+			const unsigned int c = (a + b) >> 1;
+			if (GetNthPrime(c) >= aStartNumber)
 			{
-				break;
+				b = c;
 			}
-		}
+			else
+			{
+				a = c + 1;
+			}
+		} while (a < b);
+
+		myIndex = b;
+		myCurrentPrime = GetNthPrime(b);
 	}
 
-	FORCEINLINE number Get() const { return myCurrentPrime; }
+	FORCEINLINE number Get() const
+	{
+		return myCurrentPrime;
+	}
 
 	FORCEINLINE PrimeIterator& operator++()
 	{
-		if (myCurrentPrime < 7)
-		{
-			myCurrentPrime = (0x705320UL >> (myCurrentPrime * 4)) & 15;
-			return *this;
-		}
-
-		while (!mySieveChunk)
-		{
-			mySieveChunk = *(++mySieveData);
-
-			const number NewValues = (PrimeTableParameters::Modulo / 2) | (number(PrimeTableParameters::Modulo / 2) << 16) | (number(PrimeTableParameters::Modulo) << 32) |
-				(16 << 8) | (32 << 24) | (number(0) << 40);
-
-			myModuloIndex += ((NewValues >> myBitIndexShift) & 255) * 2;
-			myBitIndexShift = (NewValues >> (myBitIndexShift + 8)) & 255;
-
-			myPossiblePrimesForModuloPtr = NumbersCoprimeToModulo + myBitIndexShift;
-		}
-
-		unsigned long bitIndex;
-		_BitScanForward64(&bitIndex, mySieveChunk);
-		mySieveChunk &= (mySieveChunk - 1);
-
-		myCurrentPrime = myModuloIndex + myPossiblePrimesForModuloPtr[bitIndex];
-
+		++myIndex;
+		myCurrentPrime = GetNthPrime(myIndex);
 		return *this;
 	}
 
 private:
-	number mySieveChunk;
-	const number* mySieveData;
-	const unsigned int* myPossiblePrimesForModuloPtr;
-	number myModuloIndex;
-	number myBitIndexShift;
+	unsigned int myIndex;
 	number myCurrentPrime;
 };
 

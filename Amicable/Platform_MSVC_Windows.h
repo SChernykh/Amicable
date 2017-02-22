@@ -2,6 +2,12 @@
 
 PRAGMA_WARNING(push, 1)
 PRAGMA_WARNING(disable : 4668)
+
+// Target Windows XP or better
+#define WINVER 0x0501
+#define _WIN32_WINNT 0x0501
+#define _WIN32_WINDOWS 0x0501
+
 #include <SDKDDKVer.h>
 #include <Windows.h>
 #include <tchar.h>
@@ -27,6 +33,8 @@ PRAGMA_WARNING(pop)
 #define CACHE_ALIGNED __declspec(align(64))
 
 #define THREAD_LOCAL __declspec(thread)
+
+#define PAUSE YieldProcessor
 
 #define CRITICAL_SECTION_INITIALIZER {}
 
@@ -57,6 +65,10 @@ public:
 private:
 	LARGE_INTEGER f, t1;
 };
+
+number SetHighestTimerResolution();
+void SetTimerResoluion(const number res);
+void HiResSleep(const double ms);
 
 extern number(*udiv128)(number numhi, number numlo, number den, number* rem);
 extern number(*mulmod64)(number a, number b, number n);
@@ -99,13 +111,6 @@ FORCEINLINE void shr128(number& lo, number& hi, unsigned char count)
 	hi >>= count;
 }
 
-FORCEINLINE bool IsPopcntAvailable()
-{
-	int cpuid_data[4];
-	__cpuid(cpuid_data, 1);
-	return (cpuid_data[2] & (1 << 23)) != 0;
-}
-
 FORCEINLINE void* AllocateSystemMemory(number size, bool is_executable)
 {
 	return VirtualAlloc(nullptr, size, MEM_COMMIT, static_cast<DWORD>(is_executable ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE));
@@ -120,4 +125,9 @@ FORCEINLINE void DisableAccessToMemory(void* ptr, number size)
 FORCEINLINE void ForceRoundUpFloatingPoint()
 {
 	_control87(_RC_UP, _MCW_RC);
+}
+
+FORCEINLINE bool SetLowPriority()
+{
+	return SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_IDLE) ? true : false;
 }
