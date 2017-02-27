@@ -1129,6 +1129,10 @@ bool OpenCL::ProcessNumbers()
 			size_t globalSizePhase1;
 			for (unsigned int k = 0; global_offset < myTotalNumbersInRanges; global_offset += static_cast<unsigned int>(globalSizePhase1), ++k)
 			{
+				if (k)
+				{
+					CL_CHECKED_CALL(clFlush, myQueue);
+				}
 				globalSizePhase1 = std::min<number>(myTotalNumbersInRanges - global_offset, max_size_phase1);
 				if (globalSizePhase1 & (myWorkGroupSize - 1))
 				{
