@@ -39,7 +39,6 @@ FORCEINLINE number _rotr64(number value, int shift)
 #include <string.h>
 #include <sys/mman.h>
 #include <fenv.h>
-#include <cpuid.h>
 #include <time.h>
 #include <alloca.h>
 #include <sys/resource.h>

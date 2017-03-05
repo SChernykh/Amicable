@@ -981,6 +981,8 @@ NOINLINE number SearchRangeCubed(const RangeData& r)
 	return static_cast<number>(shift - (NextPrimeShifts + r.index_start_prime * 2)) / 2;
 }
 
+#include <primesieve/SieveOfEratosthenes-inline.hpp>
+
 namespace primesieve
 {
 	class PrimeFinderLargePrimes final : public PrimeFinder
