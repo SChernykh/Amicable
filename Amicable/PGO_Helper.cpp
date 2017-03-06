@@ -72,7 +72,7 @@ static NOINLINE void ProfileGuidedOptimization_Instrument_WorkerThread(number da
 		case 4:
 			{
 				number k = 0;
-				SearchLargePrimes(&k, SearchLimit::SafeLimit / 5, SearchLimit::SafeLimit);
+				SearchLargePrimes(&k, SearchLimit::SafeLimit / 50, SearchLimit::SafeLimit);
 			}
 			break;
 
