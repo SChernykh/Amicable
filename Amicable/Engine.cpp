@@ -688,7 +688,7 @@ CACHE_ALIGNED static const number locPowersOf2DivisibilityData[63][2] = {
 
 #undef X
 
-FORCEINLINE number InitialCheck(const number n1, const number targetSum, number& n2, number& sum)
+FORCEINLINE number InitialCheck(const number n1, const number targetSum, number& n2)
 {
 	n2 = targetSum - n1;
 
@@ -703,15 +703,10 @@ FORCEINLINE number InitialCheck(const number n1, const number targetSum, number&
 		if ((minSum << (bitIndex + 1)) - minSum > targetSum)
 			return 0;
 
-		sum = (number(1) << (bitIndex + 1)) - 1;
 		n2TargetSum = targetSum * locPowersOf2DivisibilityData[bitIndex - 1][0];
 		ASSUME(n2TargetSum > 0);
-		if (n2TargetSum > locPowersOf2DivisibilityData[bitIndex - 1][1])
+		if ((n2TargetSum > locPowersOf2DivisibilityData[bitIndex - 1][1]) || (n2 >= n2TargetSum))
 			return 0;
-	}
-	else
-	{
-		sum = 1;
 	}
 
 	return n2TargetSum;
@@ -719,10 +714,10 @@ FORCEINLINE number InitialCheck(const number n1, const number targetSum, number&
 
 FORCEINLINE void CheckPair(const number n1, const number targetSum)
 {
-	number n2, sum;
-	const number n2TargetSum = InitialCheck(n1, targetSum, n2, sum);
+	number n2;
+	const number n2TargetSum = InitialCheck(n1, targetSum, n2);
 	if (n2TargetSum)
-		CheckPairInternal(n1, targetSum, n2TargetSum, n2, sum);
+		CheckPairInternal(n1, n2TargetSum, n2TargetSum, n2, 1);
 }
 
 NOINLINE void CheckPairNoInline(const number n1, const number targetSum)
@@ -765,12 +760,14 @@ FORCEINLINE number InitialCheck128(const number n1, number targetSumLow, number 
 		number q[2];
 		q[0] = _umul128(targetSumLow, data[0][0], &q[1]);
 		q[1] += targetSumLow * data[0][1] + targetSumHigh * data[0][0];
-		if ((q[1] > data[1][1]) || ((q[1] == data[1][1]) && (q[0] > data[1][0])))
+		if (q[1])
 		{
 			return 0;
 		}
+		n2 = n2_128[0];
 		targetSumLow = q[0];
-		targetSumHigh = q[1];
+		ASSUME(targetSumLow > 0);
+		return targetSumLow;
 	}
 
 	for (unsigned int i = 0; targetSumHigh && (i < ARRAYSIZE(locPrimeInverses_128)); ++i)
@@ -807,13 +804,15 @@ FORCEINLINE number InitialCheck128(const number n1, number targetSumLow, number 
 			number q[2];
 			q[0] = _umul128(targetSumLow, data.inverse[0], &q[1]);
 			q[1] += targetSumLow * data.inverse[1] + targetSumHigh * data.inverse[0];
-			if ((q[1] > data.max_value[1]) || (((q[1] == data.max_value[1])) && (q[0] > data.max_value[0])))
+			if (q[1])
 			{
 				return 0;
 			}
 
+			n2 = n2_128[0];
 			targetSumLow = q[0];
-			targetSumHigh = q[1];
+			ASSUME(targetSumLow > 0);
+			return targetSumLow;
 		}
 	}
 
@@ -827,7 +826,7 @@ FORCEINLINE void CheckPair128(const number n1, number targetSumLow, number targe
 {
 	number n2;
 	const number n2TargetSum = InitialCheck128(n1, targetSumLow, targetSumHigh, n2);
-	if (n2TargetSum)
+	if (n2TargetSum && (n2 < n2TargetSum))
 		CheckPairInternalNoInline(n1, n2TargetSum, n2TargetSum, n2, 1);
 }
 
