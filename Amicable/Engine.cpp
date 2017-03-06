@@ -828,7 +828,7 @@ FORCEINLINE void CheckPair128(const number n1, number targetSumLow, number targe
 {
 	number n2;
 	const number n2TargetSum = InitialCheck128(n1, targetSumLow, targetSumHigh, n2);
-	if (n2TargetSum)
+	if (n2TargetSum && (n2 < n2TargetSum))
 		CheckPairInternalNoInline(n1, n2TargetSum, n2TargetSum, n2, 1);
 }
 
