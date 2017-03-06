@@ -283,3 +283,38 @@ FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const numb
 }
 
 NOINLINE byte OverAbundantNoInline(const Factor* f, int last_factor_index, const number value, const number sum, number sum_for_gcd_coeff);
+
+template<number Limit>
+FORCEINLINE bool whole_branch_deficient(number value, number sum, const Factor* f)
+{
+	if (sum - value >= value)
+	{
+		return false;
+	}
+
+	number sumHi = 0;
+	number value1 = value;
+	number p = f->p;
+	int index = f->index;
+	for (;;)
+	{
+		++index;
+		p = GetNthPrime(index);
+		number h;
+		value = _umul128(value, p, &h);
+		if ((value >= Limit) || h)
+		{
+			break;
+		}
+
+		// sigma(p^k) / p^k =
+		// (p^(k+1) - 1) / (p^k * (p - 1)) = 
+		// (p - p^-k) / (p-1) <
+		// p / (p-1)
+		value1 *= p - 1;
+		sum = _umul128(sum, p, &sumHi);
+	}
+	sub128(sum, sumHi, value1, 0, &sum, &sumHi);
+
+	return ((sum < value1) && !sumHi);
+}

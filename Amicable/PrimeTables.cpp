@@ -189,12 +189,6 @@ NOINLINE number GetMaxSumRatio(const PrimeIterator& p, const number limit, numbe
 	return udiv128(r, 0, result.N, &r) + 1;
 }
 
-template<number sum_coeff_max_factor>
-NOINLINE byte OverAbundantNoInline(const Factor* f, int last_factor_index, const number value, const number sum, number sum_for_gcd_coeff)
-{
-	return OverAbundant<sum_coeff_max_factor>(f, last_factor_index, value, sum, sum_for_gcd_coeff);
-}
-
 AmicableCandidate::AmicableCandidate(number _value, number _sum, unsigned char _is_over_abundant_mask)
 	: value(static_cast<unsigned int>(_value))
 	, sum(static_cast<unsigned int>(_sum - _value * 2))
@@ -207,19 +201,18 @@ AmicableCandidate::AmicableCandidate(number _value, number _sum, unsigned char _
 	}
 }
 
-template<int depth>
-FORCEINLINE void SearchCandidates(Factor* factors, const number value, const number sum)
+NOINLINE void SearchCandidates(Factor* factors, const number value, const number sum, int depth)
 {
-	if ((sum - value >= value) && !OverAbundantNoInline<2>(factors, depth - 1, value, sum, 2))
+	if (sum - value >= value)
 	{
 		unsigned char is_over_abundant_mask = 0;
-		is_over_abundant_mask |= OverAbundantNoInline<5>(factors, depth - 1, value, sum, 2 * 5) << 1;
-		is_over_abundant_mask |= OverAbundantNoInline<7>(factors, depth - 1, value, sum, 2 * 7) << 2;
-		is_over_abundant_mask |= OverAbundantNoInline<11>(factors, depth - 1, value, sum, 2 * 11) << 4;
-		is_over_abundant_mask |= (((is_over_abundant_mask & 0x06) || OverAbundantNoInline<7>(factors, depth - 1, value, sum, 2 * 5 * 7)) ? byte(1) : byte(0)) << 3;
-		is_over_abundant_mask |= (((is_over_abundant_mask & 0x12) || OverAbundantNoInline<11>(factors, depth - 1, value, sum, 2 * 5 * 11)) ? byte(1) : byte(0)) << 5;
-		is_over_abundant_mask |= (((is_over_abundant_mask & 0x14) || OverAbundantNoInline<11>(factors, depth - 1, value, sum, 2 * 7 * 11)) ? byte(1) : byte(0)) << 6;
-		is_over_abundant_mask |= (((is_over_abundant_mask & 0x7E) || OverAbundantNoInline<11>(factors, depth - 1, value, sum, 2 * 5 * 7 * 11)) ? byte(1) : byte(0)) << 7;
+		is_over_abundant_mask |= OverAbundant<5>(factors, depth - 1, value, sum, 2 * 5) << 1;
+		is_over_abundant_mask |= OverAbundant<7>(factors, depth - 1, value, sum, 2 * 7) << 2;
+		is_over_abundant_mask |= OverAbundant<11>(factors, depth - 1, value, sum, 2 * 11) << 4;
+		is_over_abundant_mask |= (((is_over_abundant_mask & 0x06) || OverAbundant<7>(factors, depth - 1, value, sum, 2 * 5 * 7)) ? byte(1) : byte(0)) << 3;
+		is_over_abundant_mask |= (((is_over_abundant_mask & 0x12) || OverAbundant<11>(factors, depth - 1, value, sum, 2 * 5 * 11)) ? byte(1) : byte(0)) << 5;
+		is_over_abundant_mask |= (((is_over_abundant_mask & 0x14) || OverAbundant<11>(factors, depth - 1, value, sum, 2 * 7 * 11)) ? byte(1) : byte(0)) << 6;
+		is_over_abundant_mask |= (((is_over_abundant_mask & 0x7E) || OverAbundant<11>(factors, depth - 1, value, sum, 2 * 5 * 7 * 11)) ? byte(1) : byte(0)) << 7;
 
 		privCandidatesData.emplace_back(AmicableCandidate(value, sum, is_over_abundant_mask));
 	}
@@ -230,7 +223,7 @@ FORCEINLINE void SearchCandidates(Factor* factors, const number value, const num
 	f.p = (depth == 0) ? 2 : GetNthPrime(factors[depth - 1].index + 1);
 
 	// A check to ensure that m is not divisible by 6
-	IF_CONSTEXPR(depth == 1)
+	if (depth == 1)
 	{
 		// factors[0].p is 2
 		// factors[1].p is 3
@@ -266,7 +259,20 @@ FORCEINLINE void SearchCandidates(Factor* factors, const number value, const num
 
 		for (;;)
 		{
-			SearchCandidates<depth + 1>(factors, next_value, next_sum);
+			if (next_sum - next_value >= next_value)
+			{
+				if (OverAbundant<2>(factors, depth, next_value, next_sum, 2))
+				{
+					goto next;
+				}
+			}
+			else if (whole_branch_deficient<SearchLimit::value / SearchLimit::LinearLimit>(next_value, next_sum, &f))
+			{
+				goto next;
+			}
+
+			SearchCandidates(factors, next_value, next_sum, depth + 1);
+			next:
 
 			next_value = _umul128(next_value, f.p, &h);
 			if ((next_value >= SearchLimit::value / SearchLimit::LinearLimit) || h)
@@ -276,26 +282,15 @@ FORCEINLINE void SearchCandidates(Factor* factors, const number value, const num
 			next_sum = next_sum * f.p + sum;
 			++f.k;
 		}
-
-		// Workaround for shifting from 2 to 3 because NextPrimeShifts[0] is 0
-		IF_CONSTEXPR(depth == 0)
-		{
-			if (f.p == 2)
-			{
-				f.p = 3;
-			}
-		}
 	}
 }
 
-template<> FORCEINLINE void SearchCandidates<10>(Factor*, const number, const number) {}
-
 void GenerateCandidates()
 {
-	privCandidatesData.reserve(SearchLimit::value / SearchLimit::LinearLimit / 30);
+	privCandidatesData.reserve(Min<77432115, SearchLimit::value / SearchLimit::LinearLimit / 30>::value);
 
 	Factor factors[16];
-	SearchCandidates<0>(factors, 1, 1);
+	SearchCandidates(factors, 1, 1, 0);
 
 	std::sort(privCandidatesData.begin(), privCandidatesData.end(), [](const AmicableCandidate& a, const AmicableCandidate& b){ return a.value < b.value; });
 }

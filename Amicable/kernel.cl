@@ -118,6 +118,11 @@ void CheckPairPhase1(
 			}
 			N >>= powerOf2;
 		}
+
+		if (N >= targetSum)
+		{
+			return;
+		}
 	}
 
 	int i = 1;
