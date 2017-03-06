@@ -34,40 +34,6 @@ static FORCEINLINE bool is_abundant_q(const number sum, const number sum_q, cons
 	return (s2[0] > value_to_check) || s2[1];
 }
 
-static FORCEINLINE bool whole_branch_deficient(number value, number sum, const Factor* f)
-{
-	if (sum - value >= value)
-	{
-		return false;
-	}
-
-	number sumHi = 0;
-	number value1 = value;
-	number p = f->p;
-	const byte* shift = NextPrimeShifts + f->index * 2;
-	for (;;)
-	{
-		p += *shift * ShiftMultiplier;
-		shift += 2;
-		number h;
-		value = _umul128(value, p, &h);
-		if ((value >= SearchLimit::value) || h)
-		{
-			break;
-		}
-
-		// sigma(p^k) / p^k =
-		// (p^(k+1) - 1) / (p^k * (p - 1)) = 
-		// (p - p^-k) / (p-1) <
-		// p / (p-1)
-		value1 *= p - 1;
-		sum = _umul128(sum, p, &sumHi);
-	}
-	sub128(sum, sumHi, value1, 0, &sum, &sumHi);
-
-	return ((sum < value1) && !sumHi);
-}
-
 template<unsigned int largest_prime_power>
 NOINLINE bool RangeGen::Iterate(RangeData& range)
 {
@@ -213,7 +179,7 @@ recurse_begin:
 						return true;
 					}
 
-					if (!whole_branch_deficient(s[1].value, s[1].sum, f))
+					if (!whole_branch_deficient<SearchLimit::value>(s[1].value, s[1].sum, f))
 					{
 						RECURSE;
 					}

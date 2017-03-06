@@ -62,13 +62,7 @@ extern CACHE_ALIGNED SReciprocal privPrimeReciprocals[ReciprocalsTableSize];
 struct AmicableCandidate
 {
 	AmicableCandidate() {}
-
-	AmicableCandidate(unsigned int _value, unsigned int _sum, unsigned char _is_over_abundant_mask)
-		: value(_value)
-		, sum(_sum)
-		, is_over_abundant_mask(static_cast<unsigned char>(_is_over_abundant_mask))
-	{
-	}
+	AmicableCandidate(number _value, number _sum, unsigned char _is_over_abundant_mask);
 
 	unsigned int value;
 	unsigned int sum;
@@ -303,3 +297,39 @@ FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const numb
 }
 
 NOINLINE byte OverAbundantNoInline(const Factor* f, int last_factor_index, const number value, const number sum, number sum_for_gcd_coeff);
+
+template<number Limit>
+FORCEINLINE bool whole_branch_deficient(number value, number sum, const Factor* f)
+{
+	if (sum - value >= value)
+	{
+		return false;
+	}
+
+	number sumHi = 0;
+	number value1 = value;
+	number p = f->p;
+	const byte* shift = NextPrimeShifts + f->index * 2;
+	for (;;)
+	{
+		p += (*shift) * ShiftMultiplier;
+		shift += 2;
+
+		number h;
+		value = _umul128(value, p, &h);
+		if ((value >= Limit) || h)
+		{
+			break;
+		}
+
+		// sigma(p^k) / p^k =
+		// (p^(k+1) - 1) / (p^k * (p - 1)) = 
+		// (p - p^-k) / (p-1) <
+		// p / (p-1)
+		value1 *= p - 1;
+		sum = _umul128(sum, p, &sumHi);
+	}
+	sub128(sum, sumHi, value1, 0, &sum, &sumHi);
+
+	return ((sum < value1) && !sumHi);
+}
