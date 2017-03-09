@@ -197,6 +197,19 @@ AmicableCandidate::AmicableCandidate(number _value, number _sum, unsigned char _
 	}
 }
 
+#pragma pack(push, 1)
+struct PrimeData
+{
+	PrimeData(unsigned int _p, number _p_inv, number _q_max) : p(_p), p_inv(_p_inv), q_max(_q_max) {}
+
+	unsigned int p;
+	number p_inv;
+	number q_max;
+};
+#pragma pack(pop)
+
+static std::vector<PrimeData> g_PrimeData;
+
 NOINLINE void SearchCandidates(Factor* factors, const number value, const number sum, int depth)
 {
 	if (sum - value >= value)
@@ -210,13 +223,13 @@ NOINLINE void SearchCandidates(Factor* factors, const number value, const number
 		is_over_abundant_mask |= (((is_over_abundant_mask & 0x14) || OverAbundant<11>(factors, depth - 1, value, sum, 2 * 7 * 11)) ? byte(1) : byte(0)) << 6;
 		is_over_abundant_mask |= (((is_over_abundant_mask & 0x7E) || OverAbundant<11>(factors, depth - 1, value, sum, 2 * 5 * 7 * 11)) ? byte(1) : byte(0)) << 7;
 
-		privCandidatesData.emplace_back(AmicableCandidate(value, sum, is_over_abundant_mask));
+		privCandidatesData.emplace_back(value, sum, is_over_abundant_mask);
 	}
 
 	int start_i = (depth == 0) ? 0 : (factors[depth - 1].index + 1);
 
 	Factor& f = factors[depth];
-	f.p = (depth == 0) ? 2 : (factors[depth - 1].p + NextPrimeShifts[factors[depth - 1].index * 2] * ShiftMultiplier);
+	f.p = (depth == 0) ? 2U : g_PrimeData[static_cast<unsigned int>(factors[depth - 1].index + 1)].p;
 
 	// A check to ensure that m is not divisible by 6
 	if (depth == 1)
@@ -236,7 +249,7 @@ NOINLINE void SearchCandidates(Factor* factors, const number value, const number
 
 	// Check only 2, 3, 5 as the smallest prime factor because the smallest abundant number coprime to 2*3*5 is ~2*10^25
 	const unsigned int max_prime = static_cast<unsigned int>((depth > 0) ? ((SearchLimit::LinearLimit / 20) + 1) : 7);
-	for (f.index = start_i; f.p < max_prime; f.p += NextPrimeShifts[f.index * 2] * ShiftMultiplier, ++f.index)
+	for (f.index = start_i; f.p < max_prime; ++f.index, f.p = g_PrimeData[static_cast<unsigned int>(f.index)].p)
 	{
 		number h;
 		number next_value = _umul128(value, f.p, &h);
@@ -247,11 +260,8 @@ NOINLINE void SearchCandidates(Factor* factors, const number value, const number
 		number next_sum = sum * (f.p + 1);
 
 		f.k = 1;
-
-		f.q_max = number(-1) / f.p;
-
-		PRAGMA_WARNING(suppress : 4146)
-		f.p_inv = -modular_inverse64(f.p);
+		f.p_inv = g_PrimeData[static_cast<unsigned int>(f.index)].p_inv;
+		f.q_max = g_PrimeData[static_cast<unsigned int>(f.index)].q_max;
 
 		for (;;)
 		{
@@ -278,25 +288,28 @@ NOINLINE void SearchCandidates(Factor* factors, const number value, const number
 			next_sum = next_sum * f.p + sum;
 			++f.k;
 		}
-
-		// Workaround for shifting from 2 to 3 because NextPrimeShifts[0] is 0
-		if (depth == 0)
-		{
-			if (f.p == 2)
-			{
-				f.p = 3;
-			}
-		}
 	}
 }
 
-void GenerateCandidates()
+NOINLINE void GenerateCandidates()
 {
 	privCandidatesData.reserve(Min<77432115, SearchLimit::value / SearchLimit::LinearLimit / 30>::value);
+	{
+		const number primeDataCount = 16441820;
+		g_PrimeData.reserve(primeDataCount);
+		g_PrimeData.emplace_back(2, 0, 0);
+		for (number p = 3, index = 1; index < primeDataCount; p += NextPrimeShifts[index * 2] * ShiftMultiplier, ++index)
+		{
+			PRAGMA_WARNING(suppress : 4146)
+			g_PrimeData.emplace_back(static_cast<unsigned int>(p), -modular_inverse64(p), number(-1) / p);
+		}
 
-	Factor factors[16];
-	SearchCandidates(factors, 1, 1, 0);
+		Factor factors[16];
+		SearchCandidates(factors, 1, 1, 0);
 
+		std::vector<PrimeData> tmp;
+		g_PrimeData.swap(tmp);
+	}
 	std::sort(privCandidatesData.begin(), privCandidatesData.end(), [](const AmicableCandidate& a, const AmicableCandidate& b){ return a.value < b.value; });
 }
 
@@ -327,7 +340,7 @@ void PrimeTablesInit(bool doLargePrimes)
 
 	CalculateMainPrimeTable();
 
-	for (number p = 3, index = 1; index < CompileTimePrimesCount; p += privNextPrimeShifts[index * 2] * ShiftMultiplier, ++index)
+	for (number p = 3, index = 1; index < CompileTimePrimesCount; p += NextPrimeShifts[index * 2] * ShiftMultiplier, ++index)
 	{
 		const number p_max = number(-1) / p;
 
