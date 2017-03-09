@@ -549,6 +549,8 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 		CL_CHECKED_CALL(clSetKernelArg, mySearchMultipleRanges, static_cast<cl_uint>(i + 16), sizeof(cl_mem), &myPrimesBuffers[i]);
 	}
 
+	CL_CHECKED_CALL(setKernelArguments, myCheckPairPhase2, mySmallPrimesBuf, myPhase2_numbers_buf, 0, myPrimeInversesBuf, myPQ_Buf, myPhase3_numbers_count_buf, myPhase3_numbers_buf, myAmicable_numbers_count_buf, myAmicable_numbers_data_buf);
+
 	IF_CONSTEXPR(LogLevel > 0)
 	{
 		if (!Test())
@@ -883,7 +885,7 @@ bool OpenCL::Test()
 		Timer t;
 
 		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase2_numbers_buf, CL_TRUE, filtered_numbers_count * sizeof(number) * 4, myWorkGroupSize * sizeof(number) * 4, &ourZeroBuf, 0, nullptr, nullptr);
-		CL_CHECKED_CALL(setKernelArguments, myCheckPairPhase2, mySmallPrimesBuf, myPhase2_numbers_buf, myPrimeInversesBuf, myPQ_Buf, myPhase3_numbers_count_buf, myPhase3_numbers_buf, myAmicable_numbers_count_buf, buf);
+		CL_CHECKED_CALL(setKernelArguments, myCheckPairPhase2, mySmallPrimesBuf, myPhase2_numbers_buf, 0, myPrimeInversesBuf, myPQ_Buf, myPhase3_numbers_count_buf, myPhase3_numbers_buf, myAmicable_numbers_count_buf, buf);
 
 		size_t globalSizePhase2 = filtered_numbers_count;
 		if (globalSizePhase2 & (myWorkGroupSize - 1))
@@ -1250,7 +1252,7 @@ bool OpenCL::ProcessNumbers()
 
 bool OpenCL::ProcessNumbersPhases2_3(unsigned int numbers_in_phase2)
 {
-	cl_event event;
+	cl_event event = nullptr;
 
 	//
 	// Phase 2
@@ -1264,14 +1266,23 @@ bool OpenCL::ProcessNumbersPhases2_3(unsigned int numbers_in_phase2)
 			CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase2_numbers_buf, CL_TRUE, numbers_in_phase2 * sizeof(number) * 4, std::min(static_cast<unsigned int>(myWorkGroupSize), myPhase2MaxNumbersCount - numbers_in_phase2) * sizeof(number) * 4, &ourZeroBuf, 0, nullptr, nullptr);
 		}
 
-		size_t globalSizePhase2 = numbers_in_phase2;
-		if (globalSizePhase2 & (myWorkGroupSize - 1))
-		{
-			globalSizePhase2 += myWorkGroupSize - (globalSizePhase2 & (myWorkGroupSize - 1));
-		}
+		const unsigned int max_size_phase2 = GetMaxPhaseSize(numbers_in_phase2, myPhase1MaxKernelSize / 4);
 
-		CL_CHECKED_CALL(setKernelArguments, myCheckPairPhase2, mySmallPrimesBuf, myPhase2_numbers_buf, myPrimeInversesBuf, myPQ_Buf, myPhase3_numbers_count_buf, myPhase3_numbers_buf, myAmicable_numbers_count_buf, myAmicable_numbers_data_buf);
-		CL_CHECKED_CALL(clEnqueueNDRangeKernel, myQueue, myCheckPairPhase2, 1, nullptr, &globalSizePhase2, &myWorkGroupSize, 0, nullptr, &event);
+		size_t globalSizePhase2;
+		for (unsigned int k = 0, global_offset = 0; global_offset < numbers_in_phase2; global_offset += static_cast<unsigned int>(globalSizePhase2), ++k)
+		{
+			if (k)
+			{
+				CL_CHECKED_CALL(clFlush, myQueue);
+			}
+			globalSizePhase2 = std::min(numbers_in_phase2 - global_offset, max_size_phase2);
+			if (globalSizePhase2 & (myWorkGroupSize - 1))
+			{
+				globalSizePhase2 += myWorkGroupSize - (globalSizePhase2 & (myWorkGroupSize - 1));
+			}
+			CL_CHECKED_CALL(clSetKernelArg, myCheckPairPhase2, 2, sizeof(global_offset), &global_offset);
+			CL_CHECKED_CALL(clEnqueueNDRangeKernel, myQueue, myCheckPairPhase2, 1, nullptr, &globalSizePhase2, &myWorkGroupSize, 0, nullptr, (global_offset + static_cast<unsigned int>(globalSizePhase2) >= numbers_in_phase2) ? &event : nullptr);
+		}
 
 		if (!WaitForQueue(myQueue, event) || !GetAndResetCounter(myQueue, myPhase3_numbers_count_buf, phase3_numbers_buf_count))
 		{
@@ -1300,13 +1311,23 @@ bool OpenCL::ProcessNumbersPhases2_3(unsigned int numbers_in_phase2)
 				CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, phase3_buffers[phase3_iteration & 1], CL_TRUE, phase3_numbers_buf_count2 * sizeof(number) * 4, std::min(static_cast<unsigned int>(phase3_workGroupSize), myPhase2MaxNumbersCount - phase3_numbers_buf_count2) * sizeof(number) * 4, &ourZeroBuf, 0, nullptr, nullptr);
 			}
 
-			size_t globalSizePhase3 = phase3_numbers_buf_count2;
-			if (globalSizePhase3 & (phase3_workGroupSize - 1))
+			const unsigned int max_size_phase3 = GetMaxPhaseSize(phase3_numbers_buf_count2, myPhase1MaxKernelSize / 8);
+
+			size_t globalSizePhase3;
+			for (unsigned int k = 0, global_offset = 0; global_offset < phase3_numbers_buf_count2; global_offset += static_cast<unsigned int>(globalSizePhase3), ++k)
 			{
-				globalSizePhase3 += phase3_workGroupSize - (globalSizePhase3 & (phase3_workGroupSize - 1));
+				if (k)
+				{
+					CL_CHECKED_CALL(clFlush, myQueue);
+				}
+				globalSizePhase3 = std::min<number>(phase3_numbers_buf_count2 - global_offset, max_size_phase3);
+				if (globalSizePhase3 & (myWorkGroupSize - 1))
+				{
+					globalSizePhase3 += myWorkGroupSize - (globalSizePhase3 & (myWorkGroupSize - 1));
+				}
+				CL_CHECKED_CALL(setKernelArguments, myCheckPairPhase3, phase3_buffers[phase3_iteration & 1], global_offset, myPrimeInversesBuf, myPrimeReciprocalsBuf, myPhase3_numbers_count_buf, phase3_buffers[(phase3_iteration - 1) & 1], myAmicable_numbers_count_buf, myAmicable_numbers_data_buf, phase3_iteration << 12);
+				CL_CHECKED_CALL(clEnqueueNDRangeKernel, myQueue, myCheckPairPhase3, 1, nullptr, &globalSizePhase3, &phase3_workGroupSize, 0, nullptr, (global_offset + static_cast<unsigned int>(globalSizePhase3) >= phase3_numbers_buf_count2) ? &event : nullptr);
 			}
-			CL_CHECKED_CALL(setKernelArguments, myCheckPairPhase3, phase3_buffers[phase3_iteration & 1], 0, myPrimeInversesBuf, myPrimeReciprocalsBuf, myPhase3_numbers_count_buf, phase3_buffers[(phase3_iteration - 1) & 1], myAmicable_numbers_count_buf, myAmicable_numbers_data_buf, phase3_iteration << 12);
-			CL_CHECKED_CALL(clEnqueueNDRangeKernel, myQueue, myCheckPairPhase3, 1, nullptr, &globalSizePhase3, &phase3_workGroupSize, 0, nullptr, &event);
 
 			if (!WaitForQueue(myQueue, event) || !GetAndResetCounter(myQueue, myPhase3_numbers_count_buf, phase3_numbers_buf_count2))
 			{

@@ -391,6 +391,7 @@ __attribute__((reqd_work_group_size(WORK_GROUP_SIZE, 1, 1)))
 void CheckPairPhase2(
 	__global const uint* smallPrimes,
 	__global const ulong4* numbersToCheck,
+	const uint numbersToCheckOffset,
 	__global const ulong2* primeInverses,
 	__global const ulong2* PQ,
 	__global uint* filtered_numbers_count,
@@ -399,7 +400,7 @@ void CheckPairPhase2(
 	__global ulong2* amicable_numbers_data
 )
 {
-	const ulong4 cur_number = numbersToCheck[get_global_id(0)];
+	const ulong4 cur_number = numbersToCheck[get_global_id(0) + numbersToCheckOffset];
 	if (cur_number.x == 0)
 	{
 		return;
