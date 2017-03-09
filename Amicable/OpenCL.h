@@ -32,7 +32,7 @@ static_assert(sizeof(LookupDataGPU) == sizeof(unsigned int) * 2, "Invalid Lookup
 class OpenCL
 {
 public:
-	OpenCL();
+	OpenCL(const char* preferences);
 	~OpenCL();
 
 	bool Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned int largestPrimePower);
@@ -42,6 +42,8 @@ public:
 	bool AddRange(const RangeData& r);
 
 private:
+	int SetKernelSize(int size);
+
 	bool GetPlatformID(cl_platform_id* clSelectedPlatformID);
 	bool WaitForQueue(cl_command_queue queue, cl_event event);
 	bool GetCounter(cl_command_queue queue, cl_mem buf, unsigned int &counter);
@@ -99,6 +101,8 @@ private:
 	number myTotalNumbersInRanges;
 	number myNumbersProcessedTotal;
 	number myAmicableNumbersFound;
+
+	const char* myPreferences;
 
 	std::vector<LookupDataGPU> myLookupTable;
 

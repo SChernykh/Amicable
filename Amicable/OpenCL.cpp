@@ -32,7 +32,7 @@ enum
 
 const unsigned char OpenCL::ourZeroBuf[16384] = {};
 
-OpenCL::OpenCL()
+OpenCL::OpenCL(const char* preferences)
 	: myLargestPrimePower(1)
 	, myGPUContext(nullptr)
 	, myProgram(nullptr)
@@ -61,13 +61,13 @@ OpenCL::OpenCL()
 	, myWorkGroupSize(128)
 	, myMaxRangesCount(8192)
 	, myMaxLookupTableSize((myMaxRangesCount + 1) * 4) // very conservative estimate to be safe
-	, myPhase1MaxKernelSize(1048576)
-	, myPhase2MinNumbersCount(1048576)
-	, myPhase2MaxNumbersCount(myPhase2MinNumbersCount + myPhase1MaxKernelSize)
 	, myTotalNumbersInRanges(0)
 	, myNumbersProcessedTotal(0)
 	, myAmicableNumbersFound(0)
+	, myPreferences(preferences)
 {
+	SetKernelSize(20);
+
 	myRanges.reserve(myMaxRangesCount);
 	myLookupTable.reserve(myMaxLookupTableSize);
 	myBufUlong2.reserve(8192);
@@ -141,6 +141,50 @@ static bool PlatformSupported(const char* platformName)
 	return true;
 }
 
+template<size_t N>
+static bool ParseIntegerFromXml(const char* xml, const char (&paramName)[N], int& value)
+{
+	const char* pos = strstr(xml, paramName);
+	if (pos)
+	{
+		pos += N - 1;
+		while (*pos && (*pos < '0'))
+		{
+			++pos;
+		}
+		if (('0' <= *pos) && (*pos <= '9'))
+		{
+			int k = 0;
+			do
+			{
+				k = k * 10 + ((*pos) - '0');
+				++pos;
+			} while (('0' <= *pos) && (*pos <= '9'));
+			value = k;
+			return true;
+		}
+	}
+	return false;
+}
+
+int OpenCL::SetKernelSize(int size)
+{
+	if (size < 15)
+	{
+		size = 15;
+	}
+	if (size > 21)
+	{
+		size = 21;
+	}
+
+	myPhase1MaxKernelSize = 1U << size;
+	myPhase2MinNumbersCount = 1U << size;
+	myPhase2MaxNumbersCount = myPhase2MinNumbersCount + myPhase1MaxKernelSize;
+
+	return size;
+}
+
 bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned int largestPrimePower)
 {
 	cl_platform_id platform = nullptr;
@@ -177,11 +221,11 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	std::string vendor_specific_compiler_options;
 	number MaxMemAllocSize = 0;
 	{
-		char name[1024] = {};
-		CL_CHECKED_CALL(clGetPlatformInfo, platform, CL_PLATFORM_NAME, sizeof(name), &name, nullptr);
-		if (!PlatformSupported(name))
+		char platformName[1024] = {};
+		CL_CHECKED_CALL(clGetPlatformInfo, platform, CL_PLATFORM_NAME, sizeof(platformName), &platformName, nullptr);
+		if (!PlatformSupported(platformName))
 		{
-			LOG_ERROR("Platform '" << name << "' is not supported by this program");
+			LOG_ERROR("Platform '" << platformName << "' is not supported by this program");
 			return false;
 		}
 
@@ -193,8 +237,9 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 		unsigned int max_compute_units = 0;
 		unsigned int max_clock_frequency = 0;
 		number max_work_group_size = 0;
+		char deviceName[1024] = {};
 		char extensions[1024] = {};
-		CL_CHECKED_CALL(clGetDeviceInfo, device, CL_DEVICE_NAME, sizeof(name), name, nullptr);
+		CL_CHECKED_CALL(clGetDeviceInfo, device, CL_DEVICE_NAME, sizeof(deviceName), deviceName, nullptr);
 		CL_CHECKED_CALL(clGetDeviceInfo, device, CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(global_memory_size), &global_memory_size, nullptr);
 		CL_CHECKED_CALL(clGetDeviceInfo, device, CL_DEVICE_GLOBAL_MEM_CACHE_SIZE, sizeof(global_memory_cache_size), &global_memory_cache_size, nullptr);
 		CL_CHECKED_CALL(clGetDeviceInfo, device, CL_DEVICE_LOCAL_MEM_SIZE, sizeof(local_memory_size), &local_memory_size, nullptr);
@@ -209,7 +254,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 		global_memory_size >>= 20;
 
 		LOG(2,
-			"Device " << 0 << ": " << name << std::endl <<
+			"Device " << 0 << ": " << deviceName << std::endl <<
 			"\t" << max_compute_units << " compute units" << std::endl <<
 			"\t" << max_clock_frequency << " MHz" << std::endl <<
 			"\t" << global_memory_size << " MB main memory" << std::endl <<
@@ -221,6 +266,25 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 			"\t" << max_work_group_size << " max work group size" << std::endl <<
 			"\t" << extensions << std::endl
 		);
+
+		if (myPreferences)
+		{
+			LOG_ERROR("Preferences:\n" << myPreferences << "\n");
+
+			int kernel_size_ati;
+			if ((strstr(platformName, "AMD") || strstr(platformName, "ATI")) && ParseIntegerFromXml(myPreferences, "<kernel_size_ati>", kernel_size_ati))
+			{
+				kernel_size_ati = SetKernelSize(kernel_size_ati);
+				LOG_ERROR("Kernel size for ATI GPU has been set to " << kernel_size_ati);
+			}
+
+			int kernel_size_nvidia;
+			if (strstr(platformName, "NVIDIA") && ParseIntegerFromXml(myPreferences, "<kernel_size_nvidia>", kernel_size_nvidia))
+			{
+				kernel_size_nvidia = SetKernelSize(kernel_size_nvidia);
+				LOG_ERROR("Kernel size for NVIDIA GPU has been set to " << kernel_size_nvidia);
+			}
+		}
 
 		// If GPU has 2 GB of memory or more, increase internal buffers
 		if (global_memory_size >= 2048)

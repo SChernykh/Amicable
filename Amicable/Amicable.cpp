@@ -120,7 +120,7 @@ int main(int argc, char* argv[])
 
 	bool cl_result;
 	{
-		OpenCL cl;
+		OpenCL cl(aid.project_preferences);
 		cl_result = cl.Run(argc, argv, startFrom, stopAt, largestPrimePower);
 	}
 
