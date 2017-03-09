@@ -189,10 +189,9 @@ NOINLINE number GetMaxSumRatio(const PrimeIterator& p, const number limit, numbe
 	return udiv128(r, 0, result.N, &r) + 1;
 }
 
-AmicableCandidate::AmicableCandidate(number _value, number _sum, unsigned char _is_over_abundant_mask)
+AmicableCandidate::AmicableCandidate(number _value, number _sum)
 	: value(static_cast<unsigned int>(_value))
 	, sum(static_cast<unsigned int>(_sum - _value * 2))
-	, is_over_abundant_mask(static_cast<unsigned char>(_is_over_abundant_mask))
 {
 	if (_sum - _value * 2 > UINT_MAX)
 	{
@@ -201,26 +200,30 @@ AmicableCandidate::AmicableCandidate(number _value, number _sum, unsigned char _
 	}
 }
 
+#pragma pack(push, 1)
+struct PrimeData
+{
+	PrimeData(unsigned int _p, number _p_inv, number _q_max) : p(_p), p_inv(_p_inv), q_max(_q_max) {}
+
+	unsigned int p;
+	number p_inv;
+	number q_max;
+};
+#pragma pack(pop)
+
+static std::vector<PrimeData> g_PrimeData;
+
 NOINLINE void SearchCandidates(Factor* factors, const number value, const number sum, int depth)
 {
 	if (sum - value >= value)
 	{
-		unsigned char is_over_abundant_mask = 0;
-		is_over_abundant_mask |= OverAbundant<5>(factors, depth - 1, value, sum, 2 * 5) << 1;
-		is_over_abundant_mask |= OverAbundant<7>(factors, depth - 1, value, sum, 2 * 7) << 2;
-		is_over_abundant_mask |= OverAbundant<11>(factors, depth - 1, value, sum, 2 * 11) << 4;
-		is_over_abundant_mask |= (((is_over_abundant_mask & 0x06) || OverAbundant<7>(factors, depth - 1, value, sum, 2 * 5 * 7)) ? byte(1) : byte(0)) << 3;
-		is_over_abundant_mask |= (((is_over_abundant_mask & 0x12) || OverAbundant<11>(factors, depth - 1, value, sum, 2 * 5 * 11)) ? byte(1) : byte(0)) << 5;
-		is_over_abundant_mask |= (((is_over_abundant_mask & 0x14) || OverAbundant<11>(factors, depth - 1, value, sum, 2 * 7 * 11)) ? byte(1) : byte(0)) << 6;
-		is_over_abundant_mask |= (((is_over_abundant_mask & 0x7E) || OverAbundant<11>(factors, depth - 1, value, sum, 2 * 5 * 7 * 11)) ? byte(1) : byte(0)) << 7;
-
-		privCandidatesData.emplace_back(AmicableCandidate(value, sum, is_over_abundant_mask));
+		privCandidatesData.emplace_back(value, sum);
 	}
 
 	int start_i = (depth == 0) ? 0 : (factors[depth - 1].index + 1);
 
 	Factor& f = factors[depth];
-	f.p = (depth == 0) ? 2 : GetNthPrime(factors[depth - 1].index + 1);
+	f.p = (depth == 0) ? 2U : g_PrimeData[static_cast<unsigned int>(factors[depth - 1].index + 1)].p;
 
 	// A check to ensure that m is not divisible by 6
 	if (depth == 1)
@@ -240,7 +243,7 @@ NOINLINE void SearchCandidates(Factor* factors, const number value, const number
 
 	// Check only 2, 3, 5 as the smallest prime factor because the smallest abundant number coprime to 2*3*5 is ~2*10^25
 	const unsigned int max_prime = static_cast<unsigned int>((depth > 0) ? ((SearchLimit::LinearLimit / 20) + 1) : 7);
-	for (f.index = start_i; f.p < max_prime; ++f.index, f.p = GetNthPrime(f.index))
+	for (f.index = start_i; f.p < max_prime; ++f.index, f.p = g_PrimeData[static_cast<unsigned int>(f.index)].p)
 	{
 		number h;
 		number next_value = _umul128(value, f.p, &h);
@@ -251,11 +254,8 @@ NOINLINE void SearchCandidates(Factor* factors, const number value, const number
 		number next_sum = sum * (f.p + 1);
 
 		f.k = 1;
-
-		f.q_max = number(-1) / f.p;
-
-		PRAGMA_WARNING(suppress : 4146)
-		f.p_inv = -modular_inverse64(f.p);
+		f.p_inv = g_PrimeData[static_cast<unsigned int>(f.index)].p_inv;
+		f.q_max = g_PrimeData[static_cast<unsigned int>(f.index)].q_max;
 
 		for (;;)
 		{
@@ -288,10 +288,22 @@ NOINLINE void SearchCandidates(Factor* factors, const number value, const number
 void GenerateCandidates()
 {
 	privCandidatesData.reserve(Min<77432115, SearchLimit::value / SearchLimit::LinearLimit / 30>::value);
+	{
+		const number primeDataCount = 16441820;
+		g_PrimeData.reserve(primeDataCount);
+		for (number index = 0; index < primeDataCount; ++index)
+		{
+			const number p = GetNthPrime(index);
+			PRAGMA_WARNING(suppress : 4146)
+			g_PrimeData.emplace_back(static_cast<unsigned int>(p), -modular_inverse64(p), number(-1) / p);
+		}
 
-	Factor factors[16];
-	SearchCandidates(factors, 1, 1, 0);
+		Factor factors[16];
+		SearchCandidates(factors, 1, 1, 0);
 
+		std::vector<PrimeData> tmp;
+		g_PrimeData.swap(tmp);
+	}
 	std::sort(privCandidatesData.begin(), privCandidatesData.end(), [](const AmicableCandidate& a, const AmicableCandidate& b){ return a.value < b.value; });
 }
 

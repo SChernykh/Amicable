@@ -63,11 +63,10 @@ extern CACHE_ALIGNED SReciprocal privPrimeReciprocals[ReciprocalsTableSize];
 struct AmicableCandidate
 {
 	AmicableCandidate() {}
-	AmicableCandidate(number _value, number _sum, unsigned char _is_over_abundant_mask);
+	AmicableCandidate(number _value, number _sum);
 
 	unsigned int value;
 	unsigned int sum;
-	unsigned char is_over_abundant_mask;
 };
 #pragma pack(pop)
 
