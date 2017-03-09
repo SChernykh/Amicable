@@ -169,9 +169,9 @@ static bool ParseIntegerFromXml(const char* xml, const char (&paramName)[N], int
 
 int OpenCL::SetKernelSize(int size)
 {
-	if (size < 15)
+	if (size < 16)
 	{
-		size = 15;
+		size = 16;
 	}
 	if (size > 21)
 	{
@@ -1267,6 +1267,7 @@ bool OpenCL::ProcessNumbersPhases2_3(unsigned int numbers_in_phase2)
 		}
 
 		const unsigned int max_size_phase2 = GetMaxPhaseSize(numbers_in_phase2, myPhase1MaxKernelSize / 4);
+		LOG(2, "Phase 2: max kernel size = " << max_size_phase2 << " numbers");
 
 		size_t globalSizePhase2;
 		for (unsigned int k = 0, global_offset = 0; global_offset < numbers_in_phase2; global_offset += static_cast<unsigned int>(globalSizePhase2), ++k)
@@ -1311,7 +1312,8 @@ bool OpenCL::ProcessNumbersPhases2_3(unsigned int numbers_in_phase2)
 				CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, phase3_buffers[phase3_iteration & 1], CL_TRUE, phase3_numbers_buf_count2 * sizeof(number) * 4, std::min(static_cast<unsigned int>(phase3_workGroupSize), myPhase2MaxNumbersCount - phase3_numbers_buf_count2) * sizeof(number) * 4, &ourZeroBuf, 0, nullptr, nullptr);
 			}
 
-			const unsigned int max_size_phase3 = GetMaxPhaseSize(phase3_numbers_buf_count2, myPhase1MaxKernelSize / 8);
+			const unsigned int max_size_phase3 = GetMaxPhaseSize(phase3_numbers_buf_count2, myPhase1MaxKernelSize / 16);
+			LOG(2, "Phase 3, iteration " << phase3_iteration << ": max kernel size = " << max_size_phase3 << " numbers");
 
 			size_t globalSizePhase3;
 			for (unsigned int k = 0, global_offset = 0; global_offset < phase3_numbers_buf_count2; global_offset += static_cast<unsigned int>(globalSizePhase3), ++k)
