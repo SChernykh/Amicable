@@ -271,11 +271,11 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 		{
 			LOG_ERROR("Preferences:\n" << myPreferences << "\n");
 
-			int kernel_size_ati;
-			if ((strstr(platformName, "AMD") || strstr(platformName, "ATI")) && ParseIntegerFromXml(myPreferences, "<kernel_size_ati>", kernel_size_ati))
+			int kernel_size_amd;
+			if ((strstr(platformName, "AMD") || strstr(platformName, "ATI")) && ParseIntegerFromXml(myPreferences, "<kernel_size_amd>", kernel_size_amd))
 			{
-				kernel_size_ati = SetKernelSize(kernel_size_ati);
-				LOG_ERROR("Kernel size for ATI GPU has been set to " << kernel_size_ati);
+				kernel_size_amd = SetKernelSize(kernel_size_amd);
+				LOG_ERROR("Kernel size for AMD GPU has been set to " << kernel_size_amd);
 			}
 
 			int kernel_size_nvidia;
