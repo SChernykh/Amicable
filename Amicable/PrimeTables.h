@@ -59,7 +59,6 @@ struct SReciprocal
 extern CACHE_ALIGNED SReciprocal privPrimeReciprocals[ReciprocalsTableSize];
 #define PrimeReciprocals ((const SReciprocal* const)(privPrimeReciprocals))
 
-#pragma pack(push, 1)
 struct AmicableCandidate
 {
 	AmicableCandidate() {}
@@ -68,7 +67,6 @@ struct AmicableCandidate
 	unsigned int value;
 	unsigned int sum;
 };
-#pragma pack(pop)
 
 struct uint2
 {

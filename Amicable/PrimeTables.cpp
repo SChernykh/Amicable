@@ -287,7 +287,7 @@ NOINLINE void SearchCandidates(Factor* factors, const number value, const number
 
 void GenerateCandidates()
 {
-	privCandidatesData.reserve(Min<77432115, SearchLimit::value / SearchLimit::LinearLimit / 30>::value);
+	privCandidatesData.reserve(Min<77432320, SearchLimit::value / SearchLimit::LinearLimit / 30>::value);
 	{
 		const number primeDataCount = 16441820;
 		g_PrimeData.reserve(primeDataCount);

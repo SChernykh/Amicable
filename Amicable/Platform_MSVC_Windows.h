@@ -70,6 +70,19 @@ number SetHighestTimerResolution();
 void SetTimerResoluion(const number res);
 void HiResSleep(const double ms);
 
+class Semaphore
+{
+public:
+	FORCEINLINE Semaphore() : mySemaphore(CreateSemaphore(nullptr, 0, 1, nullptr)) {}
+	FORCEINLINE ~Semaphore() { CloseHandle(mySemaphore); }
+
+	FORCEINLINE bool Signal() { return (ReleaseSemaphore(mySemaphore, 1, nullptr) != 0); }
+	FORCEINLINE bool Wait() { return (WaitForSingleObject(mySemaphore, INFINITE) == WAIT_OBJECT_0);  }
+
+private:
+	HANDLE mySemaphore;
+};
+
 extern number(*udiv128)(number numhi, number numlo, number den, number* rem);
 extern number(*mulmod64)(number a, number b, number n);
 

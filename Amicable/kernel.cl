@@ -70,8 +70,8 @@ void CheckPairPhase1(
 	const ulong M,
 	ulong targetSum,
 	ulong targetSumHigh,
-	const uint global_offset,
-	__global uint* phase1_offset_to_resume_after_overflow,
+	const ulong global_offset,
+	__global ulong* phase1_offset_to_resume_after_overflow,
 	__global uint* phase2_numbers_count,
 	__global ulong4* phase2_numbers_data,
 	__global uint* amicable_numbers_count,
@@ -789,61 +789,61 @@ void SaveCounter(__global uint* phase2_numbers_count)
 // each chunk is 128 MB in size (2^24 uint2 elements) or bigger
 ulong GetNthPrime(uint n,
 	__global uint2* primes0
-#if NUM_PRIME_CHUNKS > 1
+#if NUM_DATA_CHUNKS > 1
 	, __global uint2* primes1
 #endif
-#if NUM_PRIME_CHUNKS > 2
+#if NUM_DATA_CHUNKS > 2
 	, __global uint2* primes2
 #endif
-#if NUM_PRIME_CHUNKS > 3
+#if NUM_DATA_CHUNKS > 3
 	, __global uint2* primes3
 #endif
-#if NUM_PRIME_CHUNKS > 4
+#if NUM_DATA_CHUNKS > 4
 	, __global uint2* primes4
 #endif
-#if NUM_PRIME_CHUNKS > 5
+#if NUM_DATA_CHUNKS > 5
 	, __global uint2* primes5
 #endif
-#if NUM_PRIME_CHUNKS > 6
+#if NUM_DATA_CHUNKS > 6
 	, __global uint2* primes6
 #endif
-#if NUM_PRIME_CHUNKS > 7
+#if NUM_DATA_CHUNKS > 7
 	, __global uint2* primes7
 #endif
 )
 {
-#if NUM_PRIME_CHUNKS == 1
+#if NUM_DATA_CHUNKS == 1
 	uint2 data = primes0[n >> 2];
 #else
 	const uint global_offset = n >> 2;
 	__global const uint2* chunk;
-	switch (global_offset >> CHUNK_SIZE_SHIFT)
+	switch (global_offset >> (CHUNK_SIZE_SHIFT - 3))
 	{
 	default: chunk = primes0; break;
-#if NUM_PRIME_CHUNKS > 1
+#if NUM_DATA_CHUNKS > 1
 	case 1: chunk = primes1; break;
 #endif
-#if NUM_PRIME_CHUNKS > 2
+#if NUM_DATA_CHUNKS > 2
 	case 2: chunk = primes2; break;
 #endif
-#if NUM_PRIME_CHUNKS > 3
+#if NUM_DATA_CHUNKS > 3
 	case 3: chunk = primes3; break;
 #endif
-#if NUM_PRIME_CHUNKS > 4
+#if NUM_DATA_CHUNKS > 4
 	case 4: chunk = primes4; break;
 #endif
-#if NUM_PRIME_CHUNKS > 5
+#if NUM_DATA_CHUNKS > 5
 	case 5: chunk = primes5; break;
 #endif
-#if NUM_PRIME_CHUNKS > 6
+#if NUM_DATA_CHUNKS > 6
 	case 6: chunk = primes6; break;
 #endif
-#if NUM_PRIME_CHUNKS > 7
+#if NUM_DATA_CHUNKS > 7
 	case 7: chunk = primes7; break;
 #endif
 	}
 
-	const uint chunk_offset = global_offset & ((1 << CHUNK_SIZE_SHIFT) - 1);
+	const uint chunk_offset = global_offset & ((1 << (CHUNK_SIZE_SHIFT - 3)) - 1);
 	uint2 data = chunk[chunk_offset];
 #endif
 
@@ -864,34 +864,34 @@ void SearchMultipleRanges(
 	__global const ulong4* RangesTable,
 	__global const uint2* RangeLookupTable,
 	const uint lookup_shift,
-	const uint global_offset,
+	const ulong global_offset,
 	const uint global_size,
-	__global uint* phase1_offset_to_resume_after_overflow,
+	__global ulong* phase1_offset_to_resume_after_overflow,
 	__global uint* phase2_numbers_count,
 	__global ulong4* phase2_numbers_data,
 	__global uint* amicable_numbers_count,
 	__global ulong2* amicable_numbers_data,
 
 	__global uint2* primes0
-#if NUM_PRIME_CHUNKS > 1
+#if NUM_DATA_CHUNKS > 1
 	, __global uint2* primes1
 #endif
-#if NUM_PRIME_CHUNKS > 2
+#if NUM_DATA_CHUNKS > 2
 	, __global uint2* primes2
 #endif
-#if NUM_PRIME_CHUNKS > 3
+#if NUM_DATA_CHUNKS > 3
 	, __global uint2* primes3
 #endif
-#if NUM_PRIME_CHUNKS > 4
+#if NUM_DATA_CHUNKS > 4
 	, __global uint2* primes4
 #endif
-#if NUM_PRIME_CHUNKS > 5
+#if NUM_DATA_CHUNKS > 5
 	, __global uint2* primes5
 #endif
-#if NUM_PRIME_CHUNKS > 6
+#if NUM_DATA_CHUNKS > 6
 	, __global uint2* primes6
 #endif
-#if NUM_PRIME_CHUNKS > 7
+#if NUM_DATA_CHUNKS > 7
 	, __global uint2* primes7
 #endif
 )
@@ -925,25 +925,25 @@ void SearchMultipleRanges(
 			//      primes[ start_prime_index                    + range_offset          + globalIndex - curIndex]
 			p = GetNthPrime(RangesTable[rangeIndexAndOffset.x].z + rangeIndexAndOffset.y + globalIndex - curIndex,
 				primes0
-#if NUM_PRIME_CHUNKS > 1
+#if NUM_DATA_CHUNKS > 1
 				, primes1
 #endif
-#if NUM_PRIME_CHUNKS > 2
+#if NUM_DATA_CHUNKS > 2
 				, primes2
 #endif
-#if NUM_PRIME_CHUNKS > 3
+#if NUM_DATA_CHUNKS > 3
 				, primes3
 #endif
-#if NUM_PRIME_CHUNKS > 4
+#if NUM_DATA_CHUNKS > 4
 				, primes4
 #endif
-#if NUM_PRIME_CHUNKS > 5
+#if NUM_DATA_CHUNKS > 5
 				, primes5
 #endif
-#if NUM_PRIME_CHUNKS > 6
+#if NUM_DATA_CHUNKS > 6
 				, primes6
 #endif
-#if NUM_PRIME_CHUNKS > 7
+#if NUM_DATA_CHUNKS > 7
 				, primes7
 #endif
 			);
@@ -978,6 +978,134 @@ void SearchMultipleRanges(
 		amicable_numbers_data
 	);
 }
+
+__kernel
+__attribute__((reqd_work_group_size(WORK_GROUP_SIZE, 1, 1)))
+void SearchLargePrimes(
+	__global const uint* smallPrimes,
+	__global const ulong2* primeInverses,
+	__global const ulong2* PQ,
+	__constant ulong2* PowerOf2SumInverses,
+	__constant ulong4* PowersOfP_128SumInverses,
+	__constant ulong2* PrimeInverses_128,
+	__global const ulong* largePrimes,
+	const uint largePrimesCount,
+	const ulong largePrimesCountReciprocal,
+	const uint largePrimesCountIncrementAndShift,
+	const ulong global_offset,
+	const ulong global_size,
+	__global ulong* phase1_offset_to_resume_after_overflow,
+	__global uint* phase2_numbers_count,
+	__global ulong4* phase2_numbers_data,
+	__global uint* amicable_numbers_count,
+	__global ulong2* amicable_numbers_data,
+
+	__global uint2* amicableCandidates0
+#if NUM_DATA_CHUNKS > 1
+	, __global uint2* amicableCandidates1
+#endif
+#if NUM_DATA_CHUNKS > 2
+	, __global uint2* amicableCandidates2
+#endif
+#if NUM_DATA_CHUNKS > 3
+	, __global uint2* amicableCandidates3
+#endif
+#if NUM_DATA_CHUNKS > 4
+	, __global uint2* amicableCandidates4
+#endif
+#if NUM_DATA_CHUNKS > 5
+	, __global uint2* amicableCandidates5
+#endif
+#if NUM_DATA_CHUNKS > 6
+	, __global uint2* amicableCandidates6
+#endif
+#if NUM_DATA_CHUNKS > 7
+	, __global uint2* amicableCandidates7
+#endif
+)
+{
+	if (*phase2_numbers_count >= PHASE2_MAX_COUNT)
+	{
+		return;
+	}
+
+	const ulong globalIndex = global_offset + get_global_id(0);
+	if (globalIndex >= global_size)
+	{
+		return;
+	}
+
+	ulong amicableCandidateIndex;
+	uint largePrimeIndex;
+
+	if (largePrimesCountReciprocal != 0)
+	{
+		amicableCandidateIndex = mul_hi(globalIndex + (largePrimesCountIncrementAndShift & 1), largePrimesCountReciprocal);
+		amicableCandidateIndex >>= (largePrimesCountIncrementAndShift >> 1);
+		largePrimeIndex = globalIndex - amicableCandidateIndex * largePrimesCount;
+	}
+	else
+	{
+		amicableCandidateIndex = globalIndex >> largePrimesCountIncrementAndShift;
+		largePrimeIndex = globalIndex - (amicableCandidateIndex << largePrimesCountIncrementAndShift);
+	}
+
+	__global const uint2* chunk;
+	switch (amicableCandidateIndex >> (CHUNK_SIZE_SHIFT - 3))
+	{
+	default: chunk = amicableCandidates0; break;
+#if NUM_DATA_CHUNKS > 1
+	case 1: chunk = amicableCandidates1; break;
+#endif
+#if NUM_DATA_CHUNKS > 2
+	case 2: chunk = amicableCandidates2; break;
+#endif
+#if NUM_DATA_CHUNKS > 3
+	case 3: chunk = amicableCandidates3; break;
+#endif
+#if NUM_DATA_CHUNKS > 4
+	case 4: chunk = amicableCandidates4; break;
+#endif
+#if NUM_DATA_CHUNKS > 5
+	case 5: chunk = amicableCandidates5; break;
+#endif
+#if NUM_DATA_CHUNKS > 6
+	case 6: chunk = amicableCandidates6; break;
+#endif
+#if NUM_DATA_CHUNKS > 7
+	case 7: chunk = amicableCandidates7; break;
+#endif
+	}
+
+	const uint chunk_offset = amicableCandidateIndex & ((1 << (CHUNK_SIZE_SHIFT - 3)) - 1);
+	const uint2 curCandidate = chunk[chunk_offset];
+
+	const ulong M0 = curCandidate.x;
+	const ulong sumM0 = (M0 << 1) + curCandidate.y;
+	const ulong p = largePrimes[largePrimeIndex];
+
+	if (mul_hi(M0, p) != 0)
+	{
+		return;
+	}
+
+	CheckPairPhase1(
+		smallPrimes,
+		primeInverses,
+		PQ,
+		PowerOf2SumInverses,
+		PowersOfP_128SumInverses,
+		PrimeInverses_128,
+		M0 * p, sumM0 * (p + 1), mul_hi(sumM0, p + 1),
+		global_offset,
+		phase1_offset_to_resume_after_overflow,
+		phase2_numbers_count,
+		phase2_numbers_data,
+		amicable_numbers_count,
+		amicable_numbers_data
+	);
+}
+
 
 __kernel
 __attribute__((reqd_work_group_size(WORK_GROUP_SIZE, 1, 1)))

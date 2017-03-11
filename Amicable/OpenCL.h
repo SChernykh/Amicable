@@ -35,11 +35,20 @@ public:
 	OpenCL(const char* preferences);
 	~OpenCL();
 
-	bool Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned int largestPrimePower);
+	bool Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned int largestPrimePower, number startPrime, number primeLimit);
 
 	bool Test();
 
 	bool AddRange(const RangeData& r);
+
+	FORCEINLINE void operator()(number p)
+	{
+		myLargePrimes.emplace_back(p);
+		if (myLargePrimes.size() >= myLargePrimesMaxCount)
+		{
+			PassLargePrimesToThread();
+		}
+	}
 
 private:
 	int SetKernelSize(int size);
@@ -47,9 +56,18 @@ private:
 	bool GetPlatformID(cl_platform_id* clSelectedPlatformID);
 	bool WaitForQueue(cl_command_queue queue, cl_event event);
 	bool GetCounter(cl_command_queue queue, cl_mem buf, unsigned int &counter);
+	bool GetCounter(cl_command_queue queue, cl_mem buf, number &counter);
 	bool ResetCounter(cl_command_queue queue, cl_mem buf);
 	bool GetAndResetCounter(cl_command_queue queue, cl_mem buf, unsigned int &counter);
-	unsigned int GetMaxPhaseSize(unsigned int total_size, unsigned int max_size);
+	bool GetAndResetCounter(cl_command_queue queue, cl_mem buf, number &counter);
+	unsigned int GetMaxPhaseSize(number total_size, unsigned int max_size);
+
+	bool RunRanges(char* startFrom, char* stopAt);
+	bool RunLargePrimes(number startPrime, number primeLimit);
+
+	void PassLargePrimesToThread();
+	void ProcessLargePrimesThread();
+	bool ProcessLargePrimes();
 
 	bool ProcessNumbers();
 	bool ProcessNumbersPhases2_3(unsigned int numbers_in_phase2);
@@ -65,17 +83,19 @@ private:
 	cl_command_queue myQueue;
 	cl_kernel mySaveCounter;
 	cl_kernel mySearchMultipleRanges;
+	cl_kernel mySearchLargePrimes;
 	cl_kernel myCheckPairs;
 	cl_kernel myCheckPairPhase2;
 	cl_kernel myCheckPairPhase3;
 	cl_mem mySmallPrimesBuf;
-	std::vector<cl_mem> myPrimesBuffers;
+	std::vector<cl_mem> myMainBuffers;
 	cl_mem myPrimeInversesBuf;
 	cl_mem myPrimeReciprocalsBuf;
 	cl_mem myPQ_Buf;
 	cl_mem myPowerOf2SumInverses_Buf;
 	cl_mem myPowersOfP_128SumInverses_Buf;
 	cl_mem myPrimeInverses_128_Buf;
+	cl_mem myLargePrimesBuf;
 	cl_mem myRangesTable_Buf;
 	cl_mem myRangesLookupTable_Buf;
 	cl_mem myPhase1_offset_to_resume_buf;
@@ -95,10 +115,12 @@ private:
 	unsigned int myPhase2MinNumbersCount;
 	unsigned int myPhase2MaxNumbersCount;
 
+	unsigned int myLargePrimesMaxCount;
+
 	number myOldTimerResolution;
 
 	std::vector<RangeDataGPU> myRanges;
-	number myTotalNumbersInRanges;
+	unsigned int myTotalNumbersInRanges;
 	number myNumbersProcessedTotal;
 	number myAmicableNumbersFound;
 
@@ -109,6 +131,10 @@ private:
 	std::streamsize myStdOldPrecision;
 
 	std::vector<std::pair<number, number>> myBufUlong2;
+
+	std::vector<number> myLargePrimes;
+	Semaphore myLargePrimesReady;
+	Semaphore myLargePrimesReceived;
 
 	static const unsigned char ourZeroBuf[16384];
 };

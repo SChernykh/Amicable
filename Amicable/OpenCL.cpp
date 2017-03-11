@@ -25,7 +25,7 @@ enum
 
 #define DEVICE_TYPE_TO_USE CL_DEVICE_TYPE_GPU
 
-#define LOG_ERROR(X) std::cerr << __FILE__ << ", line " << __LINE__ << ": " << X << std::endl;
+#define LOG_ERROR(X) std::cerr << __FILE__ << ", line " << __LINE__ << ": " << X << std::endl << std::flush;
 #define LOG(LEVEL, X) IF_CONSTEXPR(LogLevel >= LEVEL) { std::cout << X; IF_CONSTEXPR(LEVEL > 0) { std::cout << std::endl; } }
 #define CL_CHECKED_CALL(FUNC, ...) { const cl_int ciErrNum = FUNC(__VA_ARGS__); if (ciErrNum != CL_SUCCESS) { LOG_ERROR(#FUNC" returned error " << ciErrNum); return false; } }
 #define CL_CHECKED_CALL_WITH_RESULT(result, FUNC, ...) { cl_int ciErrNum; result = FUNC(__VA_ARGS__, &ciErrNum); if (ciErrNum != CL_SUCCESS) { LOG_ERROR(#FUNC" returned error " << ciErrNum); return false; } }
@@ -39,6 +39,7 @@ OpenCL::OpenCL(const char* preferences)
 	, myQueue(nullptr)
 	, mySaveCounter(nullptr)
 	, mySearchMultipleRanges(nullptr)
+	, mySearchLargePrimes(nullptr)
 	, myCheckPairs(nullptr)
 	, myCheckPairPhase2(nullptr)
 	, myCheckPairPhase3(nullptr)
@@ -49,6 +50,7 @@ OpenCL::OpenCL(const char* preferences)
 	, myPowerOf2SumInverses_Buf(nullptr)
 	, myPowersOfP_128SumInverses_Buf(nullptr)
 	, myPrimeInverses_128_Buf(nullptr)
+	, myLargePrimesBuf(nullptr)
 	, myRangesTable_Buf(nullptr)
 	, myRangesLookupTable_Buf(nullptr)
 	, myPhase1_offset_to_resume_buf(nullptr)
@@ -61,6 +63,7 @@ OpenCL::OpenCL(const char* preferences)
 	, myWorkGroupSize(128)
 	, myMaxRangesCount(8192)
 	, myMaxLookupTableSize((myMaxRangesCount + 1) * 4) // very conservative estimate to be safe
+	, myLargePrimesMaxCount(1048576)
 	, myTotalNumbersInRanges(0)
 	, myNumbersProcessedTotal(0)
 	, myAmicableNumbersFound(0)
@@ -85,7 +88,7 @@ OpenCL::~OpenCL()
 	std::cout.precision(myStdOldPrecision);
 
 	clReleaseMemObject(mySmallPrimesBuf);
-	for (cl_mem buf : myPrimesBuffers)
+	for (cl_mem buf : myMainBuffers)
 	{
 		clReleaseMemObject(buf);
 	}
@@ -95,6 +98,7 @@ OpenCL::~OpenCL()
 	clReleaseMemObject(myPowerOf2SumInverses_Buf);
 	clReleaseMemObject(myPowersOfP_128SumInverses_Buf);
 	clReleaseMemObject(myPrimeInverses_128_Buf);
+	if (myLargePrimesBuf) clReleaseMemObject(myLargePrimesBuf);
 	clReleaseMemObject(myRangesTable_Buf);
 	clReleaseMemObject(myRangesLookupTable_Buf);
 	clReleaseMemObject(myPhase1_offset_to_resume_buf);
@@ -105,7 +109,8 @@ OpenCL::~OpenCL()
 	clReleaseMemObject(myAmicable_numbers_count_buf);
 	clReleaseMemObject(myAmicable_numbers_data_buf);
 	clReleaseKernel(mySaveCounter);
-	clReleaseKernel(mySearchMultipleRanges);
+	if (mySearchMultipleRanges) clReleaseKernel(mySearchMultipleRanges);
+	if (mySearchLargePrimes) clReleaseKernel(mySearchLargePrimes);
 	clReleaseKernel(myCheckPairs);
 	clReleaseKernel(myCheckPairPhase2);
 	clReleaseKernel(myCheckPairPhase3);
@@ -185,7 +190,7 @@ int OpenCL::SetKernelSize(int size)
 	return size;
 }
 
-bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned int largestPrimePower)
+bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned int largestPrimePower, number startPrime, number primeLimit)
 {
 	cl_platform_id platform = nullptr;
 	cl_device_id device = nullptr;
@@ -324,46 +329,49 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 
 	CL_CHECKED_CALL_WITH_RESULT(myProgram, clCreateProgramWithSource, myGPUContext, 1, &kernel_cl, nullptr);
 
-	unsigned int NumPrimeChunks = 0;
+	unsigned int NumMainBufferChunks = 0;
 	unsigned int ChunkSizeShift = 0;
+
+	const bool IsLargePrimes = (startPrime && primeLimit);
+	const unsigned char* MainBufferData = IsLargePrimes ? reinterpret_cast<const unsigned char*>(CandidatesData.data()) : reinterpret_cast<const unsigned char*>(PrimesCompact);
+	const unsigned int MainBufferSize = IsLargePrimes ? static_cast<unsigned int>(CandidatesData.capacity() * sizeof(AmicableCandidate)) : PrimesCompactAllocationSize;
 
 	// Try to create a single continuous buffer for storing prime numbers
 	// Even though its size is bigger than CL_DEVICE_MAX_MEM_ALLOC_SIZE for many devices,
 	// they are still able to do big allocations sometimes
 	{
 		cl_int ciErrNum;
-		cl_mem buf = clCreateBuffer(myGPUContext, CL_MEM_READ_ONLY, PrimesCompactAllocationSize, 0, &ciErrNum);
+		cl_mem buf = clCreateBuffer(myGPUContext, CL_MEM_READ_ONLY, MainBufferSize, 0, &ciErrNum);
 		if (ciErrNum == CL_SUCCESS)
 		{
-			NumPrimeChunks = 1;
+			NumMainBufferChunks = 1;
 			unsigned long index;
-			_BitScanReverse64(&index, PrimesCompactAllocationSize);
+			_BitScanReverse64(&index, MainBufferSize);
 			ChunkSizeShift = index + 1;
-			myPrimesBuffers.emplace_back(buf);
+			myMainBuffers.emplace_back(buf);
 		}
-	}
-
-	// If it failed, take into account maximum allocation size for this device
-	if (myPrimesBuffers.empty())
-	{
-		unsigned long index;
-		_BitScanReverse64(&index, MaxMemAllocSize);
-		ChunkSizeShift = index;
-		NumPrimeChunks = (PrimesCompactAllocationSize + (1 << ChunkSizeShift) - 1) >> ChunkSizeShift;
+		else
+		{
+			// If it failed, take into account maximum allocation size for this device
+			unsigned long index;
+			_BitScanReverse64(&index, MaxMemAllocSize);
+			ChunkSizeShift = index;
+			NumMainBufferChunks = (MainBufferSize + (1 << ChunkSizeShift) - 1) >> ChunkSizeShift;
+		}
 	}
 
 	{
 		char kernel_options[1024];
 		char cBuildLog[10240];
 		sprintf_s(kernel_options,
-			"%s-cl-fast-relaxed-math -D PQ_STRIDE_SIZE=%u -D WORK_GROUP_SIZE=%u -D PHASE2_MAX_COUNT=%u -D LPP=%u -D NUM_PRIME_CHUNKS=%u -D CHUNK_SIZE_SHIFT=%u -Werror",
+			"%s-cl-fast-relaxed-math -D PQ_STRIDE_SIZE=%u -D WORK_GROUP_SIZE=%u -D PHASE2_MAX_COUNT=%u -D LPP=%u -D NUM_DATA_CHUNKS=%u -D CHUNK_SIZE_SHIFT=%u -Werror",
 			vendor_specific_compiler_options.c_str(),
 			SumEstimatesSize2_GPU,
 			static_cast<unsigned int>(myWorkGroupSize),
 			myPhase2MaxNumbersCount,
 			myLargestPrimePower,
-			NumPrimeChunks,
-			ChunkSizeShift - 3
+			NumMainBufferChunks,
+			ChunkSizeShift
 		);
 		cl_int build_result = clBuildProgram(myProgram, 0, nullptr, kernel_options, nullptr, nullptr);
 
@@ -380,27 +388,36 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	}
 
 	CL_CHECKED_CALL_WITH_RESULT(mySaveCounter, clCreateKernel, myProgram, "SaveCounter");
-	CL_CHECKED_CALL_WITH_RESULT(mySearchMultipleRanges, clCreateKernel, myProgram, "SearchMultipleRanges");
+
+	if (IsLargePrimes)
+	{
+		CL_CHECKED_CALL_WITH_RESULT(mySearchLargePrimes, clCreateKernel, myProgram, "SearchLargePrimes");
+	}
+	else
+	{
+		CL_CHECKED_CALL_WITH_RESULT(mySearchMultipleRanges, clCreateKernel, myProgram, "SearchMultipleRanges");
+	}
+
 	CL_CHECKED_CALL_WITH_RESULT(myCheckPairs, clCreateKernel, myProgram, "CheckPairs");
 	CL_CHECKED_CALL_WITH_RESULT(myCheckPairPhase2, clCreateKernel, myProgram, "CheckPairPhase2");
 	CL_CHECKED_CALL_WITH_RESULT(myCheckPairPhase3, clCreateKernel, myProgram, "CheckPairPhase3");
 
 	CL_CHECKED_CALL_WITH_RESULT(myQueue, clCreateCommandQueue, myGPUContext, device, 0);
 
-	if (!myPrimesBuffers.empty())
+	if (!myMainBuffers.empty())
 	{
-		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPrimesBuffers.front(), CL_TRUE, 0, PrimesCompactAllocationSize, PrimesCompact, 0, nullptr, nullptr);
+		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myMainBuffers.front(), CL_TRUE, 0, MainBufferSize, MainBufferData, 0, nullptr, nullptr);
 	}
 	else
 	{
-		myPrimesBuffers.reserve(NumPrimeChunks);
-		for (unsigned int totalSize = 0; totalSize < PrimesCompactAllocationSize;)
+		myMainBuffers.reserve(NumMainBufferChunks);
+		for (unsigned int totalSize = 0; totalSize < MainBufferSize;)
 		{
-			const unsigned int BufSize = std::min<unsigned int>(1U << ChunkSizeShift, PrimesCompactAllocationSize - totalSize);
+			const unsigned int BufSize = std::min<unsigned int>(1U << ChunkSizeShift, MainBufferSize - totalSize);
 			cl_mem buf;
 			CL_CHECKED_CALL_WITH_RESULT(buf, clCreateBuffer, myGPUContext, CL_MEM_READ_ONLY, BufSize, 0);
-			CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, buf, CL_TRUE, 0, BufSize, PrimesCompact + (totalSize / sizeof(uint2)), 0, nullptr, nullptr);
-			myPrimesBuffers.emplace_back(buf);
+			CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, buf, CL_TRUE, 0, BufSize, MainBufferData + totalSize, 0, nullptr, nullptr);
+			myMainBuffers.emplace_back(buf);
 			totalSize += BufSize;
 		}
 	}
@@ -508,14 +525,14 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	CL_CHECKED_CALL_WITH_RESULT(myRangesTable_Buf, clCreateBuffer, myGPUContext, CL_MEM_READ_ONLY, sizeof(RangeDataGPU) * myMaxRangesCount, 0);
 	CL_CHECKED_CALL_WITH_RESULT(myRangesLookupTable_Buf, clCreateBuffer, myGPUContext, CL_MEM_READ_ONLY, sizeof(LookupDataGPU) * myMaxLookupTableSize, 0);
 
-	CL_CHECKED_CALL_WITH_RESULT(myPhase1_offset_to_resume_buf, clCreateBuffer, myGPUContext, CL_MEM_READ_WRITE, sizeof(unsigned int), 0);
+	CL_CHECKED_CALL_WITH_RESULT(myPhase1_offset_to_resume_buf, clCreateBuffer, myGPUContext, CL_MEM_READ_WRITE, sizeof(number), 0);
 	CL_CHECKED_CALL_WITH_RESULT(myPhase2_numbers_count_buf, clCreateBuffer, myGPUContext, CL_MEM_READ_WRITE, sizeof(unsigned int) * 2, 0);
-	CL_CHECKED_CALL_WITH_RESULT(myPhase3_numbers_count_buf, clCreateBuffer, myGPUContext, CL_MEM_READ_WRITE, sizeof(unsigned int), 0);
-	CL_CHECKED_CALL_WITH_RESULT(myAmicable_numbers_count_buf, clCreateBuffer, myGPUContext, CL_MEM_READ_WRITE, sizeof(unsigned int), 0);
-	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase1_offset_to_resume_buf, CL_TRUE, 0, sizeof(unsigned int), &ourZeroBuf, 0, nullptr, nullptr);
+	CL_CHECKED_CALL_WITH_RESULT(myPhase3_numbers_count_buf, clCreateBuffer, myGPUContext, CL_MEM_READ_WRITE, sizeof(number), 0);
+	CL_CHECKED_CALL_WITH_RESULT(myAmicable_numbers_count_buf, clCreateBuffer, myGPUContext, CL_MEM_READ_WRITE, sizeof(number), 0);
+	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase1_offset_to_resume_buf, CL_TRUE, 0, sizeof(number), &ourZeroBuf, 0, nullptr, nullptr);
 	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase2_numbers_count_buf, CL_TRUE, 0, sizeof(unsigned int) * 2, &ourZeroBuf, 0, nullptr, nullptr);
-	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase3_numbers_count_buf, CL_TRUE, 0, sizeof(unsigned int), &ourZeroBuf, 0, nullptr, nullptr);
-	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myAmicable_numbers_count_buf, CL_TRUE, 0, sizeof(unsigned int), &ourZeroBuf, 0, nullptr, nullptr);
+	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase3_numbers_count_buf, CL_TRUE, 0, sizeof(number), &ourZeroBuf, 0, nullptr, nullptr);
+	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myAmicable_numbers_count_buf, CL_TRUE, 0, sizeof(number), &ourZeroBuf, 0, nullptr, nullptr);
 
 	CL_CHECKED_CALL_WITH_RESULT(myPhase2_numbers_buf, clCreateBuffer, myGPUContext, CL_MEM_READ_WRITE, sizeof(number) * 4 * myPhase2MaxNumbersCount, 0);
 	CL_CHECKED_CALL_WITH_RESULT(myPhase3_numbers_buf, clCreateBuffer, myGPUContext, CL_MEM_READ_WRITE, sizeof(number) * 4 * myPhase2MaxNumbersCount, 0);
@@ -525,28 +542,60 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 
 	CL_CHECKED_CALL(setKernelArguments, mySaveCounter, myPhase2_numbers_count_buf);
 
-	CL_CHECKED_CALL(setKernelArguments, mySearchMultipleRanges,
-		mySmallPrimesBuf,
-		myPrimeInversesBuf,
-		myPQ_Buf,
-		myPowerOf2SumInverses_Buf,
-		myPowersOfP_128SumInverses_Buf,
-		myPrimeInverses_128_Buf,
-		myRangesTable_Buf,
-		myRangesLookupTable_Buf,
-		0U,
-		0U,
-		0U,
-		myPhase1_offset_to_resume_buf,
-		myPhase2_numbers_count_buf,
-		myPhase2_numbers_buf,
-		myAmicable_numbers_count_buf,
-		myAmicable_numbers_data_buf
-	);
-
-	for (number i = 0; i < myPrimesBuffers.size(); ++i)
+	if (IsLargePrimes)
 	{
-		CL_CHECKED_CALL(clSetKernelArg, mySearchMultipleRanges, static_cast<cl_uint>(i + 16), sizeof(cl_mem), &myPrimesBuffers[i]);
+		CL_CHECKED_CALL_WITH_RESULT(myLargePrimesBuf, clCreateBuffer, myGPUContext, CL_MEM_READ_ONLY, sizeof(number) * myLargePrimesMaxCount, 0);
+
+		CL_CHECKED_CALL(setKernelArguments, mySearchLargePrimes,
+			mySmallPrimesBuf,
+			myPrimeInversesBuf,
+			myPQ_Buf,
+			myPowerOf2SumInverses_Buf,
+			myPowersOfP_128SumInverses_Buf,
+			myPrimeInverses_128_Buf,
+			myLargePrimesBuf,
+			0U,
+			0ULL,
+			0U,
+			0ULL,
+			0ULL,
+			myPhase1_offset_to_resume_buf,
+			myPhase2_numbers_count_buf,
+			myPhase2_numbers_buf,
+			myAmicable_numbers_count_buf,
+			myAmicable_numbers_data_buf
+		);
+
+		for (number i = 0; i < myMainBuffers.size(); ++i)
+		{
+			CL_CHECKED_CALL(clSetKernelArg, mySearchLargePrimes, static_cast<cl_uint>(i + 17), sizeof(cl_mem), &myMainBuffers[i]);
+		}
+	}
+	else
+	{
+		CL_CHECKED_CALL(setKernelArguments, mySearchMultipleRanges,
+			mySmallPrimesBuf,
+			myPrimeInversesBuf,
+			myPQ_Buf,
+			myPowerOf2SumInverses_Buf,
+			myPowersOfP_128SumInverses_Buf,
+			myPrimeInverses_128_Buf,
+			myRangesTable_Buf,
+			myRangesLookupTable_Buf,
+			0U,
+			0ULL,
+			0U,
+			myPhase1_offset_to_resume_buf,
+			myPhase2_numbers_count_buf,
+			myPhase2_numbers_buf,
+			myAmicable_numbers_count_buf,
+			myAmicable_numbers_data_buf
+		);
+
+		for (number i = 0; i < myMainBuffers.size(); ++i)
+		{
+			CL_CHECKED_CALL(clSetKernelArg, mySearchMultipleRanges, static_cast<cl_uint>(i + 16), sizeof(cl_mem), &myMainBuffers[i]);
+		}
 	}
 
 	CL_CHECKED_CALL(setKernelArguments, myCheckPairPhase2, mySmallPrimesBuf, myPhase2_numbers_buf, 0, myPrimeInversesBuf, myPQ_Buf, myPhase3_numbers_count_buf, myPhase3_numbers_buf, myAmicable_numbers_count_buf, myAmicable_numbers_data_buf);
@@ -560,7 +609,13 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	}
 
 	Timer t;
+	const bool result = IsLargePrimes ? RunLargePrimes(startPrime, primeLimit) : RunRanges(startFrom, stopAt);
+	LOG(1, "\nWork unit finished in " << std::setprecision(6) << t.getElapsedTime() << " seconds, " << myNumbersProcessedTotal << " numbers processed\n");
+	return result;
+}
 
+bool OpenCL::RunRanges(char* startFrom, char* stopAt)
+{
 	RangeData r;
 	Factor stopAtFactors[MaxPrimeFactors + 1] = {};
 
@@ -676,9 +731,221 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	{
 		return false;
 	}
-
-	LOG(1, "\nWork unit finished in " << std::setprecision(6) << t.getElapsedTime() << " seconds, " << myNumbersProcessedTotal << " numbers processed\n");
 	return true;
+}
+
+bool OpenCL::RunLargePrimes(number startPrime, number primeLimit)
+{
+	std::thread gpu_thread(&OpenCL::ProcessLargePrimesThread, this);
+
+	primesieve::PrimeSieve sieve;
+	myLargePrimes.reserve(myLargePrimesMaxCount);
+	sieve.sieveTemplated(startPrime, primeLimit, *this);
+	if (!myLargePrimes.empty())
+	{
+		PassLargePrimesToThread();
+	}
+
+	PassLargePrimesToThread();
+	gpu_thread.join();
+
+	unsigned int numbers_in_phase2 = 0;
+	if (!GetCounter(myQueue, myPhase2_numbers_count_buf, numbers_in_phase2))
+	{
+		return false;
+	}
+
+	if ((numbers_in_phase2 > 0) && !ProcessNumbersPhases2_3(numbers_in_phase2))
+	{
+		return false;
+	}
+
+	return true;
+}
+
+NOINLINE void OpenCL::PassLargePrimesToThread()
+{
+	if (!myLargePrimesReady.Signal())
+	{
+		LOG_ERROR("Failed to signal semaphore");
+		boinc_finish(-1);
+	}
+
+	if (!myLargePrimesReceived.Wait())
+	{
+		LOG_ERROR("Failed to wait for semaphore");
+		boinc_finish(-1);
+	}
+
+	myLargePrimes.clear();
+}
+
+void OpenCL::ProcessLargePrimesThread()
+{
+	if (!ProcessLargePrimes())
+	{
+		boinc_finish(-1);
+	}
+}
+
+bool OpenCL::ProcessLargePrimes()
+{
+	while (myLargePrimesReady.Wait())
+	{
+		if (myLargePrimes.empty())
+		{
+			if (!myLargePrimesReceived.Signal())
+			{
+				LOG_ERROR("Failed to signal semaphore");
+				return false;
+			}
+			return true;
+		}
+
+		const unsigned int LargePrimesCount = static_cast<unsigned int>(myLargePrimes.size());
+		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myLargePrimesBuf, CL_TRUE, 0, sizeof(number) * LargePrimesCount, myLargePrimes.data(), 0, nullptr, nullptr);
+
+		if (!myLargePrimesReceived.Signal())
+		{
+			LOG_ERROR("Failed to signal semaphore");
+			return false;
+		}
+
+		number LargePrimesCountReciprocal = 0;
+		unsigned int LargePrimesCountIncrementAndShift = 0;
+
+		if (LargePrimesCount & (LargePrimesCount - 1))
+		{
+			// Not a power of 2
+			SReciprocal r;
+			r.Init(LargePrimesCount);
+			LargePrimesCountReciprocal = r.reciprocal;
+			LargePrimesCountIncrementAndShift = static_cast<unsigned int>(r.increment + (r.shift << 1));
+		}
+		else
+		{
+			// Power of 2
+			unsigned long index;
+			_BitScanReverse64(&index, LargePrimesCount);
+			LargePrimesCountIncrementAndShift = index;
+		}
+
+		const number LargestCandidate = SearchLimit::value / myLargePrimes.front();
+		auto it = std::lower_bound(CandidatesData.begin(), CandidatesData.end(), LargestCandidate, [](const AmicableCandidate& a, number b) { return a.value <= b; });
+		const number CandidatesCount = static_cast<number>(it - CandidatesData.begin());
+
+		const number TotalNumbersToCheck = CandidatesCount * LargePrimesCount;
+
+		CL_CHECKED_CALL(clSetKernelArg, mySearchLargePrimes, 7, sizeof(LargePrimesCount), &LargePrimesCount);
+		CL_CHECKED_CALL(clSetKernelArg, mySearchLargePrimes, 8, sizeof(LargePrimesCountReciprocal), &LargePrimesCountReciprocal);
+		CL_CHECKED_CALL(clSetKernelArg, mySearchLargePrimes, 9, sizeof(LargePrimesCountIncrementAndShift), &LargePrimesCountIncrementAndShift);
+		CL_CHECKED_CALL(clSetKernelArg, mySearchLargePrimes, 11, sizeof(TotalNumbersToCheck), &TotalNumbersToCheck);
+
+		cl_event event = nullptr;
+		unsigned int numbers_in_phase2_before = 0;
+		unsigned int numbers_in_phase2_after = 0;
+		number phase1_offset_to_resume = 0;
+		number global_offset = 0;
+
+		do
+		{
+			if (!GetCounter(myQueue, myPhase2_numbers_count_buf, numbers_in_phase2_before))
+			{
+				return false;
+			}
+
+			//
+			// Phase 1
+			//
+			{
+				Timer t;
+
+				CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase1_offset_to_resume_buf, CL_TRUE, 0, sizeof(number), &ourZeroBuf, 0, nullptr, nullptr);
+
+				const number global_offset_before = global_offset;
+				const unsigned int max_size_phase1 = GetMaxPhaseSize(TotalNumbersToCheck - global_offset, myPhase1MaxKernelSize);
+
+				size_t globalSizePhase1;
+				for (unsigned int k = 0; global_offset < TotalNumbersToCheck; ++k)
+				{
+					if (k)
+					{
+						CL_CHECKED_CALL(clFlush, myQueue);
+					}
+					globalSizePhase1 = std::min<number>(TotalNumbersToCheck - global_offset, max_size_phase1);
+					if (globalSizePhase1 & (myWorkGroupSize - 1))
+					{
+						globalSizePhase1 += myWorkGroupSize - (globalSizePhase1 & (myWorkGroupSize - 1));
+					}
+					CL_CHECKED_CALL(clSetKernelArg, mySearchLargePrimes, 10, sizeof(global_offset), &global_offset);
+					CL_CHECKED_CALL(clEnqueueTask, myQueue, mySaveCounter, 0, nullptr, nullptr);
+
+					const number k1 = (global_offset >> 27);
+					global_offset += globalSizePhase1;
+					const number k2 = (global_offset >> 27);
+
+					CL_CHECKED_CALL(clEnqueueNDRangeKernel, myQueue, mySearchLargePrimes, 1, nullptr, &globalSizePhase1, &myWorkGroupSize, 0, nullptr, ((global_offset >= TotalNumbersToCheck) || (k1 != k2)) ? &event : nullptr);
+
+					// Wait for queue every 2^27 numbers
+					if ((global_offset < TotalNumbersToCheck) && (k1 != k2))
+					{
+						LOG(2, "Phase 1: k = " << k << ", offset = " << global_offset << ", waiting for queue");
+						if (!WaitForQueue(myQueue, event) || !GetCounter(myQueue, myPhase2_numbers_count_buf, numbers_in_phase2_after))
+						{
+							return false;
+						}
+						LOG(2, "Phase 1: k = " << k << ", offset = " << global_offset << ", finished waiting for queue, phase 2: " << numbers_in_phase2_after << " numbers");
+
+						// Exit the loop if phase 2 is already full
+						if (numbers_in_phase2_after > myPhase2MaxNumbersCount)
+						{
+							break;
+						}
+					}
+				}
+
+				if (!WaitForQueue(myQueue, event) ||
+					!GetCounter(myQueue, myPhase2_numbers_count_buf, numbers_in_phase2_after) ||
+					!GetAndResetCounter(myQueue, myPhase1_offset_to_resume_buf, phase1_offset_to_resume))
+				{
+					return false;
+				}
+
+				const double phase1Time = t.getElapsedTime();
+				const number new_numbers_in_phase2 = numbers_in_phase2_after - numbers_in_phase2_before;
+				const number numbers_processed = phase1_offset_to_resume ? (phase1_offset_to_resume - global_offset_before) : (TotalNumbersToCheck - global_offset_before);
+
+				if (numbers_in_phase2_after > myPhase2MaxNumbersCount)
+				{
+					// Read counter value which was saved before executing the kernel that caused overflow
+					unsigned int counters[2] = {};
+					CL_CHECKED_CALL(clEnqueueReadBuffer, myQueue, myPhase2_numbers_count_buf, CL_TRUE, 0, sizeof(unsigned int) * 2, &counters, 0, nullptr, nullptr);
+					numbers_in_phase2_after = counters[1];
+				}
+
+				LOG(2, "Phase 1: processed " << numbers_processed << " numbers in " << phase1Time << " seconds, " << new_numbers_in_phase2 << " numbers left (" << ((new_numbers_in_phase2 * 100.0) / numbers_processed) << "%), phase 2: " << numbers_in_phase2_before << " -> " << numbers_in_phase2_after << " numbers");
+
+				if (phase1_offset_to_resume)
+				{
+					LOG(2, "[PERFORMANCE] Phase 2 buffer overflowed, phase 1 will be resumed starting with the chunk of numbers that caused overflow.\n[PERFORMANCE] Numbers will not be skipped. Consider increasing myPhase2MaxNumbersCount to improve performance.\n");
+					global_offset = phase1_offset_to_resume;
+				}
+			}
+
+			if (numbers_in_phase2_after >= myPhase2MinNumbersCount)
+			{
+				if (!ProcessNumbersPhases2_3(static_cast<unsigned int>(numbers_in_phase2_after)))
+				{
+					return false;
+				}
+			}
+		} while (phase1_offset_to_resume);
+
+		myNumbersProcessedTotal += TotalNumbersToCheck;
+	}
+
+	LOG_ERROR("Failed to wait for semaphore");
+	return false;
 }
 
 bool OpenCL::GetPlatformID(cl_platform_id* clSelectedPlatformID)
@@ -749,32 +1016,45 @@ bool OpenCL::WaitForQueue(cl_command_queue queue, cl_event event)
 
 bool OpenCL::GetCounter(cl_command_queue queue, cl_mem buf, unsigned int &counter)
 {
-	CL_CHECKED_CALL(clEnqueueReadBuffer, queue, buf, CL_TRUE, 0, sizeof(unsigned int), &counter, 0, nullptr, nullptr);
+	CL_CHECKED_CALL(clEnqueueReadBuffer, queue, buf, CL_TRUE, 0, sizeof(counter), &counter, 0, nullptr, nullptr);
+	return true;
+}
+
+bool OpenCL::GetCounter(cl_command_queue queue, cl_mem buf, number &counter)
+{
+	CL_CHECKED_CALL(clEnqueueReadBuffer, queue, buf, CL_TRUE, 0, sizeof(counter), &counter, 0, nullptr, nullptr);
 	return true;
 }
 
 bool OpenCL::ResetCounter(cl_command_queue queue, cl_mem buf)
 {
-	CL_CHECKED_CALL(clEnqueueWriteBuffer, queue, buf, CL_TRUE, 0, sizeof(unsigned int), &ourZeroBuf, 0, nullptr, nullptr);
+	CL_CHECKED_CALL(clEnqueueWriteBuffer, queue, buf, CL_TRUE, 0, sizeof(number), &ourZeroBuf, 0, nullptr, nullptr);
 	return true;
 }
 
 bool OpenCL::GetAndResetCounter(cl_command_queue queue, cl_mem buf, unsigned int &counter)
 {
-	CL_CHECKED_CALL(clEnqueueReadBuffer, queue, buf, CL_TRUE, 0, sizeof(unsigned int), &counter, 0, nullptr, nullptr);
-	CL_CHECKED_CALL(clEnqueueWriteBuffer, queue, buf, CL_TRUE, 0, sizeof(unsigned int), &ourZeroBuf, 0, nullptr, nullptr);
+	CL_CHECKED_CALL(clEnqueueReadBuffer, queue, buf, CL_TRUE, 0, sizeof(counter), &counter, 0, nullptr, nullptr);
+	CL_CHECKED_CALL(clEnqueueWriteBuffer, queue, buf, CL_TRUE, 0, sizeof(counter), &ourZeroBuf, 0, nullptr, nullptr);
+	return true;
+}
+
+bool OpenCL::GetAndResetCounter(cl_command_queue queue, cl_mem buf, number &counter)
+{
+	CL_CHECKED_CALL(clEnqueueReadBuffer, queue, buf, CL_TRUE, 0, sizeof(counter), &counter, 0, nullptr, nullptr);
+	CL_CHECKED_CALL(clEnqueueWriteBuffer, queue, buf, CL_TRUE, 0, sizeof(counter), &ourZeroBuf, 0, nullptr, nullptr);
 	return true;
 }
 
 // Divide total_size into 2^k equal parts, each part's size is <= max_size and also a multiple of 1024
-unsigned int OpenCL::GetMaxPhaseSize(unsigned int total_size, unsigned int max_size)
+unsigned int OpenCL::GetMaxPhaseSize(number total_size, unsigned int max_size)
 {
 	for (unsigned int k = 1;; ++k)
 	{
-		const unsigned int result = (((total_size >> k) + 1023) / 1024) * 1024;
+		const number result = (((total_size >> k) + 1023) / 1024) * 1024;
 		if (result <= max_size)
 		{
-			return result ? result : 1024;
+			return static_cast<unsigned int>(result ? result : 1024ULL);
 		}
 	}
 }
@@ -1163,10 +1443,10 @@ bool OpenCL::ProcessNumbers()
 	}
 
 	cl_event event = nullptr;
-	unsigned int numbers_in_phase2_before = 0;
-	unsigned int numbers_in_phase2_after = 0;
-	unsigned int phase1_offset_to_resume = 0;
-	unsigned int global_offset = 0;
+	number numbers_in_phase2_before = 0;
+	number numbers_in_phase2_after = 0;
+	number phase1_offset_to_resume = 0;
+	number global_offset = 0;
 
 	do
 	{
@@ -1181,7 +1461,7 @@ bool OpenCL::ProcessNumbers()
 		{
 			Timer t;
 
-			CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase1_offset_to_resume_buf, CL_TRUE, 0, sizeof(unsigned int), &ourZeroBuf, 0, nullptr, nullptr);
+			CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase1_offset_to_resume_buf, CL_TRUE, 0, sizeof(number), &ourZeroBuf, 0, nullptr, nullptr);
 
 			CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myRangesTable_Buf, CL_TRUE, 0, myRanges.size() * sizeof(RangeDataGPU), myRanges.data(), 0, nullptr, nullptr);
 			CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myRangesLookupTable_Buf, CL_TRUE, 0, myLookupTable.size() * sizeof(LookupDataGPU), myLookupTable.data(), 0, nullptr, nullptr);
@@ -1189,11 +1469,11 @@ bool OpenCL::ProcessNumbers()
 			CL_CHECKED_CALL(clSetKernelArg, mySearchMultipleRanges, 8, sizeof(unsigned int), &lookupTableShift);
 			CL_CHECKED_CALL(clSetKernelArg, mySearchMultipleRanges, 10, sizeof(unsigned int), &myTotalNumbersInRanges);
 
-			const unsigned int global_offset_before = global_offset;
-			const unsigned int max_size_phase1 = GetMaxPhaseSize(static_cast<unsigned int>(myTotalNumbersInRanges - global_offset), myPhase1MaxKernelSize);
+			const number global_offset_before = global_offset;
+			const unsigned int max_size_phase1 = GetMaxPhaseSize(myTotalNumbersInRanges - global_offset, myPhase1MaxKernelSize);
 
 			size_t globalSizePhase1;
-			for (unsigned int k = 0; global_offset < myTotalNumbersInRanges; global_offset += static_cast<unsigned int>(globalSizePhase1), ++k)
+			for (unsigned int k = 0; global_offset < myTotalNumbersInRanges; global_offset += globalSizePhase1, ++k)
 			{
 				if (k)
 				{
@@ -1217,8 +1497,8 @@ bool OpenCL::ProcessNumbers()
 			}
 
 			const double phase1Time = t.getElapsedTime();
-			const unsigned int new_numbers_in_phase2 = numbers_in_phase2_after - numbers_in_phase2_before;
-			const unsigned int numbers_processed = phase1_offset_to_resume ? (phase1_offset_to_resume - global_offset_before) : static_cast<unsigned int>(myTotalNumbersInRanges - global_offset_before);
+			const number new_numbers_in_phase2 = numbers_in_phase2_after - numbers_in_phase2_before;
+			const number numbers_processed = phase1_offset_to_resume ? (phase1_offset_to_resume - global_offset_before) : (myTotalNumbersInRanges - global_offset_before);
 
 			if (numbers_in_phase2_after > myPhase2MaxNumbersCount)
 			{
@@ -1239,7 +1519,7 @@ bool OpenCL::ProcessNumbers()
 
 		if (numbers_in_phase2_after >= myPhase2MinNumbersCount)
 		{
-			if (!ProcessNumbersPhases2_3(numbers_in_phase2_after))
+			if (!ProcessNumbersPhases2_3(static_cast<unsigned int>(numbers_in_phase2_after)))
 			{
 				return false;
 			}
