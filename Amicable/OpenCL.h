@@ -43,8 +43,8 @@ public:
 
 	FORCEINLINE void operator()(number p)
 	{
-		myLargePrimes.emplace_back(p);
-		if (myLargePrimes.size() >= myLargePrimesMaxCount)
+		myLargePrimes[myLargePrimesCount++] = p;
+		if (myLargePrimesCount >= myLargePrimesMaxCount)
 		{
 			PassLargePrimesToThread();
 		}
@@ -73,7 +73,8 @@ private:
 	bool ProcessNumbersPhases2_3(unsigned int numbers_in_phase2);
 	void CleanupRanges();
 
-	bool SaveProgress(const RangeData& r);
+	bool SaveFoundNumbers();
+	bool SaveProgressForRanges(const RangeData& r);
 
 	unsigned int myLargestPrimePower;
 
@@ -115,8 +116,6 @@ private:
 	unsigned int myPhase2MinNumbersCount;
 	unsigned int myPhase2MaxNumbersCount;
 
-	unsigned int myLargePrimesMaxCount;
-
 	number myOldTimerResolution;
 
 	std::vector<RangeDataGPU> myRanges;
@@ -132,7 +131,10 @@ private:
 
 	std::vector<std::pair<number, number>> myBufUlong2;
 
-	std::vector<number> myLargePrimes;
+	number* myLargePrimes;
+	unsigned int myLargePrimesCount;
+	unsigned int myLargePrimesMaxCount;
+
 	Semaphore myLargePrimesReady;
 	Semaphore myLargePrimesReceived;
 

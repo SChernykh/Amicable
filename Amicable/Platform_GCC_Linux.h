@@ -49,6 +49,7 @@ FORCEINLINE number _rotr64(number value, int shift)
 #include <sys/resource.h>
 #include <unistd.h>
 #include <limits.h>
+#include <semaphore.h>
 
 #define CRITICAL_SECTION pthread_mutex_t
 #define CRITICAL_SECTION_INITIALIZER PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP
@@ -124,6 +125,19 @@ FORCEINLINE void HiResSleep(const double ms)
 		nanosleep(&t, nullptr);
 	}
 }
+
+class Semaphore
+{
+public:
+	FORCEINLINE Semaphore() { sem_init(&mySemaphore, 0, 0); }
+	FORCEINLINE ~Semaphore() { sem_destroy(&mySemaphore); }
+
+	FORCEINLINE bool Signal() { return (sem_post(&mySemaphore) == 0); }
+	FORCEINLINE bool Wait() { return (sem_wait(&mySemaphore) == 0); }
+
+private:
+	sem_t mySemaphore;
+};
 
 FORCEINLINE void* AllocateSystemMemory(number size, bool is_executable)
 {

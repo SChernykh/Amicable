@@ -63,11 +63,13 @@ OpenCL::OpenCL(const char* preferences)
 	, myWorkGroupSize(128)
 	, myMaxRangesCount(8192)
 	, myMaxLookupTableSize((myMaxRangesCount + 1) * 4) // very conservative estimate to be safe
-	, myLargePrimesMaxCount(1048576)
 	, myTotalNumbersInRanges(0)
 	, myNumbersProcessedTotal(0)
 	, myAmicableNumbersFound(0)
 	, myPreferences(preferences)
+	, myLargePrimes(nullptr)
+	, myLargePrimesCount(0)
+	, myLargePrimesMaxCount(1048576)
 {
 	SetKernelSize(20);
 
@@ -702,7 +704,7 @@ bool OpenCL::RunRanges(char* startFrom, char* stopAt)
 			}
 			if (numbers_in_phase2 == 0)
 			{
-				if (!SaveProgress(r))
+				if (!SaveProgressForRanges(r))
 				{
 					return false;
 				}
@@ -727,7 +729,7 @@ bool OpenCL::RunRanges(char* startFrom, char* stopAt)
 	}
 	CleanupRanges();
 
-	if (!SaveProgress(r))
+	if (!SaveProgressForRanges(r))
 	{
 		return false;
 	}
@@ -738,14 +740,19 @@ bool OpenCL::RunLargePrimes(number startPrime, number primeLimit)
 {
 	std::thread gpu_thread(&OpenCL::ProcessLargePrimesThread, this);
 
+	if (!myLargePrimes)
+	{
+		myLargePrimes = reinterpret_cast<number*>(AllocateSystemMemory(sizeof(number) * myLargePrimesMaxCount, false));
+	}
+
 	primesieve::PrimeSieve sieve;
-	myLargePrimes.reserve(myLargePrimesMaxCount);
 	sieve.sieveTemplated(startPrime, primeLimit, *this);
-	if (!myLargePrimes.empty())
+	if (myLargePrimesCount > 0)
 	{
 		PassLargePrimesToThread();
 	}
 
+	// Send 0 primes to GPU thread to make it exit
 	PassLargePrimesToThread();
 	gpu_thread.join();
 
@@ -777,7 +784,7 @@ NOINLINE void OpenCL::PassLargePrimesToThread()
 		boinc_finish(-1);
 	}
 
-	myLargePrimes.clear();
+	myLargePrimesCount = 0;
 }
 
 void OpenCL::ProcessLargePrimesThread()
@@ -792,7 +799,8 @@ bool OpenCL::ProcessLargePrimes()
 {
 	while (myLargePrimesReady.Wait())
 	{
-		if (myLargePrimes.empty())
+		// If there are no primes to process it means we need to exit
+		if (myLargePrimesCount == 0)
 		{
 			if (!myLargePrimesReceived.Signal())
 			{
@@ -802,8 +810,8 @@ bool OpenCL::ProcessLargePrimes()
 			return true;
 		}
 
-		const unsigned int LargePrimesCount = static_cast<unsigned int>(myLargePrimes.size());
-		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myLargePrimesBuf, CL_TRUE, 0, sizeof(number) * LargePrimesCount, myLargePrimes.data(), 0, nullptr, nullptr);
+		const unsigned int LargePrimesCount = myLargePrimesCount;
+		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myLargePrimesBuf, CL_TRUE, 0, sizeof(number) * LargePrimesCount, myLargePrimes, 0, nullptr, nullptr);
 
 		if (!myLargePrimesReceived.Signal())
 		{
@@ -830,7 +838,7 @@ bool OpenCL::ProcessLargePrimes()
 			LargePrimesCountIncrementAndShift = index;
 		}
 
-		const number LargestCandidate = SearchLimit::value / myLargePrimes.front();
+		const number LargestCandidate = SearchLimit::value / myLargePrimes[0];
 		auto it = std::lower_bound(CandidatesData.begin(), CandidatesData.end(), LargestCandidate, [](const AmicableCandidate& a, number b) { return a.value <= b; });
 		const number CandidatesCount = static_cast<number>(it - CandidatesData.begin());
 
@@ -1639,10 +1647,8 @@ void OpenCL::CleanupRanges()
 	myLookupTable.clear();
 }
 
-bool OpenCL::SaveProgress(const RangeData& r)
+bool OpenCL::SaveFoundNumbers()
 {
-	// This is only called when the queue is empty: there are no numbers in phases 1-3 on GPU and GPU is idle
-
 	unsigned int numbers_found = 0;
 	if (!GetAndResetCounter(myQueue, myAmicable_numbers_count_buf, numbers_found))
 	{
@@ -1662,6 +1668,18 @@ bool OpenCL::SaveProgress(const RangeData& r)
 			}
 		}
 		fflush(g_outputFile);
+	}
+
+	return true;
+}
+
+bool OpenCL::SaveProgressForRanges(const RangeData& r)
+{
+	// This is only called when the queue is empty: there are no numbers in phases 1-3 on GPU and GPU is idle
+
+	if (!SaveFoundNumbers())
+	{
+		return false;
 	}
 
 	const double progress = static_cast<double>(myNumbersProcessedTotal) / RangeGen::total_numbers_to_check;
