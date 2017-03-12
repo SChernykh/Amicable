@@ -75,6 +75,7 @@ private:
 
 	bool SaveFoundNumbers();
 	bool SaveProgressForRanges(const RangeData& r);
+	bool SaveProgressForLargePrimes(number firstPrime, number lastPrime, number offset, bool queueEmpty);
 
 	unsigned int myLargestPrimePower;
 
@@ -134,6 +135,7 @@ private:
 	number* myLargePrimes;
 	unsigned int myLargePrimesCount;
 	unsigned int myLargePrimesMaxCount;
+	number myLargePrimesStartOffset;
 
 	Semaphore myLargePrimesReady;
 	Semaphore myLargePrimesReceived;

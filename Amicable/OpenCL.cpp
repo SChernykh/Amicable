@@ -70,6 +70,7 @@ OpenCL::OpenCL(const char* preferences)
 	, myLargePrimes(nullptr)
 	, myLargePrimesCount(0)
 	, myLargePrimesMaxCount(1048576)
+	, myLargePrimesStartOffset(0)
 {
 	SetKernelSize(20);
 
@@ -729,11 +730,7 @@ bool OpenCL::RunRanges(char* startFrom, char* stopAt)
 	}
 	CleanupRanges();
 
-	if (!SaveProgressForRanges(r))
-	{
-		return false;
-	}
-	return true;
+	return SaveProgressForRanges(r);
 }
 
 bool OpenCL::RunLargePrimes(number startPrime, number primeLimit)
@@ -746,6 +743,38 @@ bool OpenCL::RunLargePrimes(number startPrime, number primeLimit)
 	}
 
 	primesieve::PrimeSieve sieve;
+
+	char checkpoint_buf[256];
+	std::string checkpoint_name;
+	boinc_resolve_filename_s(CHECKPOINT_LOGICAL_NAME, checkpoint_name);
+	FILE* checkpoint = boinc_fopen(checkpoint_name.c_str(), "r");
+	if (checkpoint)
+	{
+		if (fgets(checkpoint_buf, sizeof(checkpoint_buf), checkpoint))
+		{
+			char* end_of_data = strchr(checkpoint_buf, '#');
+			if (end_of_data)
+			{
+				*end_of_data = '\0';
+				std::stringstream s;
+				number firstPrime, lastPrime, offset;
+				s << checkpoint_buf;
+				s >> myNumbersProcessedTotal >> firstPrime >> lastPrime >> offset;
+				if ((startPrime <= firstPrime) && (lastPrime <= primeLimit) && (firstPrime <= lastPrime) && IsPrime(firstPrime) && IsPrime(lastPrime))
+				{
+					myLargePrimesStartOffset = offset;
+					sieve.sieveTemplated(firstPrime, lastPrime, *this);
+					if (myLargePrimesCount > 0)
+					{
+						PassLargePrimesToThread();
+					}
+					startPrime = lastPrime + 1;
+				}
+			}
+		}
+		fclose(checkpoint);
+	}
+
 	sieve.sieveTemplated(startPrime, primeLimit, *this);
 	if (myLargePrimesCount > 0)
 	{
@@ -767,7 +796,7 @@ bool OpenCL::RunLargePrimes(number startPrime, number primeLimit)
 		return false;
 	}
 
-	return true;
+	return SaveProgressForLargePrimes(0, 0, 0, true);
 }
 
 NOINLINE void OpenCL::PassLargePrimesToThread()
@@ -785,6 +814,7 @@ NOINLINE void OpenCL::PassLargePrimesToThread()
 	}
 
 	myLargePrimesCount = 0;
+	myLargePrimesStartOffset = 0;
 }
 
 void OpenCL::ProcessLargePrimesThread()
@@ -811,6 +841,9 @@ bool OpenCL::ProcessLargePrimes()
 		}
 
 		const unsigned int LargePrimesCount = myLargePrimesCount;
+		const number FirstPrime = myLargePrimes[0];
+		const number LastPrime = myLargePrimes[LargePrimesCount - 1];
+		const number LargePrimesStartOffset = myLargePrimesStartOffset;
 		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myLargePrimesBuf, CL_TRUE, 0, sizeof(number) * LargePrimesCount, myLargePrimes, 0, nullptr, nullptr);
 
 		if (!myLargePrimesReceived.Signal())
@@ -853,7 +886,7 @@ bool OpenCL::ProcessLargePrimes()
 		unsigned int numbers_in_phase2_before = 0;
 		unsigned int numbers_in_phase2_after = 0;
 		number phase1_offset_to_resume = 0;
-		number global_offset = 0;
+		number global_offset = LargePrimesStartOffset;
 
 		do
 		{
@@ -873,43 +906,27 @@ bool OpenCL::ProcessLargePrimes()
 				const number global_offset_before = global_offset;
 				const unsigned int max_size_phase1 = GetMaxPhaseSize(TotalNumbersToCheck - global_offset, myPhase1MaxKernelSize);
 
-				size_t globalSizePhase1;
-				for (unsigned int k = 0; global_offset < TotalNumbersToCheck; ++k)
+				// Limit phase 1 to 2^27 numbers
+				number N = global_offset + (1 << 27);
+				if (N > TotalNumbersToCheck)
+				{
+					N = TotalNumbersToCheck;
+				}
+				for (unsigned int k = 0; global_offset < N; ++k)
 				{
 					if (k)
 					{
 						CL_CHECKED_CALL(clFlush, myQueue);
 					}
-					globalSizePhase1 = std::min<number>(TotalNumbersToCheck - global_offset, max_size_phase1);
+					number globalSizePhase1 = std::min<number>(N - global_offset, max_size_phase1);
 					if (globalSizePhase1 & (myWorkGroupSize - 1))
 					{
 						globalSizePhase1 += myWorkGroupSize - (globalSizePhase1 & (myWorkGroupSize - 1));
 					}
 					CL_CHECKED_CALL(clSetKernelArg, mySearchLargePrimes, 10, sizeof(global_offset), &global_offset);
 					CL_CHECKED_CALL(clEnqueueTask, myQueue, mySaveCounter, 0, nullptr, nullptr);
-
-					const number k1 = (global_offset >> 27);
 					global_offset += globalSizePhase1;
-					const number k2 = (global_offset >> 27);
-
-					CL_CHECKED_CALL(clEnqueueNDRangeKernel, myQueue, mySearchLargePrimes, 1, nullptr, &globalSizePhase1, &myWorkGroupSize, 0, nullptr, ((global_offset >= TotalNumbersToCheck) || (k1 != k2)) ? &event : nullptr);
-
-					// Wait for queue every 2^27 numbers
-					if ((global_offset < TotalNumbersToCheck) && (k1 != k2))
-					{
-						LOG(2, "Phase 1: k = " << k << ", offset = " << global_offset << ", waiting for queue");
-						if (!WaitForQueue(myQueue, event) || !GetCounter(myQueue, myPhase2_numbers_count_buf, numbers_in_phase2_after))
-						{
-							return false;
-						}
-						LOG(2, "Phase 1: k = " << k << ", offset = " << global_offset << ", finished waiting for queue, phase 2: " << numbers_in_phase2_after << " numbers");
-
-						// Exit the loop if phase 2 is already full
-						if (numbers_in_phase2_after > myPhase2MaxNumbersCount)
-						{
-							break;
-						}
-					}
+					CL_CHECKED_CALL(clEnqueueNDRangeKernel, myQueue, mySearchLargePrimes, 1, nullptr, &globalSizePhase1, &myWorkGroupSize, 0, nullptr, (global_offset >= N) ? &event : nullptr);
 				}
 
 				if (!WaitForQueue(myQueue, event) ||
@@ -921,7 +938,11 @@ bool OpenCL::ProcessLargePrimes()
 
 				const double phase1Time = t.getElapsedTime();
 				const number new_numbers_in_phase2 = numbers_in_phase2_after - numbers_in_phase2_before;
-				const number numbers_processed = phase1_offset_to_resume ? (phase1_offset_to_resume - global_offset_before) : (TotalNumbersToCheck - global_offset_before);
+				const number numbers_processed = phase1_offset_to_resume ? (phase1_offset_to_resume - global_offset_before) : (N - global_offset_before);
+
+				myNumbersProcessedTotal += numbers_processed;
+				const double f = myNumbersProcessedTotal / RangeGen::total_numbers_to_check;
+				boinc_fraction_done((f < 1.0) ? f : 1.0);
 
 				if (numbers_in_phase2_after > myPhase2MaxNumbersCount)
 				{
@@ -946,10 +967,14 @@ bool OpenCL::ProcessLargePrimes()
 				{
 					return false;
 				}
+				numbers_in_phase2_after = 0;
 			}
-		} while (phase1_offset_to_resume);
 
-		myNumbersProcessedTotal += TotalNumbersToCheck;
+			if (!SaveProgressForLargePrimes(FirstPrime, LastPrime, global_offset, numbers_in_phase2_after == 0))
+			{
+				return false;
+			}
+		} while (global_offset < TotalNumbersToCheck);
 	}
 
 	LOG_ERROR("Failed to wait for semaphore");
@@ -1670,6 +1695,9 @@ bool OpenCL::SaveFoundNumbers()
 		fflush(g_outputFile);
 	}
 
+	const double progress = static_cast<double>(myNumbersProcessedTotal) / RangeGen::total_numbers_to_check;
+	LOG(1, "Progress: " << (progress * 100.0) << "%, " << myAmicableNumbersFound << " amicable numbers found   \r");
+
 	return true;
 }
 
@@ -1681,9 +1709,6 @@ bool OpenCL::SaveProgressForRanges(const RangeData& r)
 	{
 		return false;
 	}
-
-	const double progress = static_cast<double>(myNumbersProcessedTotal) / RangeGen::total_numbers_to_check;
-	LOG(1, "Progress: " << (progress * 100.0) << "%, " << myAmicableNumbersFound << " amicable numbers found   \r");
 
 	if (boinc_time_to_checkpoint())
 	{
@@ -1725,5 +1750,36 @@ bool OpenCL::SaveProgressForRanges(const RangeData& r)
 		boinc_checkpoint_completed();
 	}
 
+	return true;
+}
+
+bool OpenCL::SaveProgressForLargePrimes(number firstPrime, number lastPrime, number offset, bool queueEmpty)
+{
+	if (!SaveFoundNumbers())
+	{
+		return false;
+	}
+
+	if (queueEmpty && boinc_time_to_checkpoint())
+	{
+		std::stringstream s;
+		std::string checkpoint_name, data;
+
+		boinc_resolve_filename_s(CHECKPOINT_LOGICAL_NAME, checkpoint_name);
+
+		s << myNumbersProcessedTotal << ' ' << firstPrime << ' ' << lastPrime << ' ' << offset << '#';
+
+		data = s.str();
+
+		FILE* f = boinc_fopen(checkpoint_name.c_str(), "wb");
+		if (f)
+		{
+			fwrite(data.c_str(), sizeof(char), data.length(), f);
+			fclose(f);
+		}
+
+		boinc_checkpoint_completed();
+	}
+		
 	return true;
 }
