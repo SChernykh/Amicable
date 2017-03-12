@@ -39,6 +39,11 @@ public:
 
 	static double total_numbers_to_check;
 
+	enum
+	{
+		LargePrimesSplitSize = 1024,
+	};
+
 private:
 	FORCEINLINE RangeGen() { InitializeCriticalSection(&lock); }
 	FORCEINLINE ~RangeGen() { DeleteCriticalSection(&lock);}
@@ -63,6 +68,7 @@ private:
 		const Factor* stopAtFactors;
 		number startPrime;
 		number primeLimit;
+		number sharedCounterValue;
 		unsigned int startLargestPrimePower;
 		WorkerThreadState stateToSave;
 		volatile bool finished;
@@ -78,7 +84,7 @@ private:
 	static int search_stack_depth;
 	static int prev_search_stack_depth;
 	static unsigned int cur_largest_prime_power;
-	static volatile number SharedCounterForSearch;
+	static volatile number SharedCounterForSearch[2];
 	static number total_numbers_checked;
 	static volatile bool allDone;
 

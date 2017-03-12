@@ -16,7 +16,7 @@ CACHE_ALIGNED Factor RangeGen::factors[MaxPrimeFactors];
 int RangeGen::search_stack_depth;
 int RangeGen::prev_search_stack_depth;
 unsigned int RangeGen::cur_largest_prime_power;
-volatile number RangeGen::SharedCounterForSearch;
+volatile number RangeGen::SharedCounterForSearch[2] = {};
 number RangeGen::total_numbers_checked;
 double RangeGen::total_numbers_to_check = 2.5e11;
 volatile bool RangeGen::allDone = false;
@@ -362,7 +362,8 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 	search_stack_depth = 0;
 	prev_search_stack_depth = 0;
 	cur_largest_prime_power = largestPrimePower;
-	SharedCounterForSearch = 0;
+	SharedCounterForSearch[0] = 0;
+	SharedCounterForSearch[1] = 0;
 
 	if (startFrom)
 	{
@@ -480,17 +481,34 @@ NOINLINE void RangeGen::Run(number numThreads, char* startFrom, char* stopAt, un
 			if (end_of_data)
 			{
 				*end_of_data = '\0';
-				char* first_token_end = strchr(checkpoint_buf, ' ');
-				if (first_token_end)
+				if (startPrime && primeLimit)
 				{
-					total_numbers_checked = StrToNumber(checkpoint_buf);
-					const double f = total_numbers_checked / total_numbers_to_check;
-					boinc_fraction_done((f > 1.0) ? 1.0 : f);
-					do
+					std::stringstream s;
+					number minCounterValue, startPrimeCheck, primeLimitCheck;
+					s << checkpoint_buf;
+					s >> minCounterValue >> startPrimeCheck >> primeLimitCheck;
+					if ((minCounterValue < LargePrimesSplitSize) && (startPrimeCheck == startPrime) && (primeLimitCheck == primeLimit))
 					{
-						++first_token_end;
-					} while (*first_token_end == ' ');
-					startFrom = first_token_end;
+						SharedCounterForSearch[0] = minCounterValue;
+						SharedCounterForSearch[1] = minCounterValue;
+						const double f = minCounterValue / static_cast<double>(LargePrimesSplitSize);
+						boinc_fraction_done((f > 1.0) ? 1.0 : f);
+					}
+				}
+				else
+				{
+					char* first_token_end = strchr(checkpoint_buf, ' ');
+					if (first_token_end)
+					{
+						total_numbers_checked = StrToNumber(checkpoint_buf);
+						const double f = total_numbers_checked / total_numbers_to_check;
+						boinc_fraction_done((f > 1.0) ? 1.0 : f);
+						do
+						{
+							++first_token_end;
+						} while (*first_token_end == ' ');
+						startFrom = first_token_end;
+					}
 				}
 			}
 		}
@@ -518,6 +536,7 @@ NOINLINE void RangeGen::Run(number numThreads, char* startFrom, char* stopAt, un
 		params[i].stopAtFactors = stopAt ? stopAtFactors : nullptr;
 		params[i].startPrime = startPrime;
 		params[i].primeLimit = primeLimit;
+		params[i].sharedCounterValue = SharedCounterForSearch[0];
 		params[i].startLargestPrimePower = largestPrimePower;
 		params[i].finished = false;
 		threads.emplace_back(std::thread(WorkerThread, &params[i]));
@@ -544,74 +563,93 @@ NOINLINE void RangeGen::CheckpointThread(WorkerThreadParams* params, number numW
 		Sleep(1000);
 		if (boinc_time_to_checkpoint())
 		{
-			WorkerThreadState mostLaggingThreadState = {};
-			mostLaggingThreadState.curLargestPrimePower = std::numeric_limits<unsigned int>::max();
-
-			// Find the most lagging thread and use this thread's state as current checkpoint
-			EnterCriticalSection(&lock);
-
-			for (number i = 0; i < numWorkerThreads; ++i)
-			{
-				if (!params[i].finished)
-				{
-					bool is_less = false;
-
-					if (params[i].stateToSave.curLargestPrimePower < mostLaggingThreadState.curLargestPrimePower)
-					{
-						is_less = true;
-					}
-					else if (params[i].stateToSave.curLargestPrimePower == mostLaggingThreadState.curLargestPrimePower)
-					{
-						const Factor (&mainFactors)[MaxPrimeFactors] = mostLaggingThreadState.curRange.factors;
-						const Factor (&curFactors)[MaxPrimeFactors] = params[i].stateToSave.curRange.factors;
-
-						number j;
-						for (j = 0; j <= static_cast<number>(params[i].stateToSave.curRange.last_factor_index); ++j)
-						{
-							if (curFactors[j].p != mainFactors[j].p)
-							{
-								is_less = (curFactors[j].p < mainFactors[j].p);
-								break;
-							}
-							else if (curFactors[j].k != mainFactors[j].k)
-							{
-								is_less = (curFactors[j].k < mainFactors[j].k);
-								break;
-							}
-						}
-
-						if (j > static_cast<number>(params[i].stateToSave.curRange.last_factor_index))
-						{
-							is_less = (params[i].stateToSave.curRange.last_factor_index < mostLaggingThreadState.curRange.last_factor_index);
-						}
-					}
-
-					if (is_less)
-					{
-						mostLaggingThreadState = params[i].stateToSave;
-					}
-				}
-			}
-
-			LeaveCriticalSection(&lock);
-
 			std::stringstream s;
 
-			// First write how many numbers have been checked so far
-			s << mostLaggingThreadState.total_numbers_checked << ' ';
-
-			// Then factorization from most lagging thread
-			Factor (&mainFactors)[MaxPrimeFactors] = mostLaggingThreadState.curRange.factors;
-			for (number i = 0; i <= static_cast<number>(mostLaggingThreadState.curRange.last_factor_index); ++i)
+			// Find the most lagging thread and use this thread's state as current checkpoint
+			if (params[0].startPrime && params[0].primeLimit)
 			{
-				if (i > 0)
+				number minCounterValue = RangeGen::LargePrimesSplitSize;
+				for (number i = 0; i < numWorkerThreads; ++i)
 				{
-					s << '*';
+					if (!params[i].finished)
+					{
+						const number curValue = params[i].sharedCounterValue;
+						if (minCounterValue > curValue)
+						{
+							minCounterValue = curValue;
+						}
+					}
 				}
-				s << mainFactors[i].p;
-				if (mainFactors[i].k > 1)
+				s << minCounterValue << ' ' << params[0].startPrime << ' ' << params[0].primeLimit;
+			}
+			else
+			{
+				WorkerThreadState mostLaggingThreadState = {};
+				mostLaggingThreadState.curLargestPrimePower = std::numeric_limits<unsigned int>::max();
+
+				EnterCriticalSection(&lock);
+
+				for (number i = 0; i < numWorkerThreads; ++i)
 				{
-					s << '^' << mainFactors[i].k;
+					if (!params[i].finished)
+					{
+						bool is_less = false;
+
+						if (params[i].stateToSave.curLargestPrimePower < mostLaggingThreadState.curLargestPrimePower)
+						{
+							is_less = true;
+						}
+						else if (params[i].stateToSave.curLargestPrimePower == mostLaggingThreadState.curLargestPrimePower)
+						{
+							const Factor(&mainFactors)[MaxPrimeFactors] = mostLaggingThreadState.curRange.factors;
+							const Factor(&curFactors)[MaxPrimeFactors] = params[i].stateToSave.curRange.factors;
+
+							number j;
+							for (j = 0; j <= static_cast<number>(params[i].stateToSave.curRange.last_factor_index); ++j)
+							{
+								if (curFactors[j].p != mainFactors[j].p)
+								{
+									is_less = (curFactors[j].p < mainFactors[j].p);
+									break;
+								}
+								else if (curFactors[j].k != mainFactors[j].k)
+								{
+									is_less = (curFactors[j].k < mainFactors[j].k);
+									break;
+								}
+							}
+
+							if (j > static_cast<number>(params[i].stateToSave.curRange.last_factor_index))
+							{
+								is_less = (params[i].stateToSave.curRange.last_factor_index < mostLaggingThreadState.curRange.last_factor_index);
+							}
+						}
+
+						if (is_less)
+						{
+							mostLaggingThreadState = params[i].stateToSave;
+						}
+					}
+				}
+
+				LeaveCriticalSection(&lock);
+
+				// First write how many numbers have been checked so far
+				s << mostLaggingThreadState.total_numbers_checked << ' ';
+
+				// Then factorization from most lagging thread
+				Factor(&mainFactors)[MaxPrimeFactors] = mostLaggingThreadState.curRange.factors;
+				for (number i = 0; i <= static_cast<number>(mostLaggingThreadState.curRange.last_factor_index); ++i)
+				{
+					if (i > 0)
+					{
+						s << '*';
+					}
+					s << mainFactors[i].p;
+					if (mainFactors[i].k > 1)
+					{
+						s << '^' << mainFactors[i].k;
+					}
 				}
 			}
 
@@ -653,7 +691,7 @@ NOINLINE void RangeGen::WorkerThread(WorkerThreadParams* params)
 		{
 			params->primeLimit = params->startPrime;
 		}
-		SearchLargePrimes(&SharedCounterForSearch, params->startPrime, params->primeLimit);
+		SearchLargePrimes(SharedCounterForSearch, params->startPrime, params->primeLimit, params->sharedCounterValue);
 	}
 	else
 	{
@@ -776,7 +814,7 @@ NOINLINE void RangeGen::WorkerThread(WorkerThreadParams* params)
 
 		if (!params->stopAtFactors)
 		{
-			SearchLargePrimes(&SharedCounterForSearch, SearchLimit::MainPrimeTableBound + 1, SearchLimit::SafeLimit);
+			SearchLargePrimes(SharedCounterForSearch, SearchLimit::MainPrimeTableBound + 1, SearchLimit::SafeLimit, params->sharedCounterValue);
 		}
 	}
 

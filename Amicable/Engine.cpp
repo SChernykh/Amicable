@@ -3,6 +3,11 @@
 #include "Engine.h"
 #include "RangeGen.h"
 
+PRAGMA_WARNING(push, 1)
+PRAGMA_WARNING(disable : 4091 4917)
+#include <boinc_api.h>
+PRAGMA_WARNING(pop)
+
 // "a" has at most two factors (a = p1 * p2 or a = p^2 or a is prime)
 // We know that p1 >= p and p2 <= q
 //
@@ -1040,21 +1045,17 @@ namespace primesieve
 	};
 }
 
-NOINLINE void SearchLargePrimes(volatile number* SharedCounterForSearch, const number StartPrime, const number PrimeLimit)
+NOINLINE void SearchLargePrimes(volatile number* SharedCounterForSearch, const number StartPrime, const number PrimeLimit, number &sharedCounterValue)
 {
-	enum
-	{
-		SplitSize = 256,
-	};
-
 	primesieve::PrimeSieve s;
-	number sharedCounterValue = _InterlockedIncrement(SharedCounterForSearch) - 1;
-	for (number i = 0; i < SplitSize; ++i)
+	sharedCounterValue = _InterlockedIncrement(SharedCounterForSearch) - 1;
+
+	for (number i = 0; i < RangeGen::LargePrimesSplitSize; ++i)
 	{
 		if (i == sharedCounterValue)
 		{
-			const number curRangeBegin = StartPrime + (PrimeLimit - StartPrime + 1) * i / SplitSize;
-			const number curRangeEnd = StartPrime + (PrimeLimit - StartPrime + 1) * (i + 1) / SplitSize - 1;
+			const number curRangeBegin = StartPrime + (PrimeLimit - StartPrime + 1) * i / RangeGen::LargePrimesSplitSize;
+			const number curRangeEnd = StartPrime + (PrimeLimit - StartPrime + 1) * (i + 1) / RangeGen::LargePrimesSplitSize - 1;
 
 			s.setStart(curRangeBegin);
 			s.setStop(curRangeEnd);
@@ -1078,6 +1079,10 @@ NOINLINE void SearchLargePrimes(volatile number* SharedCounterForSearch, const n
 			}
 
 			finder.sieve();
+
+			const number numFinished = _InterlockedIncrement(SharedCounterForSearch + 1);
+			const double f = numFinished / static_cast<double>(RangeGen::LargePrimesSplitSize);
+			boinc_fraction_done((f > 1.0) ? 1.0 : f);
 
 			sharedCounterValue = _InterlockedIncrement(SharedCounterForSearch) - 1;
 		}
