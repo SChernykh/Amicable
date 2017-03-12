@@ -1042,62 +1042,44 @@ namespace primesieve
 
 NOINLINE void SearchLargePrimes(volatile number* SharedCounterForSearch, const number StartPrime, const number PrimeLimit)
 {
-	primesieve::PrimeSieve s;
-
-	number curRangeEnd = StartPrime - 1;
-
-	const number minRangeSize = std::min<number>(SearchLimit::MainPrimeTableBound / 4, 1000000);
-	const number maxRangeSize = SearchLimit::SafeLimit / 100;
-
-	number localCounter = 0;
-
-	do
+	enum
 	{
-		const number sharedCounterValue = static_cast<number>(_InterlockedIncrement(SharedCounterForSearch));
+		SplitSize = 256,
+	};
 
-		number curRangeBegin;
-		do
+	primesieve::PrimeSieve s;
+	number sharedCounterValue = _InterlockedIncrement(SharedCounterForSearch) - 1;
+	for (number i = 0; i < SplitSize; ++i)
+	{
+		if (i == sharedCounterValue)
 		{
-			curRangeBegin = curRangeEnd + 1;
-			if (curRangeBegin > PrimeLimit)
+			const number curRangeBegin = StartPrime + (PrimeLimit - StartPrime + 1) * i / SplitSize;
+			const number curRangeEnd = StartPrime + (PrimeLimit - StartPrime + 1) * (i + 1) / SplitSize - 1;
+
+			s.setStart(curRangeBegin);
+			s.setStop(curRangeEnd);
+
+			primesieve::PreSieve preSieve(curRangeBegin, curRangeEnd);
+			primesieve::PrimeFinderLargePrimes finder(s, preSieve);
+			finder.Init(curRangeBegin);
+
+			unsigned int p = 3;
+			const byte* shift = NextPrimeShifts + 2;
+			while (p <= preSieve.getLimit())
 			{
-				return;
+				p += *shift * ShiftMultiplier;
+				shift += 2;
+			}
+			while (p <= finder.getSqrtStop())
+			{
+				finder.addSievingPrime(p);
+				p += *shift * ShiftMultiplier;
+				shift += 2;
 			}
 
-			++localCounter;
+			finder.sieve();
 
-			number rangeSize = curRangeBegin / 16;
-			if (rangeSize < minRangeSize)
-				rangeSize = minRangeSize;
-			if (rangeSize > maxRangeSize)
-				rangeSize = maxRangeSize;
-
-			curRangeEnd = curRangeBegin + rangeSize;
-			if (curRangeEnd > PrimeLimit)
-				curRangeEnd = PrimeLimit;
-		} while (localCounter < sharedCounterValue);
-
-		s.setStart(curRangeBegin);
-		s.setStop(curRangeEnd);
-
-		primesieve::PreSieve preSieve(curRangeBegin, curRangeEnd);
-		primesieve::PrimeFinderLargePrimes finder(s, preSieve);
-		finder.Init(curRangeBegin);
-
-		unsigned int p = 3;
-		const byte* shift = NextPrimeShifts + 2;
-		while (p <= preSieve.getLimit())
-		{
-			p += *shift * ShiftMultiplier;
-			shift += 2;
+			sharedCounterValue = _InterlockedIncrement(SharedCounterForSearch) - 1;
 		}
-		while (p <= finder.getSqrtStop())
-		{
-			finder.addSievingPrime(p);
-			p += *shift * ShiftMultiplier;
-			shift += 2;
-		}
-
-		finder.sieve();
-	} while (curRangeEnd < PrimeLimit);
+	}
 }
