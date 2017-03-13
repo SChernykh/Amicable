@@ -487,7 +487,7 @@ NOINLINE void RangeGen::Run(number numThreads, char* startFrom, char* stopAt, un
 					number minCounterValue, startPrimeCheck, primeLimitCheck;
 					s << checkpoint_buf;
 					s >> minCounterValue >> startPrimeCheck >> primeLimitCheck;
-					if ((minCounterValue < LargePrimesSplitSize) && (startPrimeCheck == startPrime) && (primeLimitCheck == primeLimit))
+					if ((0 < minCounterValue) && (minCounterValue < LargePrimesSplitSize) && (startPrimeCheck == startPrime) && (primeLimitCheck == primeLimit))
 					{
 						SharedCounterForSearch[0] = minCounterValue;
 						SharedCounterForSearch[1] = minCounterValue;

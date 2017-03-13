@@ -1050,13 +1050,13 @@ NOINLINE void SearchLargePrimes(volatile number* SharedCounterForSearch, const n
 	primesieve::PrimeSieve s;
 	sharedCounterValue = _InterlockedIncrement(SharedCounterForSearch) - 1;
 
-	for (number i = 0; i < RangeGen::LargePrimesSplitSize; ++i)
+	while (sharedCounterValue < RangeGen::LargePrimesSplitSize)
 	{
-		if (i == sharedCounterValue)
-		{
-			const number curRangeBegin = StartPrime + (PrimeLimit - StartPrime + 1) * i / RangeGen::LargePrimesSplitSize;
-			const number curRangeEnd = StartPrime + (PrimeLimit - StartPrime + 1) * (i + 1) / RangeGen::LargePrimesSplitSize - 1;
+		const number curRangeBegin = StartPrime + (PrimeLimit - StartPrime + 1) * sharedCounterValue / RangeGen::LargePrimesSplitSize;
+		const number curRangeEnd = StartPrime + (PrimeLimit - StartPrime + 1) * (sharedCounterValue + 1) / RangeGen::LargePrimesSplitSize - 1;
 
+		if (curRangeBegin <= curRangeEnd)
+		{
 			s.setStart(curRangeBegin);
 			s.setStop(curRangeEnd);
 
@@ -1079,12 +1079,12 @@ NOINLINE void SearchLargePrimes(volatile number* SharedCounterForSearch, const n
 			}
 
 			finder.sieve();
-
-			const number numFinished = _InterlockedIncrement(SharedCounterForSearch + 1);
-			const double f = numFinished / static_cast<double>(RangeGen::LargePrimesSplitSize);
-			boinc_fraction_done((f > 1.0) ? 1.0 : f);
-
-			sharedCounterValue = _InterlockedIncrement(SharedCounterForSearch) - 1;
 		}
+
+		const number numFinished = _InterlockedIncrement(SharedCounterForSearch + 1);
+		const double f = numFinished / static_cast<double>(RangeGen::LargePrimesSplitSize);
+		boinc_fraction_done((f > 1.0) ? 1.0 : f);
+
+		sharedCounterValue = _InterlockedIncrement(SharedCounterForSearch) - 1;
 	}
 }
