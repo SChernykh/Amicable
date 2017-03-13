@@ -418,7 +418,6 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 		return;
 	number n2_sqrt4 = Root4(n2);
 
-	const byte* shift = NextPrimeShifts + CompileTimePrimesCount * 2;
 	number p = CompileTimePrimes<CompileTimePrimesCount>::value;
 	while (p <= n2_sqrt4)
 	{
@@ -461,12 +460,11 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 			n2_sqrt4 = Root4(n2);
 		}
 
+		p += NextPrimeShifts[numPrimesCheckedSoFar * 2] * ShiftMultiplier;
+
 		++numPrimesCheckedSoFar;
 		if (((numPrimesCheckedSoFar & 7) == 0) && (MaximumSumOfDivisorsN(n2, numPrimesCheckedSoFar, indexForMaximumSumOfDivisorsN) < n2TargetSum))
 			return;
-
-		p += *shift * ShiftMultiplier;
-		shift += 2;
 	}
 
 	// Here p^4 > n2, so n2 can have at most 3 factors
@@ -547,8 +545,7 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 			if (MaximumSumOfDivisors3(n2, p, q) < n2TargetSum)
 				return;
 
-			p += *shift * ShiftMultiplier;
-			shift += 2;
+			p += NextPrimeShifts[numPrimesCheckedSoFar * 2] * ShiftMultiplier;
 			++numPrimesCheckedSoFar;
 		}
 	}
