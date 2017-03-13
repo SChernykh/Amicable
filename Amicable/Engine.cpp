@@ -422,8 +422,10 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 	number p = CompileTimePrimes<CompileTimePrimesCount>::value;
 	while (p <= n2_sqrt4)
 	{
-		number q;
-		if (PrimeReciprocals[numPrimesCheckedSoFar].Divide(n2, p, q))
+		number h;
+		number q = n2 * PrimeInverses3[numPrimesCheckedSoFar];
+		_umul128(q, p, &h);
+		if (UNLIKELY(h == 0))
 		{
 			number n = p;
 			number curSum = p + 1;
@@ -431,7 +433,9 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 
 			while (p <= n2)
 			{
-				if (!PrimeReciprocals[numPrimesCheckedSoFar].Divide(n2, p, q))
+				q = n2 * PrimeInverses4[numPrimesCheckedSoFar];
+				_umul128(q, p, &h);
+				if (h != 0)
 					break;
 				n *= p;
 				curSum += n;
@@ -458,7 +462,7 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 		}
 
 		++numPrimesCheckedSoFar;
-		if (MaximumSumOfDivisorsN(n2, numPrimesCheckedSoFar, indexForMaximumSumOfDivisorsN) < n2TargetSum)
+		if (((numPrimesCheckedSoFar & 7) == 0) && (MaximumSumOfDivisorsN(n2, numPrimesCheckedSoFar, indexForMaximumSumOfDivisorsN) < n2TargetSum))
 			return;
 
 		p += *shift * ShiftMultiplier;
@@ -505,7 +509,7 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 		while (p <= n2_cbrt)
 		{
 			number q;
-			if (PrimeReciprocals[numPrimesCheckedSoFar].Divide(n2, p, q))
+			if (UNLIKELY(PrimeReciprocals[numPrimesCheckedSoFar].Divide(n2, p, q)))
 			{
 				number n = p;
 				number curSum = p + 1;

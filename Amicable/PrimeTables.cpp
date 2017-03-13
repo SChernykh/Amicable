@@ -13,6 +13,8 @@ std::vector<AmicableCandidate> privCandidatesData;
 CACHE_ALIGNED unsigned char privCandidatesDataMask[5 * 7 * 11];
 CACHE_ALIGNED std::pair<number, number> privPrimeInverses[CompileTimePrimesCount];
 CACHE_ALIGNED std::pair<number, number> privPrimeInverses2[CompileTimePrimesCount];
+CACHE_ALIGNED number privPrimeInverses3[6542];
+CACHE_ALIGNED number privPrimeInverses4[6542];
 
 byte* MainPrimeTable = nullptr;
 byte bitOffset[PrimeTableParameters::Modulo];
@@ -340,7 +342,7 @@ void PrimeTablesInit(bool doLargePrimes)
 
 	CalculateMainPrimeTable();
 
-	for (number p = 3, index = 1; index < CompileTimePrimesCount; p += NextPrimeShifts[index * 2] * ShiftMultiplier, ++index)
+	for (number p = 3, index = 1; index < ARRAYSIZE(privPrimeInverses3); p += NextPrimeShifts[index * 2] * ShiftMultiplier, ++index)
 	{
 		const number p_max = number(-1) / p;
 
@@ -353,10 +355,15 @@ void PrimeTablesInit(bool doLargePrimes)
 			abort();
 		}
 
-		privPrimeInverses[index].first = p_inv;
-		privPrimeInverses[index].second = p_max;
-		privPrimeInverses2[index].first = p_inv;
-		privPrimeInverses2[index].second = p_max;
+		if (index < CompileTimePrimesCount)
+		{
+			privPrimeInverses[index].first = p_inv;
+			privPrimeInverses[index].second = p_max;
+			privPrimeInverses2[index].first = p_inv;
+			privPrimeInverses2[index].second = p_max;
+		}
+		privPrimeInverses3[index] = p_inv;
+		privPrimeInverses4[index] = p_inv;
 	}
 
 	// Gather data for linear search and do preliminary filtering
