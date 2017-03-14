@@ -202,7 +202,7 @@ FORCEINLINE number GetCoeffForMaximumSumOfDivisorsN(const number m, const number
 {
 	for (; ; --j)
 	{
-		const SumEstimateData* data = SumEstimates[j] + i;
+		const SumEstimateData* data = SumEstimates[j] + (i >> 3);
 		if (m > data->P)
 			return data->Q;
 	}
@@ -346,11 +346,6 @@ NOINLINE void NumberFound(const number n1)
 	}
 }
 
-FORCEINLINE number Root4(const number n)
-{
-	return static_cast<number>(static_cast<__int64>(sqrt(sqrt(n))));
-}
-
 // Fast integer cube root. Returns number m such that m^3 <= n < (m+1)^3 for all n > 0
 FORCEINLINE number IntegerCbrt(const number n)
 {
@@ -374,6 +369,11 @@ FORCEINLINE number IntegerCbrt(const number n)
 		}
 	}
 	return result;
+}
+
+FORCEINLINE number Root4(const number n)
+{
+	return static_cast<number>(static_cast<__int64>(sqrt(sqrt(n))));
 }
 
 FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, number n2TargetSum, number n2, number sum)
@@ -411,12 +411,13 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 		return;
 	number n2_sqrt4 = Root4(n2);
 
-	const byte* shift = NextPrimeShifts + CompileTimePrimesCount * 2;
 	number p = CompileTimePrimes<CompileTimePrimesCount>::value;
 	while (p <= n2_sqrt4)
 	{
-		number q;
-		if (PrimeReciprocals[numPrimesCheckedSoFar].Divide(n2, p, q))
+		number h;
+		number q = n2 * PrimeInverses3[numPrimesCheckedSoFar];
+		_umul128(q, p, &h);
+		if (UNLIKELY(h == 0))
 		{
 			number n = p;
 			number curSum = p + 1;
@@ -424,7 +425,9 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 
 			while (p <= n2)
 			{
-				if (!PrimeReciprocals[numPrimesCheckedSoFar].Divide(n2, p, q))
+				q = n2 * PrimeInverses4[numPrimesCheckedSoFar];
+				_umul128(q, p, &h);
+				if (h != 0)
 					break;
 				n *= p;
 				curSum += n;
@@ -450,12 +453,11 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 			n2_sqrt4 = Root4(n2);
 		}
 
-		++numPrimesCheckedSoFar;
-		if (MaximumSumOfDivisorsN(n2, numPrimesCheckedSoFar, indexForMaximumSumOfDivisorsN) < n2TargetSum)
-			return;
+		p += static_cast<unsigned int>(NextPrimeShifts[numPrimesCheckedSoFar * 2] * ShiftMultiplier);
 
-		p += *shift * ShiftMultiplier;
-		shift += 2;
+		++numPrimesCheckedSoFar;
+		if (((numPrimesCheckedSoFar & 7) == 0) && (MaximumSumOfDivisorsN(n2, numPrimesCheckedSoFar, indexForMaximumSumOfDivisorsN) < n2TargetSum))
+			return;
 	}
 
 	// Here p^4 > n2, so n2 can have at most 3 factors
@@ -497,8 +499,10 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 	{
 		while (p <= n2_cbrt)
 		{
-			number q;
-			if (PrimeReciprocals[numPrimesCheckedSoFar].Divide(n2, p, q))
+			number h;
+			number q = n2 * PrimeInverses3[numPrimesCheckedSoFar];
+			_umul128(q, p, &h);
+			if (UNLIKELY(h == 0))
 			{
 				number n = p;
 				number curSum = p + 1;
@@ -506,7 +510,9 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 
 				while (p <= n2)
 				{
-					if (!PrimeReciprocals[numPrimesCheckedSoFar].Divide(n2, p, q))
+					q = n2 * PrimeInverses4[numPrimesCheckedSoFar];
+					_umul128(q, p, &h);
+					if (h != 0)
 						break;
 					n *= p;
 					curSum += n;
@@ -533,11 +539,14 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 				n2_cbrt = IntegerCbrt(n2);
 			}
 
-			if (MaximumSumOfDivisors3(n2, p, q) < n2TargetSum)
-				return;
+			if ((numPrimesCheckedSoFar & 15) == 0)
+			{
+				const number q = PrimeReciprocals[numPrimesCheckedSoFar].DivideNoRemainder(n2);
+				if (MaximumSumOfDivisors3(n2, p, q) < n2TargetSum)
+					return;
+			}
 
-			p += *shift * ShiftMultiplier;
-			shift += 2;
+			p += static_cast<unsigned int>(NextPrimeShifts[numPrimesCheckedSoFar * 2] * ShiftMultiplier);
 			++numPrimesCheckedSoFar;
 		}
 	}
@@ -971,6 +980,8 @@ NOINLINE void SearchRangeCubed(const RangeData& r)
 		shift += 2;
 	}
 }
+
+#include <primesieve/SieveOfEratosthenes-inline.hpp>
 
 namespace primesieve
 {

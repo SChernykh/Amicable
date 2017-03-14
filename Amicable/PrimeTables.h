@@ -84,6 +84,8 @@ extern std::vector<AmicableCandidate> privCandidatesData;
 extern CACHE_ALIGNED unsigned char privCandidatesDataMask[5 * 7 * 11];
 extern std::pair<number, number>* privPrimeInverses;
 extern CACHE_ALIGNED std::pair<number, number> privPrimeInverses2[CompileTimePrimesCount];
+extern CACHE_ALIGNED number privPrimeInverses3[ReciprocalsTableSize];
+extern CACHE_ALIGNED number privPrimeInverses4[ReciprocalsTableSize];
 
 #define NextPrimeShifts ((const byte* const)(privNextPrimeShifts))
 #define CandidatesData ((const std::vector<AmicableCandidate>&)(privCandidatesData))
@@ -91,6 +93,8 @@ extern CACHE_ALIGNED std::pair<number, number> privPrimeInverses2[CompileTimePri
 
 #define PrimeInverses ((const std::pair<number, number>*)(privPrimeInverses))
 #define PrimeInverses2 ((const std::pair<number, number>*)(privPrimeInverses2))
+#define PrimeInverses3 ((const number*)(privPrimeInverses3))
+#define PrimeInverses4 ((const number*)(privPrimeInverses4))
 
 FORCEINLINE number Mod385(const number n)
 {

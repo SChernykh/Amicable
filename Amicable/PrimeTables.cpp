@@ -12,6 +12,8 @@ std::vector<AmicableCandidate> privCandidatesData;
 CACHE_ALIGNED unsigned char privCandidatesDataMask[5 * 7 * 11];
 std::pair<number, number>* privPrimeInverses = nullptr;
 CACHE_ALIGNED std::pair<number, number> privPrimeInverses2[CompileTimePrimesCount];
+CACHE_ALIGNED number privPrimeInverses3[ReciprocalsTableSize];
+CACHE_ALIGNED number privPrimeInverses4[ReciprocalsTableSize];
 
 std::vector<byte> MainPrimeTable;
 byte bitOffset[PrimeTableParameters::Modulo];
@@ -477,6 +479,8 @@ void PrimeTablesInit()
 			privPrimeInverses2[index].first = p_inv;
 			privPrimeInverses2[index].second = p_max;
 		}
+		privPrimeInverses3[index] = p_inv;
+		privPrimeInverses4[index] = p_inv;
 	}
 
 	// Gather data for linear search and do preliminary filtering
@@ -548,11 +552,11 @@ void PrimeTablesInit()
 		}
 	}
 
-	SumEstimateData* data = new SumEstimateData[SumEstimatesSize * (PQ_size - IS_NUM_ELIGIBLE_BEGIN)];
+	SumEstimateData* data = new SumEstimateData[SumEstimatesSize * ((PQ_size - IS_NUM_ELIGIBLE_BEGIN + 7) / 8)];
 	for (number j = 0; j < SumEstimatesSize; ++j)
 	{
-		privSumEstimates[j] = data - IS_NUM_ELIGIBLE_BEGIN;
-		for (number i = IS_NUM_ELIGIBLE_BEGIN; i < PQ_size; ++i)
+		privSumEstimates[j] = data - (IS_NUM_ELIGIBLE_BEGIN / 8);
+		for (number i = IS_NUM_ELIGIBLE_BEGIN; i < PQ_size; i += 8)
 		{
 			data->P = PQ[j][i].first;
 			data->Q = PQ[j][i].second;
@@ -561,7 +565,7 @@ void PrimeTablesInit()
 	}
 	for (number j = 0; j < SumEstimatesSize; ++j)
 	{
-		privSumEstimatesBeginP[j] = (j + 1 < SumEstimatesSize) ? privSumEstimates[j + 1][IS_NUM_ELIGIBLE_BEGIN].P : number(-1);
-		privSumEstimatesBeginQ[j] = privSumEstimates[j][IS_NUM_ELIGIBLE_BEGIN].Q;
+		privSumEstimatesBeginP[j] = (j + 1 < SumEstimatesSize) ? privSumEstimates[j + 1][IS_NUM_ELIGIBLE_BEGIN / 8].P : number(-1);
+		privSumEstimatesBeginQ[j] = privSumEstimates[j][IS_NUM_ELIGIBLE_BEGIN / 8].Q;
 	}
 }
