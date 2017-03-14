@@ -207,7 +207,7 @@ FORCEINLINE number GetCoeffForMaximumSumOfDivisorsN(const number m, const number
 {
 	for (; ; --j)
 	{
-		const SumEstimateData* data = SumEstimates[j] + i;
+		const SumEstimateData* data = SumEstimates[j] + (i >> 3);
 		if (m > data->P)
 			return data->Q;
 	}

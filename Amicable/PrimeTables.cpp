@@ -438,11 +438,11 @@ void PrimeTablesInit(bool doLargePrimes)
 		}
 	}
 
-	SumEstimateData* data = new SumEstimateData[SumEstimatesSize * (PQ_size - IS_NUM_ELIGIBLE_BEGIN)];
+	SumEstimateData* data = new SumEstimateData[SumEstimatesSize * ((PQ_size - IS_NUM_ELIGIBLE_BEGIN + 7) / 8)];
 	for (number j = 0; j < SumEstimatesSize; ++j)
 	{
-		privSumEstimates[j] = data - IS_NUM_ELIGIBLE_BEGIN;
-		for (number i = IS_NUM_ELIGIBLE_BEGIN; i < PQ_size; ++i)
+		privSumEstimates[j] = data - (IS_NUM_ELIGIBLE_BEGIN / 8);
+		for (number i = IS_NUM_ELIGIBLE_BEGIN; i < PQ_size; i += 8)
 		{
 			data->P = PQ[j][i].first;
 			data->Q = PQ[j][i].second;
@@ -451,7 +451,7 @@ void PrimeTablesInit(bool doLargePrimes)
 	}
 	for (number j = 0; j < SumEstimatesSize; ++j)
 	{
-		privSumEstimatesBeginP[j] = (j + 1 < SumEstimatesSize) ? privSumEstimates[j + 1][IS_NUM_ELIGIBLE_BEGIN].P : number(-1);
-		privSumEstimatesBeginQ[j] = privSumEstimates[j][IS_NUM_ELIGIBLE_BEGIN].Q;
+		privSumEstimatesBeginP[j] = (j + 1 < SumEstimatesSize) ? privSumEstimates[j + 1][IS_NUM_ELIGIBLE_BEGIN / 8].P : number(-1);
+		privSumEstimatesBeginQ[j] = privSumEstimates[j][IS_NUM_ELIGIBLE_BEGIN / 8].Q;
 	}
 }
