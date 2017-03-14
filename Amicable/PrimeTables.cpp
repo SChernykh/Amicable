@@ -13,8 +13,8 @@ std::vector<AmicableCandidate> privCandidatesData;
 CACHE_ALIGNED unsigned char privCandidatesDataMask[5 * 7 * 11];
 CACHE_ALIGNED std::pair<number, number> privPrimeInverses[CompileTimePrimesCount];
 CACHE_ALIGNED std::pair<number, number> privPrimeInverses2[CompileTimePrimesCount];
-CACHE_ALIGNED number privPrimeInverses3[6542];
-CACHE_ALIGNED number privPrimeInverses4[6542];
+CACHE_ALIGNED number privPrimeInverses3[ReciprocalsTableSize];
+CACHE_ALIGNED number privPrimeInverses4[ReciprocalsTableSize];
 
 byte* MainPrimeTable = nullptr;
 byte bitOffset[PrimeTableParameters::Modulo];

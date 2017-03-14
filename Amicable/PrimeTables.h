@@ -77,8 +77,8 @@ extern std::vector<AmicableCandidate> privCandidatesData;
 extern CACHE_ALIGNED unsigned char privCandidatesDataMask[5 * 7 * 11];
 extern CACHE_ALIGNED std::pair<number, number> privPrimeInverses[CompileTimePrimesCount];
 extern CACHE_ALIGNED std::pair<number, number> privPrimeInverses2[CompileTimePrimesCount];
-extern CACHE_ALIGNED number privPrimeInverses3[6542];
-extern CACHE_ALIGNED number privPrimeInverses4[6542];
+extern CACHE_ALIGNED number privPrimeInverses3[ReciprocalsTableSize];
+extern CACHE_ALIGNED number privPrimeInverses4[ReciprocalsTableSize];
 
 #define NextPrimeShifts ((const byte* const)(privNextPrimeShifts))
 #define CandidatesData ((const std::vector<AmicableCandidate>&)(privCandidatesData))
