@@ -548,8 +548,8 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 
 			if ((numPrimesCheckedSoFar & 15) == 0)
 			{
-				const number q = PrimeReciprocals[numPrimesCheckedSoFar].DivideNoRemainder(n2);
-				if (MaximumSumOfDivisors3(n2, p, q) < n2TargetSum)
+				const number q1 = PrimeReciprocals[numPrimesCheckedSoFar].DivideNoRemainder(n2);
+				if (MaximumSumOfDivisors3(n2, p, q1) < n2TargetSum)
 					return;
 			}
 
