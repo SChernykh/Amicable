@@ -918,7 +918,7 @@ bool OpenCL::ProcessLargePrimes()
 					{
 						CL_CHECKED_CALL(clFlush, myQueue);
 					}
-					number globalSizePhase1 = std::min<number>(N - global_offset, max_size_phase1);
+					size_t globalSizePhase1 = std::min<size_t>(N - global_offset, max_size_phase1);
 					if (globalSizePhase1 & (myWorkGroupSize - 1))
 					{
 						globalSizePhase1 += myWorkGroupSize - (globalSizePhase1 & (myWorkGroupSize - 1));
