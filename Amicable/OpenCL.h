@@ -56,7 +56,6 @@ private:
 	bool GetPlatformID(cl_platform_id* clSelectedPlatformID);
 	bool WaitForQueue(cl_command_queue queue, cl_event event);
 	bool GetCounter(cl_command_queue queue, cl_mem buf, unsigned int &counter);
-	bool GetCounter(cl_command_queue queue, cl_mem buf, number &counter);
 	bool ResetCounter(cl_command_queue queue, cl_mem buf);
 	bool GetAndResetCounter(cl_command_queue queue, cl_mem buf, unsigned int &counter);
 	bool GetAndResetCounter(cl_command_queue queue, cl_mem buf, number &counter);

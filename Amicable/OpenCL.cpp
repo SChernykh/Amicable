@@ -1053,12 +1053,6 @@ bool OpenCL::GetCounter(cl_command_queue queue, cl_mem buf, unsigned int &counte
 	return true;
 }
 
-bool OpenCL::GetCounter(cl_command_queue queue, cl_mem buf, number &counter)
-{
-	CL_CHECKED_CALL(clEnqueueReadBuffer, queue, buf, CL_TRUE, 0, sizeof(counter), &counter, 0, nullptr, nullptr);
-	return true;
-}
-
 bool OpenCL::ResetCounter(cl_command_queue queue, cl_mem buf)
 {
 	CL_CHECKED_CALL(clEnqueueWriteBuffer, queue, buf, CL_TRUE, 0, sizeof(number), &ourZeroBuf, 0, nullptr, nullptr);
