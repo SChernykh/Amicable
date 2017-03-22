@@ -1476,8 +1476,8 @@ bool OpenCL::ProcessNumbers()
 	}
 
 	cl_event event = nullptr;
-	number numbers_in_phase2_before = 0;
-	number numbers_in_phase2_after = 0;
+	unsigned int numbers_in_phase2_before = 0;
+	unsigned int numbers_in_phase2_after = 0;
 	number phase1_offset_to_resume = 0;
 	number global_offset = 0;
 
