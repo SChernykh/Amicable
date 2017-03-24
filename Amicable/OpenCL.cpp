@@ -619,7 +619,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 
 bool OpenCL::RunRanges(char* startFrom, char* stopAt)
 {
-	RangeData r;
+	RangeData r = {};
 	Factor stopAtFactors[MaxPrimeFactors + 1] = {};
 
 	// Few numbers, hard case for CPU
