@@ -1040,7 +1040,7 @@ namespace primesieve
 					{
 						if ((candidate->is_over_abundant_mask & mask) == 0)
 						{
-							CheckPairSafe(curPrime * candidate->value, candidate->sum, curPrime + 1);
+							CheckPairSafe(curPrime * candidate->value, static_cast<number>(candidate->sum) + static_cast<number>(candidate->value) * 2, curPrime + 1);
 						}
 					}
 				}
