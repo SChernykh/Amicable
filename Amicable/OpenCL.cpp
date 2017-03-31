@@ -962,9 +962,9 @@ bool OpenCL::ProcessLargePrimes()
 				}
 			}
 
-			if (numbers_in_phase2_after >= myPhase2MinNumbersCount)
+			if ((numbers_in_phase2_after >= myPhase2MinNumbersCount) || phase1_offset_to_resume)
 			{
-				if (!ProcessNumbersPhases2_3(static_cast<unsigned int>(numbers_in_phase2_after)))
+				if ((numbers_in_phase2_after > 0) && !ProcessNumbersPhases2_3(static_cast<unsigned int>(numbers_in_phase2_after)))
 				{
 					return false;
 				}
@@ -1545,12 +1545,13 @@ bool OpenCL::ProcessNumbers()
 			}
 		}
 
-		if (numbers_in_phase2_after >= myPhase2MinNumbersCount)
+		if ((numbers_in_phase2_after >= myPhase2MinNumbersCount) || phase1_offset_to_resume)
 		{
-			if (!ProcessNumbersPhases2_3(static_cast<unsigned int>(numbers_in_phase2_after)))
+			if ((numbers_in_phase2_after > 0) && !ProcessNumbersPhases2_3(static_cast<unsigned int>(numbers_in_phase2_after)))
 			{
 				return false;
 			}
+			numbers_in_phase2_after = 0;
 		}
 	} while (phase1_offset_to_resume);
 

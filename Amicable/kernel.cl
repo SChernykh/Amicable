@@ -779,7 +779,7 @@ __kernel
 __attribute__((reqd_work_group_size(1, 1, 1)))
 void SaveCounter(__global uint* phase2_numbers_count)
 {
-	if (phase2_numbers_count[0] < PHASE2_MAX_COUNT)
+	if (phase2_numbers_count[0] <= PHASE2_MAX_COUNT)
 	{
 		phase2_numbers_count[1] = phase2_numbers_count[0];
 	}
@@ -896,7 +896,7 @@ void SearchMultipleRanges(
 #endif
 )
 {
-	if (*phase2_numbers_count >= PHASE2_MAX_COUNT)
+	if (*phase2_numbers_count > PHASE2_MAX_COUNT)
 	{
 		return;
 	}
@@ -1024,7 +1024,7 @@ void SearchLargePrimes(
 #endif
 )
 {
-	if (*phase2_numbers_count >= PHASE2_MAX_COUNT)
+	if (*phase2_numbers_count > PHASE2_MAX_COUNT)
 	{
 		return;
 	}
