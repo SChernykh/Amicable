@@ -1,6 +1,6 @@
 #pragma once
 
-void PrimeTablesInit(bool doLargePrimes = true);
+void PrimeTablesInit(number startPrime, number primeLimit, const char* stopAt);
 bool IsPrime(number n);
 
 enum
@@ -300,10 +300,7 @@ FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const numb
 	return leq128(n2[0], n2[1], n1[0], n1[1]);
 }
 
-NOINLINE byte OverAbundantNoInline(const Factor* f, int last_factor_index, const number value, const number sum, number sum_for_gcd_coeff);
-
-template<number Limit>
-FORCEINLINE bool whole_branch_deficient(number value, number sum, const Factor* f)
+FORCEINLINE bool whole_branch_deficient(const number Limit, number value, number sum, const Factor* f)
 {
 	if (sum - value >= value)
 	{
@@ -336,4 +333,10 @@ FORCEINLINE bool whole_branch_deficient(number value, number sum, const Factor* 
 	sub128(sum, sumHi, value1, 0, &sum, &sumHi);
 
 	return ((sum < value1) && !sumHi);
+}
+
+template<number Limit>
+FORCEINLINE bool whole_branch_deficient(number value, number sum, const Factor* f)
+{
+	return whole_branch_deficient(Limit, value, sum, f);
 }

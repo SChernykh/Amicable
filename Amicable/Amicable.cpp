@@ -74,14 +74,14 @@ int main(int argc, char* argv[])
 		if (strcmp(argv[i], "/instrument") == 0)
 		{
 			// Quickly generate profile data for all hot (most used) code paths
-			PrimeTablesInit();
+			PrimeTablesInit(SearchLimit::LinearLimit, SearchLimit::SafeLimit, nullptr);
 			ProfileGuidedOptimization_Instrument();
 			return 0;
 		}
 
 		if (strcmp(argv[i], "/test") == 0)
 		{
-			PrimeTablesInit();
+			PrimeTablesInit(SearchLimit::LinearLimit, SearchLimit::SafeLimit, nullptr);
 			g_PrintNumbers = false;
 
 			std::cout << "Testing CheckPair()...";
@@ -151,7 +151,7 @@ int main(int argc, char* argv[])
 		}
 	}
 
-	PrimeTablesInit((startPrime && primeLimit) || !stopAt);
+	PrimeTablesInit(startPrime, primeLimit, stopAt);
 
 	APP_INIT_DATA aid;
 	boinc_get_init_data(aid);
