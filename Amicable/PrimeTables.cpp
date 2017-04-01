@@ -212,6 +212,8 @@ struct PrimeData
 #pragma pack(pop)
 
 static std::vector<PrimeData> g_PrimeData;
+static number g_MaxPrime = SearchLimit::LinearLimit / 4;
+static number g_LargestCandidate = SearchLimit::value / SearchLimit::LinearLimit;
 
 NOINLINE void SearchCandidates(Factor* factors, const number value, const number sum, int depth)
 {
@@ -242,12 +244,12 @@ NOINLINE void SearchCandidates(Factor* factors, const number value, const number
 	}
 
 	// Check only 2, 3, 5 as the smallest prime factor because the smallest abundant number coprime to 2*3*5 is ~2*10^25
-	const unsigned int max_prime = static_cast<unsigned int>((depth > 0) ? ((SearchLimit::LinearLimit / 20) + 1) : 7);
-	for (f.index = start_i; f.p < max_prime; ++f.index, f.p = g_PrimeData[static_cast<unsigned int>(f.index)].p)
+	const unsigned int max_prime = static_cast<unsigned int>((depth > 0) ? (g_MaxPrime + 1) : 7);
+	for (f.index = start_i; f.p < max_prime; ++f.index, f.p = (static_cast<unsigned int>(f.index) < g_PrimeData.size()) ? g_PrimeData[static_cast<unsigned int>(f.index)].p : max_prime)
 	{
 		number h;
 		number next_value = _umul128(value, f.p, &h);
-		if ((next_value >= SearchLimit::value / SearchLimit::LinearLimit) || h)
+		if ((next_value >= g_LargestCandidate) || h)
 		{
 			return;
 		}
@@ -266,7 +268,7 @@ NOINLINE void SearchCandidates(Factor* factors, const number value, const number
 					goto next;
 				}
 			}
-			else if (whole_branch_deficient<SearchLimit::value / SearchLimit::LinearLimit>(next_value, next_sum, &f))
+			else if (whole_branch_deficient(g_LargestCandidate, next_value, next_sum, &f))
 			{
 				goto next;
 			}
@@ -275,7 +277,7 @@ NOINLINE void SearchCandidates(Factor* factors, const number value, const number
 			next:
 
 			next_value = _umul128(next_value, f.p, &h);
-			if ((next_value >= SearchLimit::value / SearchLimit::LinearLimit) || h)
+			if ((next_value >= g_LargestCandidate) || h)
 			{
 				break;
 			}
@@ -287,7 +289,7 @@ NOINLINE void SearchCandidates(Factor* factors, const number value, const number
 
 void GenerateCandidates()
 {
-	privCandidatesData.reserve(Min<77432320, SearchLimit::value / SearchLimit::LinearLimit / 30>::value);
+	privCandidatesData.reserve(std::min<number>(77432320, g_LargestCandidate / 30));
 	{
 		const number primeDataCount = 16441820;
 		g_PrimeData.reserve(primeDataCount);
@@ -296,6 +298,10 @@ void GenerateCandidates()
 			const number p = GetNthPrime(index);
 			PRAGMA_WARNING(suppress : 4146)
 			g_PrimeData.emplace_back(static_cast<unsigned int>(p), -modular_inverse64(p), number(-1) / p);
+			if (p > g_MaxPrime)
+			{
+				break;
+			}
 		}
 
 		Factor factors[16];
@@ -307,7 +313,7 @@ void GenerateCandidates()
 	std::sort(privCandidatesData.begin(), privCandidatesData.end(), [](const AmicableCandidate& a, const AmicableCandidate& b){ return a.value < b.value; });
 }
 
-void PrimeTablesInit(bool doLargePrimes)
+void PrimeTablesInit(number startPrime, number primeLimit, const char* stopAt)
 {
 	// Make sure all floating point calculations round up
 	ForceRoundUpFloatingPoint();
@@ -339,8 +345,10 @@ void PrimeTablesInit(bool doLargePrimes)
 	// Gather data for linear search and do preliminary filtering
 	// All filters combined leave 971348 numbers out of the first 1000000
 	// It's a great speed-up compared to the recursive search
-	if (doLargePrimes)
+	if ((startPrime && primeLimit) || !stopAt)
 	{
+		g_LargestCandidate = SearchLimit::value / std::max<number>(SearchLimit::LinearLimit, startPrime);
+		g_MaxPrime = g_LargestCandidate / 4;
 		GenerateCandidates();
 	}
 

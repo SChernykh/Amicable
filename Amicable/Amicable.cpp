@@ -101,7 +101,7 @@ int main(int argc, char* argv[])
 	}
 
 	std::cerr << "Initializing prime tables..." << std::flush;
-	PrimeTablesInit((startPrime && primeLimit) || !stopAt);
+	PrimeTablesInit(startPrime, primeLimit, stopAt);
 	std::cerr << "done" << std::endl << std::flush;
 
 	APP_INIT_DATA aid;
