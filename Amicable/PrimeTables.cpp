@@ -44,7 +44,7 @@ struct MainPrimeTableInitializer
 		{
 			const number bit = bitOffset[p % PrimeTableParameters::Modulo];
 			const number k = (p / PrimeTableParameters::Modulo) * PrimeTableParameters::NumOffsets + bit;
-			MainPrimeTable[k / Byte::Bits] |= (1 << (k % Byte::Bits));
+			MainPrimeTable[k / ByteParams::Bits] |= (1 << (k % ByteParams::Bits));
 		}
 	}
 
@@ -57,7 +57,7 @@ static number CalculateMainPrimeTable()
 	// https://en.wikipedia.org/wiki/Prime_gap#Numerical_results
 	// Since we operate in the range 1..2^64, a gap = PrimeTableParameters::Modulo * 9 = 1890 is enough
 	const number upperBound = ((SearchLimit::MainPrimeTableBound / PrimeTableParameters::Modulo) + 10) * PrimeTableParameters::Modulo;
-	const size_t arraySize = static_cast<size_t>((upperBound + PrimeTableParameters::Modulo) / PrimeTableParameters::Modulo * (PrimeTableParameters::NumOffsets / Byte::Bits));
+	const size_t arraySize = static_cast<size_t>((upperBound + PrimeTableParameters::Modulo) / PrimeTableParameters::Modulo * (PrimeTableParameters::NumOffsets / ByteParams::Bits));
 	MainPrimeTable = reinterpret_cast<byte*>(AllocateSystemMemory(arraySize, false));
 	MainPrimeTable[0] = 1;
 
@@ -105,7 +105,7 @@ bool IsPrime(number n)
 	if (bit >= PrimeTableParameters::NumOffsets)
 		return false;
 
-	return (MainPrimeTable[k / Byte::Bits] & (1 << (k % Byte::Bits))) != 0;
+	return (MainPrimeTable[k / ByteParams::Bits] & (1 << (k % ByteParams::Bits))) != 0;
 }
 
 struct NumberAndSumOfDivisors

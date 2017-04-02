@@ -168,7 +168,7 @@ public:
 			aStartNumber = 2;
 		}
 
-		const number chunkIndex = ((aStartNumber / PrimeTableParameters::Modulo) * (PrimeTableParameters::NumOffsets / Byte::Bits)) / sizeof(number);
+		const number chunkIndex = ((aStartNumber / PrimeTableParameters::Modulo) * (PrimeTableParameters::NumOffsets / ByteParams::Bits)) / sizeof(number);
 		mySieveData = aSieveData + chunkIndex;
 		mySieveChunk = *mySieveData;
 		myModuloIndex = (chunkIndex / 3) * PrimeTableParameters::Modulo * 4 + (chunkIndex % 3) * PrimeTableParameters::Modulo;

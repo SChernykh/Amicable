@@ -167,7 +167,7 @@ const unsigned int NumbersCoprimeToModulo[NumOffsets * 2] = {
 	179 + 210, 181 + 210, 187 + 210, 191 + 210, 193 + 210, 197 + 210, 199 + 210, 209 + 210,
 };
 
-enum Byte
+enum ByteParams
 {
 	Bits = 8,
 };
