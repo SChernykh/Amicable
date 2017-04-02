@@ -46,7 +46,13 @@ FORCEINLINE number _rotr64(number value, int shift)
 #include <limits.h>
 
 #define CRITICAL_SECTION pthread_mutex_t
+
+#ifdef PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP
 #define CRITICAL_SECTION_INITIALIZER PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP
+#else
+#define CRITICAL_SECTION_INITIALIZER PTHREAD_RECURSIVE_MUTEX_INITIALIZER
+#endif
+
 #define InitializeCriticalSection(X) ((void)(X))
 #define DeleteCriticalSection(X) ((void)(X))
 
