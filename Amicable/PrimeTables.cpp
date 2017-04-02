@@ -257,7 +257,7 @@ NOINLINE void SearchCandidates(Factor* factors, const number value, const number
 	{
 		number h;
 		number next_value = _umul128(value, f.p, &h);
-		if ((next_value >= g_LargestCandidate) || h)
+		if ((next_value > g_LargestCandidate) || h)
 		{
 			return;
 		}
@@ -285,7 +285,7 @@ NOINLINE void SearchCandidates(Factor* factors, const number value, const number
 			next:
 
 			next_value = _umul128(next_value, f.p, &h);
-			if ((next_value >= g_LargestCandidate) || h)
+			if ((next_value > g_LargestCandidate) || h)
 			{
 				break;
 			}
