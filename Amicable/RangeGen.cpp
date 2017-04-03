@@ -362,8 +362,6 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 	search_stack_depth = 0;
 	prev_search_stack_depth = 0;
 	cur_largest_prime_power = largestPrimePower;
-	SharedCounterForSearch[0] = 0;
-	SharedCounterForSearch[1] = 0;
 
 	if (startFrom)
 	{
