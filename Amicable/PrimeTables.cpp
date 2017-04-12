@@ -188,15 +188,10 @@ NOINLINE num64 GetMaxSumRatio(const PrimeIterator& p, const num64 limit, num64* 
 }
 
 AmicableCandidate::AmicableCandidate(num64 _value, num64 _sum, unsigned char _is_over_abundant_mask)
-	: value(static_cast<unsigned int>(_value))
-	, sum(static_cast<unsigned int>(_sum - _value * 2))
-	, is_over_abundant_mask(static_cast<unsigned char>(_is_over_abundant_mask))
+	: value(_value)
+	, sum(_sum - _value * 2)
+	, is_over_abundant_mask(_is_over_abundant_mask)
 {
-	if (_sum - _value * 2 > UINT_MAX)
-	{
-		std::cerr << "sigma(" << _value << ") = " << _sum << " is too high" << std::endl;
-		abort();
-	}
 }
 
 #pragma pack(push, 1)
@@ -297,9 +292,9 @@ NOINLINE void SearchCandidates(Factor* factors, const num64 value, const num64 s
 
 NOINLINE void GenerateCandidates()
 {
-	privCandidatesData.reserve(std::min<num64>(77432115, g_LargestCandidate / 30));
+	privCandidatesData.reserve(std::min<num64>(178832709, g_LargestCandidate / 30));
 	{
-		const num64 primeDataCount = 16441820;
+		const num64 primeDataCount = 87348706;
 		g_PrimeData.reserve(primeDataCount);
 		g_PrimeData.emplace_back(2, 0, 0);
 		for (num64 p = 3, index = 1; index < primeDataCount; p += NextPrimeShifts[index * 2] * ShiftMultiplier, ++index)

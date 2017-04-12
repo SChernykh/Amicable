@@ -64,9 +64,9 @@ struct AmicableCandidate
 	AmicableCandidate() {}
 	AmicableCandidate(num64 _value, num64 _sum, unsigned char _is_over_abundant_mask);
 
-	unsigned int value;
-	unsigned int sum;
-	unsigned char is_over_abundant_mask;
+	num64 value;
+	num64 sum : 56;
+	num64 is_over_abundant_mask : 8;
 };
 #pragma pack(pop)
 
