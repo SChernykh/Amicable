@@ -316,13 +316,13 @@ FORCEINLINE bool whole_branch_deficient(const num128& Limit, num64 value, num64 
 		p += (*shift) * ShiftMultiplier;
 		shift += 2;
 
-		num128 value1;
-		value1.lo = _umul128(value, p, &value1.hi);
-		if (value1 >= Limit)
+		num128 value2;
+		value2.lo = _umul128(value, p, &value2.hi);
+		if (value2 >= Limit)
 		{
 			break;
 		}
-		value = value1.lo;
+		value = value2.lo;
 
 		// sigma(p^k) / p^k =
 		// (p^(k+1) - 1) / (p^k * (p - 1)) = 
