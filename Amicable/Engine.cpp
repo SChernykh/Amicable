@@ -35,7 +35,7 @@ PRAGMA_WARNING(pop)
 // a + p + a / p + 1 - (1 + p + a) = a + p + a / p + 1 - 1 - p - a = a / p > 0
 //
 // So, S(a) <= a + p + a / p + 1 = a + p + q + 1
-FORCEINLINE number MaximumSumOfDivisors2(const number a, const number p, const number q)
+FORCEINLINE num64 MaximumSumOfDivisors2(const num64 a, const num64 p, const num64 q)
 {
 	return a + p + q + 1;
 }
@@ -177,7 +177,7 @@ FORCEINLINE number MaximumSumOfDivisors2(const number a, const number p, const n
 //		a + 4 * p0^3 + p0^2 + a / p0^2 + 1
 //		a / p0^2 < p0^2
 //		a + 4 * p0^3 + 2 * p0^2 + 1
-FORCEINLINE number MaximumSumOfDivisors3(const number a, const number p0, const number a_div_p0)
+FORCEINLINE num64 MaximumSumOfDivisors3(const num64 a, const num64 p0, const num64 a_div_p0)
 {
 	// F1(sqrt(a) / p0) is the analytically deduced sup(S(a)) - see comments above
 	//
@@ -190,20 +190,20 @@ FORCEINLINE number MaximumSumOfDivisors3(const number a, const number p0, const 
 	return a + (a_div_p0 + p0 * p0 + p0) * 2 /*+ 1*/;
 	
 	// F0(sqrt(a) / p0)
-	//const number p0_2 = p0 * p0;
+	//const num64 p0_2 = p0 * p0;
 	//return a + a_div_p0 + p0_2 * p0 + (p0_2 + p0) * 2 + 1;
 
 	// F1(sqrt(a) / p0)
 	//return a + 4 * p0 * p0 * p0 + 2 * p0 * p0 + 1;
 }
 
-NOINLINE number MaximumSumOfDivisors3NoInline(const number a, const number p0, const number a_div_p0)
+NOINLINE num64 MaximumSumOfDivisors3NoInline(const num64 a, const num64 p0, const num64 a_div_p0)
 {
 	return MaximumSumOfDivisors3(a, p0, a_div_p0);
 }
 
 // Lemma 2.1 from http://www.ams.org/journals/mcom/1986-47-175/S0025-5718-1986-0842142-3/S0025-5718-1986-0842142-3.pdf
-FORCEINLINE number GetCoeffForMaximumSumOfDivisorsN(const number m, const number i, number& j)
+FORCEINLINE num64 GetCoeffForMaximumSumOfDivisorsN(const num64 m, const num64 i, num64& j)
 {
 	for (; ; --j)
 	{
@@ -213,35 +213,35 @@ FORCEINLINE number GetCoeffForMaximumSumOfDivisorsN(const number m, const number
 	}
 }
 
-FORCEINLINE number MaximumSumOfDivisorsN(const number m, const number i, number& j)
+FORCEINLINE num64 MaximumSumOfDivisorsN(const num64 m, const num64 i, num64& j)
 {
-	number highProduct;
+	num64 highProduct;
 	_umul128(m, GetCoeffForMaximumSumOfDivisorsN(m, i, j), &highProduct);
 	return m + highProduct;
 }
 
 template<int numPrimesCheckedSoFar>
-FORCEINLINE bool IsNumEligible(const number a, const number sumA, const number targetSum, number& j)
+FORCEINLINE bool IsNumEligible(const num64 a, const num64 sumA, const num64 targetSum, num64& j)
 {
-	number highProduct;
-	const number maxPossibleSum = _umul128(sumA, MaximumSumOfDivisorsN(a, numPrimesCheckedSoFar, j), &highProduct);
+	num64 highProduct;
+	const num64 maxPossibleSum = _umul128(sumA, MaximumSumOfDivisorsN(a, numPrimesCheckedSoFar, j), &highProduct);
 	return (maxPossibleSum >= targetSum) || highProduct;
 }
 
-#define M(X) template<> FORCEINLINE bool IsNumEligible<X>(const number, const number, const number, number&) { return true; }
+#define M(X) template<> FORCEINLINE bool IsNumEligible<X>(const num64, const num64, const num64, num64&) { return true; }
 	M(0)M(1)M(2)M(3)M(4)M(5)M(6)M(7)M(8)M(9)
 	M(10)M(11)M(12)M(13)M(14)M(15)
 #undef M
 
-template<> FORCEINLINE bool IsNumEligible<IS_NUM_ELIGIBLE_BEGIN>(const number a, const number sumA, const number targetSum, number& j)
+template<> FORCEINLINE bool IsNumEligible<IS_NUM_ELIGIBLE_BEGIN>(const num64 a, const num64 sumA, const num64 targetSum, num64& j)
 {
-	for (number k = 0; ; ++k)
+	for (num64 k = 0; ; ++k)
 	{
 		if (a <= SumEstimatesBeginP[k])
 		{
-			number highProduct;
+			num64 highProduct;
 			_umul128(a, SumEstimatesBeginQ[k], &highProduct);
-			const number maxPossibleSum = _umul128(sumA, a + highProduct, &highProduct);
+			const num64 maxPossibleSum = _umul128(sumA, a + highProduct, &highProduct);
 			j = k;
 			return (maxPossibleSum >= targetSum) || highProduct;
 		}
@@ -249,7 +249,7 @@ template<> FORCEINLINE bool IsNumEligible<IS_NUM_ELIGIBLE_BEGIN>(const number a,
 }
 
 template<int PrimeIndex>
-FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetSum, number& n2TargetSum, number& j)
+FORCEINLINE bool CheckDivisibility(num64& a, num64& sumA, const num64 targetSum, num64& n2TargetSum, num64& j)
 {
 	enum {p = CompileTimePrimes<PrimeIndex>::value};
 
@@ -260,14 +260,14 @@ FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetS
 	}
 
 	// M / N = (M * value) mod 2^64
-	// This means that (M * value) must be <= (number(-1) / N)
+	// This means that (M * value) must be <= (num64(-1) / N)
 	// Otherwise it's not divisible by N
-	number q = a * PrimeInverses[PrimeIndex].first;
+	num64 q = a * PrimeInverses[PrimeIndex].first;
 	if (UNLIKELY(q <= PrimeInverses[PrimeIndex].second))
 	{
-		const number prevSumA = sumA;
-		number nextSumA = prevSumA * (p + 1);
-		number curPower = 0;
+		const num64 prevSumA = sumA;
+		num64 nextSumA = prevSumA * (p + 1);
+		num64 curPower = 0;
 		for (;;)
 		{
 			a = q;
@@ -281,13 +281,13 @@ FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetS
 		}
 		sumA = nextSumA;
 
-		// If a number is fully factored, then exit immediately
+		// If a num64 is fully factored, then exit immediately
 		if (a < CompileTimePrimes<PrimeIndex + 1>::value * CompileTimePrimes<PrimeIndex + 1>::value)
 			return true;
 
 		// found new prime factor, let's check that N is not abundant yet
-		number h;
-		const number minSum = _umul128(sumA, a + 1, &h);
+		num64 h;
+		const num64 minSum = _umul128(sumA, a + 1, &h);
 		if ((minSum > targetSum) || h)
 			return false;
 
@@ -298,21 +298,21 @@ FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetS
 		}
 
 		// and then check that targetSum is divisible by partial sum
-		enum Sums : number
+		enum Sums : num64
 		{
-			s1 = number(p) + 1,
-			s2 = number(p) * p + s1,
-			s3 = number(p) * p * p + s2,
-			s4 = number(p) * p * p * p + s3,
-			s5 = number(p) * p * p * p * p + s4,
+			s1 = num64(p) + 1,
+			s2 = num64(p) * p + s1,
+			s3 = num64(p) * p * p + s2,
+			s4 = num64(p) * p * p * p + s3,
+			s5 = num64(p) * p * p * p * p + s4,
 		};
 
-		static CACHE_ALIGNED const number InverseS[5][3] = {
-			{MultiplicativeInverseEven<s1>::value, MultiplicativeInverseEven<s1>::shift, number(-1) / s1},
-			{MultiplicativeInverse<s2>::value, 0, number(-1) / s2},
-			{MultiplicativeInverseEven<s3>::value, MultiplicativeInverseEven<s3>::shift, number(-1) / s3},
-			{MultiplicativeInverse<s4>::value, 0, number(-1) / s4},
-			{MultiplicativeInverseEven<s5>::value, MultiplicativeInverseEven<s5>::shift, number(-1) / s5},
+		static CACHE_ALIGNED const num64 InverseS[5][3] = {
+			{MultiplicativeInverseEven<s1>::value, MultiplicativeInverseEven<s1>::shift, num64(-1) / s1},
+			{MultiplicativeInverse<s2>::value, 0, num64(-1) / s2},
+			{MultiplicativeInverseEven<s3>::value, MultiplicativeInverseEven<s3>::shift, num64(-1) / s3},
+			{MultiplicativeInverse<s4>::value, 0, num64(-1) / s4},
+			{MultiplicativeInverseEven<s5>::value, MultiplicativeInverseEven<s5>::shift, num64(-1) / s5},
 		};
 
 		if (curPower < ARRAYSIZE(InverseS))
@@ -326,7 +326,7 @@ FORCEINLINE bool CheckDivisibility(number& a, number& sumA, const number targetS
 	return CheckDivisibility<PrimeIndex + 1>(a, sumA, targetSum, n2TargetSum, j);
 }
 
-template<> FORCEINLINE bool CheckDivisibility<CompileTimePrimesCount>(number&, number&, const number, number&, number&) { return true; }
+template<> FORCEINLINE bool CheckDivisibility<CompileTimePrimesCount>(num64&, num64&, const num64, num64&, num64&) { return true; }
 
 static THREAD_LOCAL unsigned int NumFoundPairs;
 
@@ -343,7 +343,7 @@ unsigned int GetNumFoundPairsInThisThread()
 bool g_PrintNumbers = true;
 FILE* g_outputFile = nullptr;
 
-NOINLINE void NumberFound(const number n1)
+NOINLINE void NumberFound(const num64 n1)
 {
 	++NumFoundPairs;
 	if (g_PrintNumbers)
@@ -353,8 +353,8 @@ NOINLINE void NumberFound(const number n1)
 	}
 }
 
-// Fast integer cube root. Returns number m such that m^3 <= n < (m+1)^3 for all n > 0
-FORCEINLINE number IntegerCbrt(const number n)
+// Fast integer cube root. Returns num64 m such that m^3 <= n < (m+1)^3 for all n > 0
+FORCEINLINE num64 IntegerCbrt(const num64 n)
 {
 	if (n < 8)
 	{
@@ -366,10 +366,10 @@ FORCEINLINE number IntegerCbrt(const number n)
 
 	index = (index * ((65536 / 3) + 1)) >> 16;
 
-	number result = number(1) << index;
-	for (number cur_bit = result >> 1; cur_bit > 0; cur_bit >>= 1)
+	num64 result = num64(1) << index;
+	for (num64 cur_bit = result >> 1; cur_bit > 0; cur_bit >>= 1)
 	{
-		const number k = result | cur_bit;
+		const num64 k = result | cur_bit;
 		if ((k <= 2642245) && (k * k * k <= n))
 		{
 			result = k;
@@ -378,14 +378,14 @@ FORCEINLINE number IntegerCbrt(const number n)
 	return result;
 }
 
-FORCEINLINE number Root4(const number n)
+FORCEINLINE num64 Root4(const num64 n)
 {
-	return static_cast<number>(static_cast<__int64>(sqrt(sqrt(n))));
+	return static_cast<num64>(static_cast<__int64>(sqrt(sqrt(n))));
 }
 
-FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, number n2TargetSum, number n2, number sum)
+FORCEINLINE void CheckPairInternal(const num64 n1, const num64 targetSum, num64 n2TargetSum, num64 n2, num64 sum)
 {
-	number indexForMaximumSumOfDivisorsN;
+	num64 indexForMaximumSumOfDivisorsN;
 	if (!CheckDivisibility<1>(n2, sum, targetSum, n2TargetSum, indexForMaximumSumOfDivisorsN))
 		return;
 
@@ -400,14 +400,14 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 		return;
 	}
 
-	number numPrimesCheckedSoFar = CompileTimePrimesCount;
+	num64 numPrimesCheckedSoFar = CompileTimePrimesCount;
 
 	if (!IsNumEligible<CompileTimePrimesCount>(n2, sum, targetSum, indexForMaximumSumOfDivisorsN))
 		return;
 
 	// We must have sum == targetSum in the end
 	// sum is constructed by multiplying it by (p^(e+1) - 1) for each found prime factor p^e
-	// p^(e+1) - 1 is an integer number
+	// p^(e+1) - 1 is an integer num64
 	//
 	// no matter how we split the sum, in "partial_sum1 * partial_sum2 == targetSum" both partial sums must be integer
 	//
@@ -416,18 +416,18 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 	n2TargetSum = targetSum / sum;
 	if ((targetSum % sum) != 0)
 		return;
-	number n2_sqrt4 = Root4(n2);
+	num64 n2_sqrt4 = Root4(n2);
 
-	number p = CompileTimePrimes<CompileTimePrimesCount>::value;
+	num64 p = CompileTimePrimes<CompileTimePrimesCount>::value;
 	while (p <= n2_sqrt4)
 	{
-		number h;
-		number q = n2 * PrimeInverses3[numPrimesCheckedSoFar];
+		num64 h;
+		num64 q = n2 * PrimeInverses3[numPrimesCheckedSoFar];
 		_umul128(q, p, &h);
 		if (UNLIKELY(h == 0))
 		{
-			number n = p;
-			number curSum = p + 1;
+			num64 n = p;
+			num64 curSum = p + 1;
 			n2 = q;
 
 			while (p <= n2)
@@ -474,8 +474,8 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 		if (!IsPerfectSquareCandidate(n2))
 			return;
 
-		p = static_cast<number>(static_cast<__int64>(sqrt(n2)));
-		const number p2 = p * p;
+		p = static_cast<num64>(static_cast<__int64>(sqrt(n2)));
+		const num64 p2 = p * p;
 		if (p2 != n2)
 			return;
 
@@ -501,18 +501,18 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 	// if n2 has 3 factors, then minimal possible sum of divisors is n2 + n2^(2/3) + n2^(1/3) + 1
 	// if target sum is less than this, then n2 must not have 3 factors in order to have such n2TargetSum
 	// So we only run the loop up to cube root of n2 only if target sum is >= than this
-	number n2_cbrt = IntegerCbrt(n2);
+	num64 n2_cbrt = IntegerCbrt(n2);
 	if (n2TargetSum > n2 + n2_cbrt * (n2_cbrt + 1))
 	{
 		while (p <= n2_cbrt)
 		{
-			number h;
-			number q = n2 * PrimeInverses3[numPrimesCheckedSoFar];
+			num64 h;
+			num64 q = n2 * PrimeInverses3[numPrimesCheckedSoFar];
 			_umul128(q, p, &h);
 			if (UNLIKELY(h == 0))
 			{
-				number n = p;
-				number curSum = p + 1;
+				num64 n = p;
+				num64 curSum = p + 1;
 				n2 = q;
 
 				while (p <= n2)
@@ -548,7 +548,7 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 
 			if ((numPrimesCheckedSoFar & 15) == 0)
 			{
-				const number q1 = PrimeReciprocals[numPrimesCheckedSoFar].DivideNoRemainder(n2);
+				const num64 q1 = PrimeReciprocals[numPrimesCheckedSoFar].DivideNoRemainder(n2);
 				if (MaximumSumOfDivisors3(n2, p, q1) < n2TargetSum)
 					return;
 			}
@@ -561,13 +561,13 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 	// Here p^3 > n2, so n2 can have at most 2 factors
 	while (p * p <= n2)
 	{
-		number q;
+		num64 q;
 		if (numPrimesCheckedSoFar < ReciprocalsTableSize)
 		{
 			if (PrimeReciprocals[numPrimesCheckedSoFar].Divide(n2, p, q))
 			{
-				number n = p;
-				number curSum = p + 1;
+				num64 n = p;
+				num64 curSum = p + 1;
 				n2 = q;
 				while (p <= n2)
 				{
@@ -585,11 +585,11 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 		else
 		{
 			q = n2 / p;
-			number r = n2 % p;
+			num64 r = n2 % p;
 			if (r == 0)
 			{
-				number n = p;
-				number curSum = p + 1;
+				num64 n = p;
+				num64 curSum = p + 1;
 				n2 = q;
 
 				while (p <= n2)
@@ -619,8 +619,8 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 			// D=B^2-4*A
 			// p=(B-sqrt(D))/2
 			// q=(B+sqrt(D))/2
-			const number B = n2TargetSum - n2 - 1;
-			number B2[2], D[2];
+			const num64 B = n2TargetSum - n2 - 1;
+			num64 B2[2], D[2];
 			B2[0] = _umul128(B, B, &B2[1]);
 			sub128(B2[0], B2[1], n2 << 2, n2 >> 62, &D[0], &D[1]);
 			if (IsPerfectSquareCandidate(D[0]))
@@ -632,7 +632,7 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 				// p and q here must be > cuberoot(N).
 				// q - p = sqrt_D, so if q > 2^48 then this code might work incorrectly.
 				//
-				// Let's try to get a lower bound for such number.
+				// Let's try to get a lower bound for such num64.
 				// N > p * q > p * 2^48 > cuberoot(N) * 2^48
 				// N / cuberoot(N) > 2^48
 				// N^(2/3) > 2^48
@@ -641,11 +641,11 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 				// Since N is always < 2^64 here, it'll be safe
 				//
 				// sqrt is rounded up here, so for example sqrt(15241383936) will give 123456.00000000000001
-				// static_cast<number>(...) will round it down to a correct integer
+				// static_cast<num64>(...) will round it down to a correct integer
 				const double D1 = static_cast<double>(D[0]) + static_cast<double>(D[1]) * 18446744073709551616.0;
 				if (D1 > 0)
 				{
-					const number sqrt_D = static_cast<number>(sqrt(D1));
+					const num64 sqrt_D = static_cast<num64>(sqrt(D1));
 					if (sqrt_D * sqrt_D == D[0])
 					{
 						p = (B - sqrt_D) / 2;
@@ -660,15 +660,15 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 			// 2) Check the case n2 = p^2
 			if (IsPerfectSquareCandidate(n2))
 			{
-				p = static_cast<number>(sqrt(static_cast<double>(n2)));
-				const number p_squared = p * p;
+				p = static_cast<num64>(sqrt(static_cast<double>(n2)));
+				const num64 p_squared = p * p;
 				if ((p_squared == n2) && (p_squared + p + 1 == n2TargetSum) && IsPrime(p))
 					NumberFound(n1);
 			}
 		}
 		else
 		{
-			// n2 + 1 == n2TargetSum, n2 must be a prime number
+			// n2 + 1 == n2TargetSum, n2 must be a prime num64
 			if (IsPrime(n2))
 				NumberFound(n1);
 		}
@@ -684,38 +684,38 @@ FORCEINLINE void CheckPairInternal(const number n1, const number targetSum, numb
 		NumberFound(n1);
 }
 
-NOINLINE static void CheckPairInternalNoInline(const number n1, const number targetSum, number n2TargetSum, number n2, number sum)
+NOINLINE static void CheckPairInternalNoInline(const num64 n1, const num64 targetSum, num64 n2TargetSum, num64 n2, num64 sum)
 {
 	CheckPairInternal(n1, targetSum, n2TargetSum, n2, sum);
 }
 
-#define X(N) {MultiplicativeInverse<(number(1) << (N + 2)) - 1>::value, number(-1) / ((number(1) << (N + 2)) - 1)}
+#define X(N) {MultiplicativeInverse<(num64(1) << (N + 2)) - 1>::value, num64(-1) / ((num64(1) << (N + 2)) - 1)}
 
 // Cache aligned
-CACHE_ALIGNED static const number locPowersOf2DivisibilityData[63][2] = {
+CACHE_ALIGNED static const num64 locPowersOf2DivisibilityData[63][2] = {
 	X(0), X(1), X(2), X(3), X(4), X(5), X(6), X(7), X(8), X(9),
 	X(10), X(11), X(12), X(13), X(14), X(15), X(16), X(17), X(18), X(19),
 	X(20), X(21), X(22), X(23), X(24), X(25), X(26), X(27), X(28), X(29),
 	X(30), X(31), X(32), X(33), X(34), X(35), X(36), X(37), X(38), X(39),
 	X(40), X(41), X(42), X(43), X(44), X(45), X(46), X(47), X(48), X(49),
 	X(50), X(51), X(52), X(53), X(54), X(55), X(56), X(57), X(58), X(59),
-	X(60), X(61), {number(-1), 1},
+	X(60), X(61), {num64(-1), 1},
 };
 
 #undef X
 
-FORCEINLINE number InitialCheck(const number n1, const number targetSum, number& n2)
+FORCEINLINE num64 InitialCheck(const num64 n1, const num64 targetSum, num64& n2)
 {
 	n2 = targetSum - n1;
 
 	unsigned long bitIndex;
 	_BitScanForward64(&bitIndex, n2);
-	number n2TargetSum = targetSum;
+	num64 n2TargetSum = targetSum;
 	ASSUME(n2TargetSum > 0);
 	if (bitIndex > 0)
 	{
 		n2 >>= bitIndex;
-		const number minSum = n2 + 1;
+		const num64 minSum = n2 + 1;
 		if ((minSum << (bitIndex + 1)) - minSum > targetSum)
 			return 0;
 
@@ -728,15 +728,15 @@ FORCEINLINE number InitialCheck(const number n1, const number targetSum, number&
 	return n2TargetSum;
 }
 
-FORCEINLINE void CheckPair(const number n1, const number targetSum)
+FORCEINLINE void CheckPair(const num64 n1, const num64 targetSum)
 {
-	number n2;
-	const number n2TargetSum = InitialCheck(n1, targetSum, n2);
+	num64 n2;
+	const num64 n2TargetSum = InitialCheck(n1, targetSum, n2);
 	if (n2TargetSum)
 		CheckPairInternal(n1, n2TargetSum, n2TargetSum, n2, 1);
 }
 
-NOINLINE void CheckPairNoInline(const number n1, const number targetSum)
+NOINLINE void CheckPairNoInline(const num64 n1, const num64 targetSum)
 {
 	CheckPair(n1, targetSum);
 }
@@ -744,15 +744,15 @@ NOINLINE void CheckPairNoInline(const number n1, const number targetSum)
 struct InverseData128
 {
 	unsigned char shift;
-	number inverse[2];
-	number max_value[2];
+	num64 inverse[2];
+	num64 max_value[2];
 };
 
 #include "inverses128.h"
 
-FORCEINLINE number InitialCheck128(const number n1, number targetSumLow, number targetSumHigh, number& n2)
+FORCEINLINE num64 InitialCheck128(const num64 n1, num64 targetSumLow, num64 targetSumHigh, num64& n2)
 {
-	number n2_128[2];
+	num64 n2_128[2];
 	sub128(targetSumLow, targetSumHigh, n1, 0, n2_128, n2_128 + 1);
 
 	unsigned long powerOf2;
@@ -771,9 +771,9 @@ FORCEINLINE number InitialCheck128(const number n1, number targetSumLow, number 
 
 	if (powerOf2 > 0)
 	{
-		const number (&data)[2][2] = locPowersOf2_128DivisibilityData[powerOf2];
+		const num64 (&data)[2][2] = locPowersOf2_128DivisibilityData[powerOf2];
 
-		number q[2];
+		num64 q[2];
 		q[0] = _umul128(targetSumLow, data[0][0], &q[1]);
 		q[1] += targetSumLow * data[0][1] + targetSumHigh * data[0][0];
 		if (q[1])
@@ -788,12 +788,12 @@ FORCEINLINE number InitialCheck128(const number n1, number targetSumLow, number 
 
 	for (unsigned int i = 0; targetSumHigh && (i < ARRAYSIZE(locPrimeInverses_128)); ++i)
 	{
-		const number(&prime_inverse)[2][2] = locPrimeInverses_128[i];
+		const num64(&prime_inverse)[2][2] = locPrimeInverses_128[i];
 
-		number powerOf_p;
+		num64 powerOf_p;
 		for (powerOf_p = 0;; ++powerOf_p)
 		{
-			number q[2];
+			num64 q[2];
 			q[0] = _umul128(n2_128[0], prime_inverse[0][0], &q[1]);
 			q[1] += n2_128[0] * prime_inverse[0][1] + n2_128[1] * prime_inverse[0][0];
 			if ((q[1] > prime_inverse[1][1]) || (((q[1] == prime_inverse[1][1])) && (q[0] > prime_inverse[1][0])))
@@ -817,7 +817,7 @@ FORCEINLINE number InitialCheck128(const number n1, number targetSumLow, number 
 				shr128(targetSumLow, targetSumHigh, data.shift);
 			}
 
-			number q[2];
+			num64 q[2];
 			q[0] = _umul128(targetSumLow, data.inverse[0], &q[1]);
 			q[1] += targetSumLow * data.inverse[1] + targetSumHigh * data.inverse[0];
 			if (q[1])
@@ -838,30 +838,30 @@ FORCEINLINE number InitialCheck128(const number n1, number targetSumLow, number 
 	return targetSumLow;
 }
 
-FORCEINLINE void CheckPair128(const number n1, number targetSumLow, number targetSumHigh)
+FORCEINLINE void CheckPair128(const num64 n1, num64 targetSumLow, num64 targetSumHigh)
 {
-	number n2;
-	const number n2TargetSum = InitialCheck128(n1, targetSumLow, targetSumHigh, n2);
+	num64 n2;
+	const num64 n2TargetSum = InitialCheck128(n1, targetSumLow, targetSumHigh, n2);
 	if (n2TargetSum && (n2 < n2TargetSum))
 		CheckPairInternalNoInline(n1, n2TargetSum, n2TargetSum, n2, 1);
 }
 
-NOINLINE void CheckPair128NoInline(const number n1, number targetSumLow, number targetSumHigh)
+NOINLINE void CheckPair128NoInline(const num64 n1, num64 targetSumLow, num64 targetSumHigh)
 {
 	CheckPair128(n1, targetSumLow, targetSumHigh);
 }
 
-template<bool HandleLargeSums> void CheckPairSafeImpl(const number m, const number target_sum1, const number target_sum2);
+template<bool HandleLargeSums> void CheckPairSafeImpl(const num64 m, const num64 target_sum1, const num64 target_sum2);
 
-template<> FORCEINLINE void CheckPairSafeImpl<false>(const number m, const number target_sum1, const number target_sum2)
+template<> FORCEINLINE void CheckPairSafeImpl<false>(const num64 m, const num64 target_sum1, const num64 target_sum2)
 {
 	CheckPair(m, target_sum1 * target_sum2);
 }
 
-template<> FORCEINLINE void CheckPairSafeImpl<true>(const number m, const number target_sum1, const number target_sum2)
+template<> FORCEINLINE void CheckPairSafeImpl<true>(const num64 m, const num64 target_sum1, const num64 target_sum2)
 {
-	number targetSumHi;
-	const number targetSum = _umul128(target_sum1, target_sum2, &targetSumHi);
+	num64 targetSumHi;
+	const num64 targetSum = _umul128(target_sum1, target_sum2, &targetSumHi);
 	if (targetSumHi == 0)
 	{
 		CheckPair(m, targetSum);
@@ -872,18 +872,14 @@ template<> FORCEINLINE void CheckPairSafeImpl<true>(const number m, const number
 	}
 }
 
-FORCEINLINE void CheckPairSafe(const number m, const number target_sum1, const number target_sum2)
+FORCEINLINE void CheckPairSafe(const num64 m, const num64 target_sum1, const num64 target_sum2)
 {
-#if DYNAMIC_SEARCH_LIMIT
 	CheckPairSafeImpl<true>(m, target_sum1, target_sum2);
-#else
-	CheckPairSafeImpl<number(-1) / 3 < SearchLimit::value>(m, target_sum1, target_sum2);
-#endif
 }
 
-NOINLINE number SearchRange(const RangeData& r)
+NOINLINE num64 SearchRange(const RangeData& r)
 {
-	number prime_limit = (SearchLimit::value - 1) / r.value;
+	num64 prime_limit = ((SearchLimit::value - 1) / r.value).lo;
 	if (prime_limit > SearchLimit::MainPrimeTableBound)
 	{
 		prime_limit = SearchLimit::MainPrimeTableBound;
@@ -892,7 +888,7 @@ NOINLINE number SearchRange(const RangeData& r)
 	unsigned int is_over_abundant_mask = 0;
 	if (r.sum - r.value < r.value)
 	{
-		const number prime_limit2 = (r.sum - 1) / (r.value * 2 - r.sum);
+		const num64 prime_limit2 = (r.sum - 1) / (r.value * 2 - r.sum);
 		if (prime_limit > prime_limit2)
 		{
 			prime_limit = prime_limit2;
@@ -912,15 +908,15 @@ NOINLINE number SearchRange(const RangeData& r)
 		is_over_abundant_mask <<= 8;
 	}
 
-	number q = r.start_prime;
+	num64 q = r.start_prime;
 	const byte* shift = NextPrimeShifts + r.index_start_prime * 2;
-	const number m = r.value;
-	const number sum_m = r.sum;
+	const num64 m = r.value;
+	const num64 sum_m = r.sum;
 	while (q <= prime_limit)
 	{
 		const unsigned int shiftData = *reinterpret_cast<const unsigned int*>(shift);
 		shift += 2;
-		const number prev_q = q;
+		const num64 prev_q = q;
 		q += (shiftData & 255) * ShiftMultiplier;
 		if ((shiftData & is_over_abundant_mask) == 0)
 		{
@@ -928,12 +924,12 @@ NOINLINE number SearchRange(const RangeData& r)
 		}
 	}
 
-	return static_cast<number>(shift - (NextPrimeShifts + r.index_start_prime * 2)) / 2;
+	return static_cast<num64>(shift - (NextPrimeShifts + r.index_start_prime * 2)) / 2;
 }
 
-NOINLINE number SearchRangeSquared(const RangeData& r)
+NOINLINE num64 SearchRangeSquared(const RangeData& r)
 {
-	number prime_limit = static_cast<number>(sqrt(static_cast<double>(SearchLimit::value) / r.value)) + 1;
+	num64 prime_limit = static_cast<num64>(sqrt((SearchLimit::value / r.value).lo)) + 1;
 	if (r.sum - r.value < r.value)
 	{
 		// r.sum * (p^2 + p + 1) = r.value * p^2 * 2
@@ -943,46 +939,46 @@ NOINLINE number SearchRangeSquared(const RangeData& r)
 		// (r.value * 2 - r.sum) / r.sum * p^2 - p - 1 = 0
 		// (r.value * 2 / r.sum - 1) * p^2 - p - 1 = 0
 		const double A = static_cast<double>(r.value * 2 - r.sum) / r.sum;
-		const number prime_limit2 = static_cast<number>((1.0 + sqrt(1.0 + 4.0 * A)) / (2.0 * A)) + 1;
+		const num64 prime_limit2 = static_cast<num64>((1.0 + sqrt(1.0 + 4.0 * A)) / (2.0 * A)) + 1;
 		if (prime_limit > prime_limit2)
 		{
 			prime_limit = prime_limit2;
 		}
 	}
 
-	number q = r.start_prime;
+	num64 q = r.start_prime;
 	const byte* shift = NextPrimeShifts + r.index_start_prime * 2;
-	const number m = r.value;
-	const number sum_m = r.sum;
+	const num64 m = r.value;
+	const num64 sum_m = r.sum;
 	while (q < prime_limit)
 	{
-		const number q2 = q * q;
+		const num64 q2 = q * q;
 		CheckPairSafe(m * q2, sum_m, q2 + q + 1);
 		q += static_cast<unsigned int>(*shift) * ShiftMultiplier;
 		shift += 2;
 	}
 
-	return static_cast<number>(shift - (NextPrimeShifts + r.index_start_prime * 2)) / 2;
+	return static_cast<num64>(shift - (NextPrimeShifts + r.index_start_prime * 2)) / 2;
 }
 
-NOINLINE number SearchRangeCubed(const RangeData& r)
+NOINLINE num64 SearchRangeCubed(const RangeData& r)
 {
-	number q = r.start_prime;
+	num64 q = r.start_prime;
 	const byte* shift = NextPrimeShifts + r.index_start_prime * 2;
-	const number m = r.value;
-	const number sum_m = r.sum;
+	const num64 m = r.value;
+	const num64 sum_m = r.sum;
 	for (;;)
 	{
-		number h;
-		const number q2 = q * q;
-		const number q3 = _umul128(q2, q, &h);
+		num64 h;
+		const num64 q2 = q * q;
+		const num64 q3 = _umul128(q2, q, &h);
 		if (h)
 		{
 			break;
 		}
 
-		const number value = _umul128(m, q3, &h);
-		if ((value >= SearchLimit::value) || h)
+		const num64 value = _umul128(m, q3, &h);
+		if ((SearchLimit::value <= value) || h)
 		{
 			break;
 		}
@@ -991,7 +987,7 @@ NOINLINE number SearchRangeCubed(const RangeData& r)
 		shift += 2;
 	}
 
-	return static_cast<number>(shift - (NextPrimeShifts + r.index_start_prime * 2)) / 2;
+	return static_cast<num64>(shift - (NextPrimeShifts + r.index_start_prime * 2)) / 2;
 }
 
 #include <primesieve/SieveOfEratosthenes-inline.hpp>
@@ -1003,13 +999,13 @@ namespace primesieve
 	public:
 		PrimeFinderLargePrimes(PrimeSieve& ps, const PreSieve& preSieve) : PrimeFinder(ps, preSieve) {}
 
-		FORCEINLINE void Init(const number rangeBegin)
+		FORCEINLINE void Init(const num64 rangeBegin)
 		{
-			auto it = std::lower_bound(CandidatesData.begin(), CandidatesData.end(), rangeBegin, [](const AmicableCandidate& candidate, number k)
+			auto it = std::lower_bound(CandidatesData.begin(), CandidatesData.end(), rangeBegin, [](const AmicableCandidate& candidate, num64 k)
 			{
-				number h;
-				const number m = _umul128(k, candidate.value, &h);
-				return ((m < SearchLimit::value) && (h == 0));
+				num64 h;
+				const num64 m = _umul128(k, candidate.value, &h);
+				return ((SearchLimit::value > m) && (h == 0));
 			});
 			last_candidate = CandidatesData.data() + (it - CandidatesData.begin()) - 1;
 		}
@@ -1022,14 +1018,14 @@ namespace primesieve
 				uint64_t bits = littleendian_cast<uint64_t>(&sieve[i]); 
 				while (bits != 0)
 				{
-					const number curPrime = getNextPrime(&bits, base);
+					const num64 curPrime = getNextPrime(&bits, base);
 
 					const unsigned int mask = CandidatesDataMask[Mod385(curPrime + 1)];
 					while (last_candidate >= CandidatesData.data())
 					{
-						number h;
-						const number m = _umul128(curPrime, last_candidate->value, &h);
-						if ((m < SearchLimit::value) && (h == 0))
+						num64 h;
+						const num64 m = _umul128(curPrime, last_candidate->value, &h);
+						if ((SearchLimit::value > m) && (h == 0))
 						{
 							break;
 						}
@@ -1040,7 +1036,7 @@ namespace primesieve
 					{
 						if ((candidate->is_over_abundant_mask & mask) == 0)
 						{
-							CheckPairSafe(curPrime * candidate->value, static_cast<number>(candidate->sum) + static_cast<number>(candidate->value) * 2, curPrime + 1);
+							CheckPairSafe(curPrime * candidate->value, static_cast<num64>(candidate->sum) + static_cast<num64>(candidate->value) * 2, curPrime + 1);
 						}
 					}
 				}
@@ -1054,15 +1050,15 @@ namespace primesieve
 	};
 }
 
-NOINLINE void SearchLargePrimes(volatile number* SharedCounterForSearch, const number StartPrime, const number PrimeLimit, number &sharedCounterValue)
+NOINLINE void SearchLargePrimes(volatile num64* SharedCounterForSearch, const num64 StartPrime, const num64 PrimeLimit, num64 &sharedCounterValue)
 {
 	primesieve::PrimeSieve s;
 	sharedCounterValue = _InterlockedIncrement(SharedCounterForSearch) - 1;
 
 	while (sharedCounterValue < RangeGen::LargePrimesSplitSize)
 	{
-		const number curRangeBegin = StartPrime + (PrimeLimit - StartPrime + 1) * sharedCounterValue / RangeGen::LargePrimesSplitSize;
-		const number curRangeEnd = StartPrime + (PrimeLimit - StartPrime + 1) * (sharedCounterValue + 1) / RangeGen::LargePrimesSplitSize - 1;
+		const num64 curRangeBegin = StartPrime + (PrimeLimit - StartPrime + 1) * sharedCounterValue / RangeGen::LargePrimesSplitSize;
+		const num64 curRangeEnd = StartPrime + (PrimeLimit - StartPrime + 1) * (sharedCounterValue + 1) / RangeGen::LargePrimesSplitSize - 1;
 
 		if (curRangeBegin <= curRangeEnd)
 		{
@@ -1090,7 +1086,7 @@ NOINLINE void SearchLargePrimes(volatile number* SharedCounterForSearch, const n
 			finder.sieve();
 		}
 
-		const number numFinished = _InterlockedIncrement(SharedCounterForSearch + 1);
+		const num64 numFinished = _InterlockedIncrement(SharedCounterForSearch + 1);
 		const double f = numFinished / static_cast<double>(RangeGen::LargePrimesSplitSize);
 		boinc_fraction_done((f > 1.0) ? 1.0 : f);
 

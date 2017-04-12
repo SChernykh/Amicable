@@ -137,6 +137,9 @@
     <ClInclude Include="inverses128.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="num128.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -200,6 +203,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Definitions.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="num128.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

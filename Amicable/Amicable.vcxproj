@@ -83,6 +83,8 @@
       <FloatingPointModel>Fast</FloatingPointModel>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <AdditionalIncludeDirectories>$(SolutionDir)Amicable;$(SolutionDir)primesieve\include;..\..\Boinc\api;..\..\Boinc\lib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AssemblerOutput>All</AssemblerOutput>
+      <WholeProgramOptimization>false</WholeProgramOptimization>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -122,6 +124,7 @@
     <ClInclude Include="Definitions.h" />
     <ClInclude Include="Engine.h" />
     <ClInclude Include="inverses128.h" />
+    <ClInclude Include="num128.h" />
     <ClInclude Include="PGO_Helper.h" />
     <ClInclude Include="Platform_GCC_Linux.h" />
     <ClInclude Include="Platform_MSVC_Windows.h" />
@@ -150,6 +153,7 @@
       <AssemblerOutput Condition="'$(Configuration)|$(Platform)'=='Release|x64'">All</AssemblerOutput>
     </ClCompile>
     <ClCompile Include="Definitions.cpp" />
+    <ClCompile Include="num128.cpp" />
     <ClCompile Include="Platform.cpp" />
     <ClCompile Include="Engine.cpp">
       <AssemblerOutput Condition="'$(Configuration)|$(Platform)'=='Release|x64'">All</AssemblerOutput>

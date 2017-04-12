@@ -2,15 +2,15 @@
 
 struct RangeData;
 
-number SearchRange(const RangeData& r);
-number SearchRangeSquared(const RangeData& r);
-number SearchRangeCubed(const RangeData& r);
+num64 SearchRange(const RangeData& r);
+num64 SearchRangeSquared(const RangeData& r);
+num64 SearchRangeCubed(const RangeData& r);
 
-void SearchLargePrimes(volatile number* SharedCounterForSearch, const number StartPrime, const number PrimeLimit, number &sharedCounterValue);
+void SearchLargePrimes(volatile num64* SharedCounterForSearch, const num64 StartPrime, const num64 PrimeLimit, num64 &sharedCounterValue);
 
-void CheckPairNoInline(const number n1, const number targetSum);
-void CheckPair128NoInline(const number n1, number targetSumLow, number targetSumHigh);
-number MaximumSumOfDivisors3NoInline(const number a, const number p0, const number a_div_p0);
+void CheckPairNoInline(const num64 n1, const num64 targetSum);
+void CheckPair128NoInline(const num64 n1, num64 targetSumLow, num64 targetSumHigh);
+num64 MaximumSumOfDivisors3NoInline(const num64 a, const num64 p0, const num64 a_div_p0);
 	
 void SetNumFoundPairsInThisThread(unsigned int value);
 unsigned int GetNumFoundPairsInThisThread();

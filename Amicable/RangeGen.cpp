@@ -16,8 +16,8 @@ CACHE_ALIGNED Factor RangeGen::factors[MaxPrimeFactors];
 int RangeGen::search_stack_depth;
 int RangeGen::prev_search_stack_depth;
 unsigned int RangeGen::cur_largest_prime_power;
-volatile number RangeGen::SharedCounterForSearch[2] = {};
-number RangeGen::total_numbers_checked;
+volatile num64 RangeGen::SharedCounterForSearch[2] = {};
+num64 RangeGen::total_numbers_checked;
 double RangeGen::total_numbers_to_check = 2.5e11;
 volatile bool RangeGen::allDone = false;
 
@@ -25,10 +25,10 @@ const char* const CHECKPOINT_LOGICAL_NAME = "amicable_checkpoint";
 
 RangeGen RangeGen::RangeGen_instance;
 
-static FORCEINLINE bool is_abundant_q(const number sum, const number sum_q, const number value_to_check)
+static FORCEINLINE bool is_abundant_q(const num64 sum, const num64 sum_q, const num64 value_to_check)
 {
 	// sum * sum_q can be >= 2^64 when SearchLimit::value is large enough, so use 128-bit arithmetic here
-	number s2[2];
+	num64 s2[2];
 	s2[0] = _umul128(sum, sum_q, &s2[1]);
 	sub128(s2[0], s2[1], value_to_check, 0, s2, s2 + 1);
 	return (s2[0] > value_to_check) || s2[1];
@@ -41,7 +41,7 @@ NOINLINE bool RangeGen::Iterate(RangeData& range)
 	Factor* f = factors + search_stack_depth;
 
 	int start_i, start_j;
-	number q0, q, sum_q;
+	num64 q0, q, sum_q;
 
 #define RECURSE ++search_stack_depth; ++s; ++f; goto recurse_begin
 #define RETURN --search_stack_depth; --s; --f; goto recurse_begin
@@ -77,9 +77,9 @@ recurse_begin:
 
 	for (f->index = start_i; f->p <= SearchLimit::PrimeInversesBound; f->p += NextPrimeShifts[f->index * 2] * ShiftMultiplier, ++f->index)
 	{
-		number h;
+		num64 h;
 		s[1].value = _umul128(s->value, f->p, &h);
-		if ((s[1].value >= SearchLimit::value) || h)
+		if ((SearchLimit::value <= s[1].value) || h)
 		{
 			RETURN;
 		}
@@ -87,7 +87,7 @@ recurse_begin:
 
 		f->k = 1;
 
-		f->q_max = number(-1) / f->p;
+		f->q_max = num64(-1) / f->p;
 
 		PRAGMA_WARNING(suppress : 4146)
 		f->p_inv = -modular_inverse64(f->p);
@@ -143,10 +143,10 @@ recurse_begin:
 				}
 
 				// We don't need to check if sum_q fits in 64 bits because q < SearchLimit::value / s[1].value,
-				// where s[1].value must be >= 20 for s[1].value * q to be amicable number
+				// where s[1].value must be >= 20 for s[1].value * q to be amicable num64
 
-				const number value_to_check = _umul128(s[1].value, q, &h);
-				if ((value_to_check >= SearchLimit::value) || h)
+				const num64 value_to_check = _umul128(s[1].value, q, &h);
+				if ((SearchLimit::value <= value_to_check) || h)
 				{
 					if (f->k == 1)
 					{
@@ -179,7 +179,7 @@ recurse_begin:
 						return true;
 					}
 
-					if (!whole_branch_deficient<SearchLimit::value>(s[1].value, s[1].sum, f))
+					if (!whole_branch_deficient(SearchLimit::value, s[1].value, s[1].sum, f))
 					{
 						RECURSE;
 					}
@@ -188,7 +188,7 @@ recurse_begin:
 
 recurse_return:
 			s[1].value = _umul128(s[1].value, f->p, &h);
-			if ((s[1].value >= SearchLimit::value) || h)
+			if ((SearchLimit::value <= s[1].value) || h)
 			{
 				break;
 			}
@@ -203,7 +203,7 @@ recurse_return:
 			{
 				f->p = 3;
 			}
-			// Check only 2, 3, 5 as the smallest prime factor because the smallest abundant number coprime to 2*3*5 is ~2*10^25
+			// Check only 2, 3, 5 as the smallest prime factor because the smallest abundant num64 coprime to 2*3*5 is ~2*10^25
 			if (f->p >= 5)
 			{
 				break;
@@ -266,9 +266,9 @@ FORCEINLINE unsigned int ParseFactorization(char* factorization, T callback)
 {
 	unsigned int numFactors = 0;
 	int counter = 0;
-	number prev_p = 0;
-	number p = 0;
-	number p1 = 2;
+	num64 prev_p = 0;
+	num64 p = 0;
+	num64 p1 = 2;
 	int index_p1 = 0;
 	unsigned int k = 0;
 	for (char* ptr = factorization, *prevPtr = factorization; ; ++ptr)
@@ -280,7 +280,7 @@ FORCEINLINE unsigned int ParseFactorization(char* factorization, T callback)
 			++counter;
 			if (counter == 1)
 			{
-				p = static_cast<number>(StrToNumber(prevPtr));
+				p = static_cast<num64>(StrToNumber(prevPtr));
 			}
 			else if (counter == 2)
 			{
@@ -366,14 +366,14 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 	if (startFrom)
 	{
 		const unsigned int numFactors = ParseFactorization(startFrom,
-			[startFrom](number p, unsigned int k, int p_index, unsigned int factor_index)
+			[startFrom](num64 p, unsigned int k, int p_index, unsigned int factor_index)
 			{
 				Factor& f = factors[factor_index];
 				f.p = p;
 				f.k = k;
 				f.index = p_index;
 
-				f.q_max = number(-1) / p;
+				f.q_max = num64(-1) / p;
 
 				PRAGMA_WARNING(suppress : 4146)
 				f.p_inv = -modular_inverse64(p);
@@ -388,13 +388,13 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 				StackFrame& next_s = search_stack[factor_index + 1];
 				next_s.value = cur_s.value;
 				next_s.sum = cur_s.sum;
-				for (number i = 0; i < k; ++i)
+				for (num64 i = 0; i < k; ++i)
 				{
-					number h;
+					num64 h;
 					next_s.value = _umul128(next_s.value, p, &h);
-					if ((next_s.value >= SearchLimit::value) || h)
+					if ((SearchLimit::value <= next_s.value) || h)
 					{
-						std::cerr << "Factorization '" << startFrom << "' is incorrect: number is too large" << std::endl;
+						std::cerr << "Factorization '" << startFrom << "' is incorrect: num64 is too large" << std::endl;
 						abort();
 					}
 					next_s.sum = next_s.sum * p + cur_s.sum;
@@ -411,7 +411,7 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 		range.value = 0;
 
 		int start_j = f->index + 1;
-		number q0 = f->p + NextPrimeShifts[f->index * 2] * ShiftMultiplier;
+		num64 q0 = f->p + NextPrimeShifts[f->index * 2] * ShiftMultiplier;
 
 		// A check to ensure that m*q is not divisible by 6
 		if (search_stack_depth == 1)
@@ -426,16 +426,16 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 			}
 		}
 
-		number q = q0;
-		number sum_q = q0 + 1;
+		num64 q = q0;
+		num64 sum_q = q0 + 1;
 
-		number h;
-		const number value_to_check = _umul128(s->value, q, &h);
-		if ((value_to_check < SearchLimit::value) && !h)
+		num64 h;
+		const num64 value_to_check = _umul128(s->value, q, &h);
+		if ((SearchLimit::value > value_to_check) && !h)
 		{
 			// Skip overabundant numbers
 			const bool is_deficient = (s->sum - s->value < s->value);
-			if (is_deficient || !OverAbundant<2>(factors, static_cast<int>(numFactors) - 1, s->value, s->sum, static_cast<number>((cur_largest_prime_power & 1) ? 2 : 1)))
+			if (is_deficient || !OverAbundant<2>(factors, static_cast<int>(numFactors) - 1, s->value, s->sum, static_cast<num64>((cur_largest_prime_power & 1) ? 2 : 1)))
 			{
 				if (!is_deficient || is_abundant_q(s->sum, sum_q, value_to_check))
 				{
@@ -453,7 +453,7 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 	if (stopAt)
 	{
 		ParseFactorization(stopAt,
-			[outStopAtFactors](number p, unsigned int k, int /*p_index*/, unsigned int factor_index)
+			[outStopAtFactors](num64 p, unsigned int k, int /*p_index*/, unsigned int factor_index)
 			{
 				outStopAtFactors[factor_index].p = p;
 				outStopAtFactors[factor_index].k = k;
@@ -462,7 +462,7 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 	}
 }
 
-NOINLINE void RangeGen::Run(number numThreads, char* startFrom, char* stopAt, unsigned int largestPrimePower, number startPrime, number primeLimit)
+NOINLINE void RangeGen::Run(num64 numThreads, char* startFrom, char* stopAt, unsigned int largestPrimePower, num64 startPrime, num64 primeLimit)
 {
 	RangeData startFromRange;
 	Factor stopAtFactors[MaxPrimeFactors + 1] = {};
@@ -482,7 +482,7 @@ NOINLINE void RangeGen::Run(number numThreads, char* startFrom, char* stopAt, un
 				if (startPrime && primeLimit)
 				{
 					std::stringstream s;
-					number minCounterValue, startPrimeCheck, primeLimitCheck;
+					num64 minCounterValue, startPrimeCheck, primeLimitCheck;
 					s << checkpoint_buf;
 					s >> minCounterValue >> startPrimeCheck >> primeLimitCheck;
 					if ((0 < minCounterValue) && (minCounterValue < LargePrimesSplitSize) && (startPrimeCheck == startPrime) && (primeLimitCheck == primeLimit))
@@ -528,7 +528,7 @@ NOINLINE void RangeGen::Run(number numThreads, char* startFrom, char* stopAt, un
 	std::vector<std::thread> threads;
 
 	WorkerThreadParams* params = reinterpret_cast<WorkerThreadParams*>(alloca(sizeof(WorkerThreadParams) * numThreads));
-	for (number i = 0; i < numThreads; ++i)
+	for (num64 i = 0; i < numThreads; ++i)
 	{
 		params[i].rangeToCheckFirst = (startFrom && startFromRange.value && (i == 0)) ? &startFromRange : nullptr;
 		params[i].stopAtFactors = stopAt ? stopAtFactors : nullptr;
@@ -542,7 +542,7 @@ NOINLINE void RangeGen::Run(number numThreads, char* startFrom, char* stopAt, un
 
 	std::thread checkpoint_thread(CheckpointThread, params, numThreads);
 
-	for (number i = 0; i < numThreads; ++i)
+	for (num64 i = 0; i < numThreads; ++i)
 	{
 		threads[i].join();
 	}
@@ -551,7 +551,7 @@ NOINLINE void RangeGen::Run(number numThreads, char* startFrom, char* stopAt, un
 	checkpoint_thread.join();
 }
 
-NOINLINE void RangeGen::CheckpointThread(WorkerThreadParams* params, number numWorkerThreads)
+NOINLINE void RangeGen::CheckpointThread(WorkerThreadParams* params, num64 numWorkerThreads)
 {
 	std::string checkpoint_name, data;
 	boinc_resolve_filename_s(CHECKPOINT_LOGICAL_NAME, checkpoint_name);
@@ -566,12 +566,12 @@ NOINLINE void RangeGen::CheckpointThread(WorkerThreadParams* params, number numW
 			// Find the most lagging thread and use this thread's state as current checkpoint
 			if (params[0].startPrime && params[0].primeLimit)
 			{
-				number minCounterValue = RangeGen::LargePrimesSplitSize;
-				for (number i = 0; i < numWorkerThreads; ++i)
+				num64 minCounterValue = RangeGen::LargePrimesSplitSize;
+				for (num64 i = 0; i < numWorkerThreads; ++i)
 				{
 					if (!params[i].finished)
 					{
-						const number curValue = params[i].sharedCounterValue;
+						const num64 curValue = params[i].sharedCounterValue;
 						if (minCounterValue > curValue)
 						{
 							minCounterValue = curValue;
@@ -587,7 +587,7 @@ NOINLINE void RangeGen::CheckpointThread(WorkerThreadParams* params, number numW
 
 				EnterCriticalSection(&lock);
 
-				for (number i = 0; i < numWorkerThreads; ++i)
+				for (num64 i = 0; i < numWorkerThreads; ++i)
 				{
 					if (!params[i].finished)
 					{
@@ -602,8 +602,8 @@ NOINLINE void RangeGen::CheckpointThread(WorkerThreadParams* params, number numW
 							const Factor(&mainFactors)[MaxPrimeFactors] = mostLaggingThreadState.curRange.factors;
 							const Factor(&curFactors)[MaxPrimeFactors] = params[i].stateToSave.curRange.factors;
 
-							number j;
-							for (j = 0; j <= static_cast<number>(params[i].stateToSave.curRange.last_factor_index); ++j)
+							num64 j;
+							for (j = 0; j <= static_cast<num64>(params[i].stateToSave.curRange.last_factor_index); ++j)
 							{
 								if (curFactors[j].p != mainFactors[j].p)
 								{
@@ -617,7 +617,7 @@ NOINLINE void RangeGen::CheckpointThread(WorkerThreadParams* params, number numW
 								}
 							}
 
-							if (j > static_cast<number>(params[i].stateToSave.curRange.last_factor_index))
+							if (j > static_cast<num64>(params[i].stateToSave.curRange.last_factor_index))
 							{
 								is_less = (params[i].stateToSave.curRange.last_factor_index < mostLaggingThreadState.curRange.last_factor_index);
 							}
@@ -637,7 +637,7 @@ NOINLINE void RangeGen::CheckpointThread(WorkerThreadParams* params, number numW
 
 				// Then factorization from most lagging thread
 				Factor(&mainFactors)[MaxPrimeFactors] = mostLaggingThreadState.curRange.factors;
-				for (number i = 0; i <= static_cast<number>(mostLaggingThreadState.curRange.last_factor_index); ++i)
+				for (num64 i = 0; i <= static_cast<num64>(mostLaggingThreadState.curRange.last_factor_index); ++i)
 				{
 					if (i > 0)
 					{
@@ -673,7 +673,7 @@ NOINLINE void RangeGen::WorkerThread(WorkerThreadParams* params)
 	SetLowPriority();
 	ForceRoundUpFloatingPoint();
 
-	number numbers_checked = 0;
+	num64 numbers_checked = 0;
 
 	if (params->startPrime && params->primeLimit)
 	{
@@ -715,8 +715,8 @@ NOINLINE void RangeGen::WorkerThread(WorkerThreadParams* params)
 		};
 		RangeData ranges[RangesReadAheadSize];
 		unsigned int range_largest_prime_power[RangesReadAheadSize];
-		number range_write_index = 0;
-		number range_read_index = 0;
+		num64 range_write_index = 0;
+		num64 range_read_index = 0;
 		for (;;)
 		{
 			bool is_locked = TryEnterCriticalSection(&lock) != 0;
@@ -755,7 +755,7 @@ NOINLINE void RangeGen::WorkerThread(WorkerThreadParams* params)
 						}
 
 						bool done = false;
-						number i;
+						num64 i;
 						for (i = 0; i < MaxPrimeFactors; ++i)
 						{
 							if (r.factors[i].p != params->stopAtFactors[i].p)

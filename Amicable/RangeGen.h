@@ -23,9 +23,9 @@
 struct RangeData
 {
 	Factor factors[16];
-	number value;
-	number sum;
-	number start_prime;
+	num64 value;
+	num64 sum;
+	num64 start_prime;
 	unsigned int index_start_prime;
 	int last_factor_index;
 };
@@ -34,7 +34,7 @@ class RangeGen
 {
 public:
 	static void Init(char* startFrom, char* stopAt, RangeData* outStartFromRange, Factor* outStopAtFactors, unsigned int largestPrimePower);
-	static void Run(number numThreads, char* startFrom, char* stopAt, unsigned int largestPrimePower, number startPrime, number primeLimit);
+	static void Run(num64 numThreads, char* startFrom, char* stopAt, unsigned int largestPrimePower, num64 startPrime, num64 primeLimit);
 	static bool Iterate(RangeData& range);
 
 	static double total_numbers_to_check;
@@ -50,7 +50,7 @@ private:
 
 	struct StackFrame
 	{
-		number value, sum;
+		num64 value, sum;
 	};
 
 	template<unsigned int largest_prime_power> static bool Iterate(RangeData& range);
@@ -59,22 +59,22 @@ private:
 	{
 		RangeData curRange;
 		unsigned int curLargestPrimePower;
-		number total_numbers_checked;
+		num64 total_numbers_checked;
 	};
 
 	struct WorkerThreadParams
 	{
 		const RangeData* rangeToCheckFirst;
 		const Factor* stopAtFactors;
-		number startPrime;
-		number primeLimit;
-		number sharedCounterValue;
+		num64 startPrime;
+		num64 primeLimit;
+		num64 sharedCounterValue;
 		unsigned int startLargestPrimePower;
 		WorkerThreadState stateToSave;
 		volatile bool finished;
 	};
 
-	static void CheckpointThread(WorkerThreadParams* params, number numWorkerThreads);
+	static void CheckpointThread(WorkerThreadParams* params, num64 numWorkerThreads);
 	static void WorkerThread(WorkerThreadParams* params);
 
 private:
@@ -84,8 +84,8 @@ private:
 	static int search_stack_depth;
 	static int prev_search_stack_depth;
 	static unsigned int cur_largest_prime_power;
-	static volatile number SharedCounterForSearch[2];
-	static number total_numbers_checked;
+	static volatile num64 SharedCounterForSearch[2];
+	static num64 total_numbers_checked;
 	static volatile bool allDone;
 
 	static RangeGen RangeGen_instance;

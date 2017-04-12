@@ -9,7 +9,7 @@
 static THREAD_LOCAL bool locIsWorkerThread = false;
 static THREAD_LOCAL jmp_buf locWorkerThreadJumpBuffer;
 
-static NOINLINE void ProfileGuidedOptimization_Instrument_WorkerThread(number data)
+static NOINLINE void ProfileGuidedOptimization_Instrument_WorkerThread(num64 data)
 {
 	locIsWorkerThread = true;
 
@@ -33,7 +33,7 @@ static NOINLINE void ProfileGuidedOptimization_Instrument_WorkerThread(number da
 		r.factors[1].k = 1;
 		r.factors[1].index = CompileTimePrimesCount;
 		r.factors[1].p_inv = MultiplicativeInverse<CompileTimePrimes<CompileTimePrimesCount>::value>::value;
-		r.factors[1].q_max = number(-1) / CompileTimePrimes<CompileTimePrimesCount>::value;
+		r.factors[1].q_max = num64(-1) / CompileTimePrimes<CompileTimePrimesCount>::value;
 		r.value = 256 * CompileTimePrimes<CompileTimePrimesCount>::value;
 		r.sum = 511 * (CompileTimePrimes<CompileTimePrimesCount>::value + 1);
 		r.start_prime = CompileTimePrimes<CompileTimePrimesCount + 1>::value;
@@ -64,16 +64,16 @@ static NOINLINE void ProfileGuidedOptimization_Instrument_WorkerThread(number da
 
 		case 3:
 			{
-				number k = 0;
-				number sharedCounterValue = 0;
+				num64 k = 0;
+				num64 sharedCounterValue = 0;
 				SearchLargePrimes(&k, SearchLimit::MainPrimeTableBound + 1, SearchLimit::SafeLimit, sharedCounterValue);
 			}
 			break;
 
 		case 4:
 			{
-				number k = 0;
-				number sharedCounterValue = 0;
+				num64 k = 0;
+				num64 sharedCounterValue = 0;
 				SearchLargePrimes(&k, SearchLimit::SafeLimit / 50, SearchLimit::SafeLimit, sharedCounterValue);
 			}
 			break;
@@ -119,11 +119,11 @@ NOINLINE void ProfileGuidedOptimization_Instrument()
 
 	RangeGen::Init(nullptr, nullptr, nullptr, nullptr, 1);
 
-	const number NumWorkerThreads = 6;
+	const num64 NumWorkerThreads = 6;
 
 	std::vector<std::thread> threads;
 	threads.reserve(NumWorkerThreads);
-	for (number i = 0; i < NumWorkerThreads; ++i)
+	for (num64 i = 0; i < NumWorkerThreads; ++i)
 	{
 		threads.emplace_back(std::thread(ProfileGuidedOptimization_Instrument_WorkerThread, i));
 	}
@@ -136,7 +136,7 @@ NOINLINE void ProfileGuidedOptimization_Instrument()
 	// Access violation will be caught and the thread will then finish gracefully, saving all profiling data.
 	DisableAccessToMemory(privNextPrimeShifts, 4096);
 
-	for (number i = 0; i < threads.size(); ++i)
+	for (num64 i = 0; i < threads.size(); ++i)
 	{
 		threads[i].join();
 	}

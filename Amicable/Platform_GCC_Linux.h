@@ -1,5 +1,7 @@
 #pragma once
 
+typedef unsigned __int128 num128
+
 #ifndef NOINLINE
 #define NOINLINE __attribute__ ((noinline))
 #endif
@@ -14,7 +16,7 @@
 
 #define THREAD_LOCAL thread_local
 
-template <typename T, number N> char(*ArraySizeHelper(T(&)[N]))[N];
+template <typename T, num64 N> char(*ArraySizeHelper(T(&)[N]))[N];
 #define ARRAYSIZE(A) (sizeof(*ArraySizeHelper(A)))
 
 typedef unsigned long DWORD;
@@ -30,7 +32,7 @@ FORCEINLINE void _BitScanForward64(unsigned long* index, unsigned long long mask
 	*index = static_cast<unsigned long>(__builtin_ctzll(mask));
 }
 
-FORCEINLINE number _rotr64(number value, int shift)
+FORCEINLINE num64 _rotr64(num64 value, int shift)
 {
 	return (value >> shift) | (value << (64 - shift));
 }
@@ -144,12 +146,12 @@ FORCEINLINE void Sleep(DWORD ms)
 	}
 }
 
-FORCEINLINE void* AllocateSystemMemory(number size, bool is_executable)
+FORCEINLINE void* AllocateSystemMemory(num64 size, bool is_executable)
 {
 	return mmap(0, size, is_executable ? (PROT_READ | PROT_WRITE | PROT_EXEC) : (PROT_READ | PROT_WRITE), MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 }
 
-FORCEINLINE void DisableAccessToMemory(void* ptr, number size)
+FORCEINLINE void DisableAccessToMemory(void* ptr, num64 size)
 {
 	mprotect(ptr, size, PROT_NONE);
 }
@@ -170,51 +172,62 @@ FORCEINLINE bool SetLowPriority()
 
 #pragma GCC system_header
 
-FORCEINLINE number _umul128(number a, number b, number* h)
+FORCEINLINE num64 _umul128(num64 a, num64 b, num64* h)
 {
 	const unsigned __int128 result = static_cast<unsigned __int128>(a) * b;
-	*h = static_cast<number>(result >> 64);
-	return static_cast<number>(result);
+	*h = static_cast<num64>(result >> 64);
+	return static_cast<num64>(result);
 }
 
-FORCEINLINE number udiv128(number numhi, number numlo, number den, number* rem)
+FORCEINLINE num64 udiv128(num64 numhi, num64 numlo, num64 den, num64* rem)
 {
 	const unsigned __int128 n = (static_cast<unsigned __int128>(numhi) << 64) + numlo;
 
-	const number result = n / den;
+	const num64 result = n / den;
 	*rem = n % den;
 
 	return result;
 }
 
-FORCEINLINE number mulmod64(number a, number b, number n)
+FORCEINLINE num64 udiv128_noremainder(num64 numlo, num64 numhi, num64 den)
+{
+	const num64 result = ((static_cast<unsigned __int128>(numhi) << 64) + numlo) / den;
+	return result;
+}
+
+FORCEINLINE num64 mulmod64(num64 a, num64 b, num64 n)
 {
 	return (static_cast<unsigned __int128>(a) * b) % n;
 }
 
-FORCEINLINE void add128(number a_lo, number a_hi, number b_lo, number b_hi, number* result_lo, number* result_hi)
+FORCEINLINE void add128(num64 a_lo, num64 a_hi, num64 b_lo, num64 b_hi, num64* result_lo, num64* result_hi)
 {
 	const unsigned __int128 result = ((static_cast<unsigned __int128>(a_hi) << 64) + a_lo) + ((static_cast<unsigned __int128>(b_hi) << 64) + b_lo);
-	*result_lo = static_cast<number>(result);
-	*result_hi = static_cast<number>(result >> 64);
+	*result_lo = static_cast<num64>(result);
+	*result_hi = static_cast<num64>(result >> 64);
 }
 
-FORCEINLINE void sub128(number a_lo, number a_hi, number b_lo, number b_hi, number* result_lo, number* result_hi)
+FORCEINLINE void sub128(num64 a_lo, num64 a_hi, num64 b_lo, num64 b_hi, num64* result_lo, num64* result_hi)
 {
 	const unsigned __int128 result = ((static_cast<unsigned __int128>(a_hi) << 64) + a_lo) - ((static_cast<unsigned __int128>(b_hi) << 64) + b_lo);
-	*result_lo = static_cast<number>(result);
-	*result_hi = static_cast<number>(result >> 64);
+	*result_lo = static_cast<num64>(result);
+	*result_hi = static_cast<num64>(result >> 64);
 }
 
-FORCEINLINE byte leq128(number a_lo, number a_hi, number b_lo, number b_hi)
+FORCEINLINE byte leq128(num64 a_lo, num64 a_hi, num64 b_lo, num64 b_hi)
 {
 	return (static_cast<__int128>(((static_cast<unsigned __int128>(a_hi) << 64) + a_lo) - ((static_cast<unsigned __int128>(b_hi) << 64) + b_lo)) <= 0) ? 1 : 0;
 }
 
-FORCEINLINE void shr128(number& lo, number& hi, unsigned char count)
+FORCEINLINE byte less128(num64 a_lo, num64 a_hi, num64 b_lo, num64 b_hi)
+{
+	return (static_cast<__int128>(((static_cast<unsigned __int128>(a_hi) << 64) + a_lo) - ((static_cast<unsigned __int128>(b_hi) << 64) + b_lo)) < 0) ? 1 : 0;
+}
+
+FORCEINLINE void shr128(num64& lo, num64& hi, unsigned char count)
 {
 	unsigned __int128 t = (static_cast<unsigned __int128>(hi) << 64) + lo;
 	t >>= count;
-	lo = static_cast<number>(t);
-	hi = static_cast<number>(t >> 64);
+	lo = static_cast<num64>(t);
+	hi = static_cast<num64>(t >> 64);
 }

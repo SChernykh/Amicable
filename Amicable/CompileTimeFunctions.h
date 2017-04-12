@@ -1,29 +1,29 @@
 #pragma once
 
-template<number Pred, number A, number B> struct Predicate;
+template<num64 Pred, num64 A, num64 B> struct Predicate;
 
-template<number A, number B>
+template<num64 A, num64 B>
 struct Predicate<1, A, B>
 {
-	enum Value : number
+	enum Value : num64
 	{
 		value = A,
 	};
 };
 
-template<number A, number B>
+template<num64 A, num64 B>
 struct Predicate<0, A, B>
 {
-	enum Value : number
+	enum Value : num64
 	{
 		value = B,
 	};
 };
 
-template<number N, number A, number B>
+template<num64 N, num64 A, num64 B>
 struct CompileTimeSQRTImpl
 {
-	enum Value : number
+	enum Value : num64
 	{
 		C = (A / 2) + (B / 2) + ((A & B) & 1) + 1,
 		Pred = (C * C > N) ? 1 : 0,
@@ -31,37 +31,37 @@ struct CompileTimeSQRTImpl
 	};
 };
 
-template<number N, number C>
+template<num64 N, num64 C>
 struct CompileTimeSQRTImpl<N, C, C>
 {
-	enum Value : number
+	enum Value : num64
 	{
 		value = C,
 	};
 };
 
-template<number N>
+template<num64 N>
 struct CompileTimeSQRT
 {
-	enum Value : number
+	enum Value : num64
 	{
 		value = CompileTimeSQRTImpl<N, 1, 4294967295>::value,
 	};
 };
 
-template<number A, number B>
+template<num64 A, num64 B>
 struct Min
 {
-	enum X : number
+	enum X : num64
 	{
 		value = (A < B) ? A : B,
 	};
 };
 
-template<number A, number B>
+template<num64 A, num64 B>
 struct Max
 {
-	enum X : number
+	enum X : num64
 	{
 		value = (A > B) ? A : B,
 	};
@@ -69,13 +69,13 @@ struct Max
 
 PRAGMA_WARNING(push)
 
-// Disable this warning here because number overflows are the essence of this algorithm: it computes everything modulo 2^64.
+// Disable this warning here because num64 overflows are the essence of this algorithm: it computes everything modulo 2^64.
 PRAGMA_WARNING(disable : 4307) // warning C4307: '*' : integral constant overflow
 
-template<number x1, number x2, number v1, number v2>
+template<num64 x1, num64 x2, num64 v1, num64 v2>
 struct ExtendedEuclidCompileTime
 {
-	enum Variables : number
+	enum Variables : num64
 	{
 		q = v1 / v2,
 		x3 = x1 - q * x2,
@@ -84,49 +84,49 @@ struct ExtendedEuclidCompileTime
 	};
 };
 
-template<number x1, number x2, number v1>
+template<num64 x1, num64 x2, num64 v1>
 struct ExtendedEuclidCompileTime<x1, x2, v1, 1>
 {
-	enum Variables : number
+	enum Variables : num64
 	{
 		value = x2,
 	};
 };
 
-template<number N>
+template<num64 N>
 struct MultiplicativeInverse
 {
-	enum Variables : number
+	enum Variables : num64
 	{
-		value = ExtendedEuclidCompileTime<number(-1), 1, ~N + 1, N>::value,
+		value = ExtendedEuclidCompileTime<num64(-1), 1, ~N + 1, N>::value,
 	};
 };
 
 // For even numbers
-template<number N, number K, bool IsEven>
+template<num64 N, num64 K, bool IsEven>
 struct MultiplicativeInverseEvenImpl
 {
-	enum Variables : number
+	enum Variables : num64
 	{
 		value = MultiplicativeInverseEvenImpl<N / 2, K + 1, ((N / 2) % 2) == 0>::value,
 		shift = MultiplicativeInverseEvenImpl<N / 2, K + 1, ((N / 2) % 2) == 0>::shift,
 	};
 };
 
-template<number N, number K>
+template<num64 N, num64 K>
 struct MultiplicativeInverseEvenImpl<N, K, false>
 {
-	enum Variables : number
+	enum Variables : num64
 	{
 		value = MultiplicativeInverse<N>::value,
 		shift = K,
 	};
 };
 
-template<number N>
+template<num64 N>
 struct MultiplicativeInverseEven
 {
-	enum Variables : number
+	enum Variables : num64
 	{
 		value = MultiplicativeInverseEvenImpl<N, 0, (N % 2) == 0>::value,
 		shift = MultiplicativeInverseEvenImpl<N, 0, (N % 2) == 0>::shift,
@@ -135,7 +135,7 @@ struct MultiplicativeInverseEven
 
 PRAGMA_WARNING(pop)
 
-template<number N> struct CompileTimePrimes;
+template<num64 N> struct CompileTimePrimes;
 
 template<> struct CompileTimePrimes<0>  { enum { value =  2 }; };
 template<> struct CompileTimePrimes<1>  { enum { value =  3 }; };

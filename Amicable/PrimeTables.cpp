@@ -7,24 +7,24 @@
 CACHE_ALIGNED SReciprocal privPrimeReciprocals[ReciprocalsTableSize];
 byte* privNextPrimeShifts = nullptr;
 const SumEstimateData* privSumEstimates[SumEstimatesSize];
-CACHE_ALIGNED number privSumEstimatesBeginP[SumEstimatesSize];
-CACHE_ALIGNED number privSumEstimatesBeginQ[SumEstimatesSize];
+CACHE_ALIGNED num64 privSumEstimatesBeginP[SumEstimatesSize];
+CACHE_ALIGNED num64 privSumEstimatesBeginQ[SumEstimatesSize];
 std::vector<AmicableCandidate> privCandidatesData;
 CACHE_ALIGNED unsigned char privCandidatesDataMask[5 * 7 * 11];
-CACHE_ALIGNED std::pair<number, number> privPrimeInverses[CompileTimePrimesCount];
-CACHE_ALIGNED std::pair<number, number> privPrimeInverses2[CompileTimePrimesCount];
-CACHE_ALIGNED number privPrimeInverses3[ReciprocalsTableSize];
-CACHE_ALIGNED number privPrimeInverses4[ReciprocalsTableSize];
+CACHE_ALIGNED std::pair<num64, num64> privPrimeInverses[CompileTimePrimesCount];
+CACHE_ALIGNED std::pair<num64, num64> privPrimeInverses2[CompileTimePrimesCount];
+CACHE_ALIGNED num64 privPrimeInverses3[ReciprocalsTableSize];
+CACHE_ALIGNED num64 privPrimeInverses4[ReciprocalsTableSize];
 
 byte* MainPrimeTable = nullptr;
 byte bitOffset[PrimeTableParameters::Modulo];
-number bitMask[PrimeTableParameters::Modulo];
+num64 bitMask[PrimeTableParameters::Modulo];
 
 struct MainPrimeTableInitializer
 {
 	MainPrimeTableInitializer() : nPrimes(0), prev_p(0) {}
 
-	FORCEINLINE void operator()(number p)
+	FORCEINLINE void operator()(num64 p)
 	{
 		if (nPrimes > 0)
 		{
@@ -42,21 +42,21 @@ struct MainPrimeTableInitializer
 
 		if (p >= 11)
 		{
-			const number bit = bitOffset[p % PrimeTableParameters::Modulo];
-			const number k = (p / PrimeTableParameters::Modulo) * PrimeTableParameters::NumOffsets + bit;
+			const num64 bit = bitOffset[p % PrimeTableParameters::Modulo];
+			const num64 k = (p / PrimeTableParameters::Modulo) * PrimeTableParameters::NumOffsets + bit;
 			MainPrimeTable[k / ByteParams::Bits] |= (1 << (k % ByteParams::Bits));
 		}
 	}
 
-	number nPrimes;
-	number prev_p;
+	num64 nPrimes;
+	num64 prev_p;
 };
 
-static number CalculateMainPrimeTable()
+static num64 CalculateMainPrimeTable()
 {
 	// https://en.wikipedia.org/wiki/Prime_gap#Numerical_results
 	// Since we operate in the range 1..2^64, a gap = PrimeTableParameters::Modulo * 9 = 1890 is enough
-	const number upperBound = ((SearchLimit::MainPrimeTableBound / PrimeTableParameters::Modulo) + 10) * PrimeTableParameters::Modulo;
+	const num64 upperBound = ((SearchLimit::MainPrimeTableBound / PrimeTableParameters::Modulo) + 10) * PrimeTableParameters::Modulo;
 	const size_t arraySize = static_cast<size_t>((upperBound + PrimeTableParameters::Modulo) / PrimeTableParameters::Modulo * (PrimeTableParameters::NumOffsets / ByteParams::Bits));
 	MainPrimeTable = reinterpret_cast<byte*>(AllocateSystemMemory(arraySize, false));
 	MainPrimeTable[0] = 1;
@@ -68,7 +68,7 @@ static number CalculateMainPrimeTable()
 	return p.nPrimes;
 }
 
-bool IsPrime(number n)
+bool IsPrime(num64 n)
 {
 	if (n >= SearchLimit::MainPrimeTableBound)
 	{
@@ -77,31 +77,31 @@ bool IsPrime(number n)
 
 	if (n <= 63)
 	{
-		const number mask = 
-			(number(1) << 2) |
-			(number(1) << 3) |
-			(number(1) << 5) |
-			(number(1) << 7) |
-			(number(1) << 11) |
-			(number(1) << 13) |
-			(number(1) << 17) |
-			(number(1) << 19) |
-			(number(1) << 23) |
-			(number(1) << 29) |
-			(number(1) << 31) |
-			(number(1) << 37) |
-			(number(1) << 41) |
-			(number(1) << 43) |
-			(number(1) << 47) |
-			(number(1) << 53) |
-			(number(1) << 59) |
-			(number(1) << 61);
+		const num64 mask = 
+			(num64(1) << 2) |
+			(num64(1) << 3) |
+			(num64(1) << 5) |
+			(num64(1) << 7) |
+			(num64(1) << 11) |
+			(num64(1) << 13) |
+			(num64(1) << 17) |
+			(num64(1) << 19) |
+			(num64(1) << 23) |
+			(num64(1) << 29) |
+			(num64(1) << 31) |
+			(num64(1) << 37) |
+			(num64(1) << 41) |
+			(num64(1) << 43) |
+			(num64(1) << 47) |
+			(num64(1) << 53) |
+			(num64(1) << 59) |
+			(num64(1) << 61);
 
-		return (mask & (number(1) << n)) != 0;
+		return (mask & (num64(1) << n)) != 0;
 	}
 
-	const number bit = bitOffset[n % PrimeTableParameters::Modulo];
-	const number k = (n / PrimeTableParameters::Modulo) * PrimeTableParameters::NumOffsets + bit;
+	const num64 bit = bitOffset[n % PrimeTableParameters::Modulo];
+	const num64 k = (n / PrimeTableParameters::Modulo) * PrimeTableParameters::NumOffsets + bit;
 	if (bit >= PrimeTableParameters::NumOffsets)
 		return false;
 
@@ -112,23 +112,23 @@ struct NumberAndSumOfDivisors
 {
 	NumberAndSumOfDivisors() : N(1), sumLow(1), sumHigh(0), q(1), r(0) {}
 
-	number N;
-	number sumLow;
-	number sumHigh;
-	number q;
-	number r;
+	num64 N;
+	num64 sumLow;
+	num64 sumHigh;
+	num64 q;
+	num64 r;
 };
 
-NOINLINE void GetSuperAbundantNumber(PrimeIterator p, const number maxPower, const number maxN, NumberAndSumOfDivisors cur, NumberAndSumOfDivisors& best)
+NOINLINE void GetSuperAbundantNumber(PrimeIterator p, const num64 maxPower, const num64 maxN, NumberAndSumOfDivisors cur, NumberAndSumOfDivisors& best)
 {
 	++p;
 
-	number curSumLow = cur.sumLow;
-	number curSumHigh = cur.sumHigh;
-	number h;
-	for (number k = 1; k <= maxPower; ++k)
+	num64 curSumLow = cur.sumLow;
+	num64 curSumHigh = cur.sumHigh;
+	num64 h;
+	for (num64 k = 1; k <= maxPower; ++k)
 	{
-		const number nextN = _umul128(cur.N, p.Get(), &h);
+		const num64 nextN = _umul128(cur.N, p.Get(), &h);
 		if (h || (nextN >= maxN))
 		{
 			// cur.sum / cur.N > best.sum / best.N
@@ -142,10 +142,10 @@ NOINLINE void GetSuperAbundantNumber(PrimeIterator p, const number maxPower, con
 			{
 				// cur.r / cur.N > best.r / best.N
 				// cur.r * best.N > best.r * cur.N
-				number a[2];
+				num64 a[2];
 				a[0] = _umul128(cur.r, best.N, &a[1]);
 
-				number b[2];
+				num64 b[2];
 				b[0] = _umul128(best.r, cur.N, &b[1]);
 
 				if ((a[1] > b[1]) || ((a[1] == b[1]) && (a[0] > b[0])))
@@ -159,7 +159,7 @@ NOINLINE void GetSuperAbundantNumber(PrimeIterator p, const number maxPower, con
 		curSumLow = _umul128(curSumLow, p.Get(), &h);
 		curSumHigh = curSumHigh * p.Get() + h;
 
-		number carry = 0;
+		num64 carry = 0;
 		if (cur.sumLow > ~curSumLow)
 			carry = 1;
 		cur.sumLow += curSumLow;
@@ -169,25 +169,25 @@ NOINLINE void GetSuperAbundantNumber(PrimeIterator p, const number maxPower, con
 	}
 }
 
-static std::vector<std::pair<number, number>> locTmpFactorization;
+static std::vector<std::pair<num64, num64>> locTmpFactorization;
 
-NOINLINE number GetMaxSumRatio(const PrimeIterator& p, const number limit, number* numberWihMaxSumRatio = nullptr)
+NOINLINE num64 GetMaxSumRatio(const PrimeIterator& p, const num64 limit, num64* numberWihMaxSumRatio = nullptr)
 {
 	NumberAndSumOfDivisors cur;
 	NumberAndSumOfDivisors result;
-	GetSuperAbundantNumber(p, number(-1), limit, cur, result);
+	GetSuperAbundantNumber(p, num64(-1), limit, cur, result);
 
-	number r;
-	number q = udiv128(result.sumHigh, result.sumLow, result.N, &r);
+	num64 r;
+	num64 q = udiv128(result.sumHigh, result.sumLow, result.N, &r);
 	if (numberWihMaxSumRatio)
 		*numberWihMaxSumRatio = result.N;
 	if (q > 1)
-		return number(-1);
+		return num64(-1);
 
 	return udiv128(r, 0, result.N, &r) + 1;
 }
 
-AmicableCandidate::AmicableCandidate(number _value, number _sum, unsigned char _is_over_abundant_mask)
+AmicableCandidate::AmicableCandidate(num64 _value, num64 _sum, unsigned char _is_over_abundant_mask)
 	: value(static_cast<unsigned int>(_value))
 	, sum(static_cast<unsigned int>(_sum - _value * 2))
 	, is_over_abundant_mask(static_cast<unsigned char>(_is_over_abundant_mask))
@@ -202,19 +202,19 @@ AmicableCandidate::AmicableCandidate(number _value, number _sum, unsigned char _
 #pragma pack(push, 1)
 struct PrimeData
 {
-	PrimeData(unsigned int _p, number _p_inv, number _q_max) : p(_p), p_inv(_p_inv), q_max(_q_max) {}
+	PrimeData(unsigned int _p, num64 _p_inv, num64 _q_max) : p(_p), p_inv(_p_inv), q_max(_q_max) {}
 
 	unsigned int p;
-	number p_inv;
-	number q_max;
+	num64 p_inv;
+	num64 q_max;
 };
 #pragma pack(pop)
 
 static std::vector<PrimeData> g_PrimeData;
-static number g_MaxPrime = SearchLimit::LinearLimit / 4;
-static number g_LargestCandidate = SearchLimit::value / SearchLimit::LinearLimit;
+static num64 g_MaxPrime;
+static num64 g_LargestCandidate;
 
-NOINLINE void SearchCandidates(Factor* factors, const number value, const number sum, int depth)
+NOINLINE void SearchCandidates(Factor* factors, const num64 value, const num64 sum, int depth)
 {
 	if (sum - value >= value)
 	{
@@ -251,17 +251,17 @@ NOINLINE void SearchCandidates(Factor* factors, const number value, const number
 		}
 	}
 
-	// Check only 2, 3, 5 as the smallest prime factor because the smallest abundant number coprime to 2*3*5 is ~2*10^25
+	// Check only 2, 3, 5 as the smallest prime factor because the smallest abundant num64 coprime to 2*3*5 is ~2*10^25
 	const unsigned int max_prime = static_cast<unsigned int>((depth > 0) ? (g_MaxPrime + 1) : 7);
 	for (f.index = start_i; f.p < max_prime; ++f.index, f.p = (static_cast<unsigned int>(f.index) < g_PrimeData.size()) ? g_PrimeData[static_cast<unsigned int>(f.index)].p : max_prime)
 	{
-		number h;
-		number next_value = _umul128(value, f.p, &h);
+		num64 h;
+		num64 next_value = _umul128(value, f.p, &h);
 		if ((next_value > g_LargestCandidate) || h)
 		{
 			return;
 		}
-		number next_sum = sum * (f.p + 1);
+		num64 next_sum = sum * (f.p + 1);
 
 		f.k = 1;
 		f.p_inv = g_PrimeData[static_cast<unsigned int>(f.index)].p_inv;
@@ -297,15 +297,15 @@ NOINLINE void SearchCandidates(Factor* factors, const number value, const number
 
 NOINLINE void GenerateCandidates()
 {
-	privCandidatesData.reserve(std::min<number>(77432115, g_LargestCandidate / 30));
+	privCandidatesData.reserve(std::min<num64>(77432115, g_LargestCandidate / 30));
 	{
-		const number primeDataCount = 16441820;
+		const num64 primeDataCount = 16441820;
 		g_PrimeData.reserve(primeDataCount);
 		g_PrimeData.emplace_back(2, 0, 0);
-		for (number p = 3, index = 1; index < primeDataCount; p += NextPrimeShifts[index * 2] * ShiftMultiplier, ++index)
+		for (num64 p = 3, index = 1; index < primeDataCount; p += NextPrimeShifts[index * 2] * ShiftMultiplier, ++index)
 		{
 			PRAGMA_WARNING(suppress : 4146)
-			g_PrimeData.emplace_back(static_cast<unsigned int>(p), -modular_inverse64(p), number(-1) / p);
+			g_PrimeData.emplace_back(static_cast<unsigned int>(p), -modular_inverse64(p), num64(-1) / p);
 			if (p > g_MaxPrime)
 			{
 				break;
@@ -321,7 +321,7 @@ NOINLINE void GenerateCandidates()
 	std::sort(privCandidatesData.begin(), privCandidatesData.end(), [](const AmicableCandidate& a, const AmicableCandidate& b){ return a.value < b.value; });
 }
 
-void PrimeTablesInit(number startPrime, number primeLimit, const char* stopAt)
+void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 {
 	// Make sure all floating point calculations round up
 	ForceRoundUpFloatingPoint();
@@ -333,27 +333,27 @@ void PrimeTablesInit(number startPrime, number primeLimit, const char* stopAt)
 		bitMask[NumbersCoprimeToModulo[b]] = ~(1ULL << b);
 	}
 
-	const double nPrimesBound = static_cast<double>((static_cast<number>(SearchLimit::MainPrimeTableBound) < 100000) ? 100000 : static_cast<number>(SearchLimit::MainPrimeTableBound));
-	const number nPrimesEstimate = static_cast<number>(nPrimesBound / (log(nPrimesBound) - 1.1));
+	const double nPrimesBound = static_cast<double>((static_cast<num64>(SearchLimit::MainPrimeTableBound) < 100000) ? 100000 : static_cast<num64>(SearchLimit::MainPrimeTableBound));
+	const num64 nPrimesEstimate = static_cast<num64>(nPrimesBound / (log(nPrimesBound) - 1.1));
 	privNextPrimeShifts = reinterpret_cast<byte*>(AllocateSystemMemory((nPrimesEstimate + (nPrimesEstimate & 1)) * 2, false));
 
 	for (unsigned int i = 0; i < 385; ++i)
 	{
 		unsigned int index = 0;
-		if (i * MultiplicativeInverse<5>::value <= number(-1) / 5) index += 1;
-		if (i * MultiplicativeInverse<7>::value <= number(-1) / 7) index += 2;
-		if (i * MultiplicativeInverse<11>::value <= number(-1) / 11) index += 4;
+		if (i * MultiplicativeInverse<5>::value <= num64(-1) / 5) index += 1;
+		if (i * MultiplicativeInverse<7>::value <= num64(-1) / 7) index += 2;
+		if (i * MultiplicativeInverse<11>::value <= num64(-1) / 11) index += 4;
 		privCandidatesDataMask[i] = static_cast<byte>(1 << index);
 	}
 
 	CalculateMainPrimeTable();
 
-	for (number p = 3, index = 1; index < ARRAYSIZE(privPrimeInverses3); p += NextPrimeShifts[index * 2] * ShiftMultiplier, ++index)
+	for (num64 p = 3, index = 1; index < ARRAYSIZE(privPrimeInverses3); p += NextPrimeShifts[index * 2] * ShiftMultiplier, ++index)
 	{
-		const number p_max = number(-1) / p;
+		const num64 p_max = num64(-1) / p;
 
 		PRAGMA_WARNING(suppress : 4146)
-		const number p_inv = -modular_inverse64(p);
+		const num64 p_inv = -modular_inverse64(p);
 
 		if (p_inv * p != 1)
 		{
@@ -377,7 +377,7 @@ void PrimeTablesInit(number startPrime, number primeLimit, const char* stopAt)
 	// It's a great speed-up compared to the recursive search
 	if ((startPrime && primeLimit) || !stopAt)
 	{
-		g_LargestCandidate = SearchLimit::value / std::max<number>(SearchLimit::LinearLimit, startPrime);
+		g_LargestCandidate = (SearchLimit::value / std::max<num64>(SearchLimit::LinearLimit, startPrime)).lo;
 		g_MaxPrime = g_LargestCandidate / 4;
 		GenerateCandidates();
 	}
@@ -385,46 +385,46 @@ void PrimeTablesInit(number startPrime, number primeLimit, const char* stopAt)
 	// PQ corresponds to tables P and Q in lemma 2.1 from
 	// "Computation of All the Amicable Pairs Below 10^10 By H.J.J.te Riele": http://www.ams.org/journals/mcom/1986-47-175/S0025-5718-1986-0842142-3/S0025-5718-1986-0842142-3.pdf
 	// The only difference is that we calculate exact (hence better) upper bounds for S(m)/m instead of inexact estimates
-	const number maxI = 16384;
-	std::vector<std::pair<number, number>> PQ[SumEstimatesSize];
-	for (number j = 0; j < SumEstimatesSize; ++j)
+	const num64 maxI = 16384;
+	std::vector<std::pair<num64, num64>> PQ[SumEstimatesSize];
+	for (num64 j = 0; j < SumEstimatesSize; ++j)
 	{
 		PQ[j].resize(maxI);
 	}
 
 	PrimeIterator prevP(1);
 	PrimeIterator p(2);
-	number PQ_size = maxI;
-	auto MultiplyWithSaturation = [](const number a, const number b)
+	num64 PQ_size = maxI;
+	auto MultiplyWithSaturation = [](const num64 a, const num64 b)
 	{
-		number h;
-		const number result = _umul128(a, b, &h);
-		return h ? number(-1) : result;
+		num64 h;
+		const num64 result = _umul128(a, b, &h);
+		return h ? num64(-1) : result;
 	};
-	for (number i = 0; (i < maxI) && (p.Get() <= std::max<number>(SearchLimit::MainPrimeTableBound, CompileTimePrimes<CompileTimePrimesCount>::value)); ++i, ++p)
+	for (num64 i = 0; (i < maxI) && (p.Get() <= std::max<num64>(SearchLimit::MainPrimeTableBound, CompileTimePrimes<CompileTimePrimesCount>::value)); ++i, ++p)
 	{
-		number j = 1;
+		num64 j = 1;
 		PrimeIterator q(p);
 		++q;
 
 		PQ[0][i].first = p.Get();
 		PQ[0][i].second = GetMaxSumRatio(prevP, MultiplyWithSaturation(p.Get(), q.Get()));
 
-		for (; (j < SumEstimatesSize) && (q.Get() <= std::max<number>(SearchLimit::MainPrimeTableBound, CompileTimePrimes<CompileTimePrimesCount>::value)); ++j)
+		for (; (j < SumEstimatesSize) && (q.Get() <= std::max<num64>(SearchLimit::MainPrimeTableBound, CompileTimePrimes<CompileTimePrimesCount>::value)); ++j)
 		{
-			number highProductP;
-			const number mulP = _umul128(PQ[j - 1][i].first, q.Get(), &highProductP);
+			num64 highProductP;
+			const num64 mulP = _umul128(PQ[j - 1][i].first, q.Get(), &highProductP);
 			++q;
 			if (highProductP)
 			{
-				const std::pair<number, number> k(number(-1), PQ[j - 1][i].second);
+				const std::pair<num64, num64> k(num64(-1), PQ[j - 1][i].second);
 				for (; j < SumEstimatesSize; ++j)
 					PQ[j][i] = k;
 				break;
 			}
 			else
 			{
-				PQ[j][i] = std::pair<number, number>(mulP, GetMaxSumRatio(prevP, MultiplyWithSaturation(mulP, q.Get())));
+				PQ[j][i] = std::pair<num64, num64>(mulP, GetMaxSumRatio(prevP, MultiplyWithSaturation(mulP, q.Get())));
 			}
 		}
 		if (p.Get() > 65536)
@@ -435,11 +435,11 @@ void PrimeTablesInit(number startPrime, number primeLimit, const char* stopAt)
 		prevP = p;
 	}
 
-	for (number i = 0; i < PQ_size; ++i)
+	for (num64 i = 0; i < PQ_size; ++i)
 	{
-		for (number j = 0; j < SumEstimatesSize; ++j)
+		for (num64 j = 0; j < SumEstimatesSize; ++j)
 		{
-			if (PQ[j][i].first != number(-1))
+			if (PQ[j][i].first != num64(-1))
 			{
 				--PQ[j][i].first;
 			}
@@ -447,19 +447,19 @@ void PrimeTablesInit(number startPrime, number primeLimit, const char* stopAt)
 	}
 
 	SumEstimateData* data = new SumEstimateData[SumEstimatesSize * ((PQ_size - IS_NUM_ELIGIBLE_BEGIN + 7) / 8)];
-	for (number j = 0; j < SumEstimatesSize; ++j)
+	for (num64 j = 0; j < SumEstimatesSize; ++j)
 	{
 		privSumEstimates[j] = data - (IS_NUM_ELIGIBLE_BEGIN / 8);
-		for (number i = IS_NUM_ELIGIBLE_BEGIN; i < PQ_size; i += 8)
+		for (num64 i = IS_NUM_ELIGIBLE_BEGIN; i < PQ_size; i += 8)
 		{
 			data->P = PQ[j][i].first;
 			data->Q = PQ[j][i].second;
 			++data;
 		}
 	}
-	for (number j = 0; j < SumEstimatesSize; ++j)
+	for (num64 j = 0; j < SumEstimatesSize; ++j)
 	{
-		privSumEstimatesBeginP[j] = (j + 1 < SumEstimatesSize) ? privSumEstimates[j + 1][IS_NUM_ELIGIBLE_BEGIN / 8].P : number(-1);
+		privSumEstimatesBeginP[j] = (j + 1 < SumEstimatesSize) ? privSumEstimates[j + 1][IS_NUM_ELIGIBLE_BEGIN / 8].P : num64(-1);
 		privSumEstimatesBeginQ[j] = privSumEstimates[j][IS_NUM_ELIGIBLE_BEGIN / 8].Q;
 	}
 }

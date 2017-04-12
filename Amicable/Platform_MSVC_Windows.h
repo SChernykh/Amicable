@@ -64,10 +64,11 @@ private:
 	LARGE_INTEGER f, t1;
 };
 
-extern number(*udiv128)(number numhi, number numlo, number den, number* rem);
-extern number(*mulmod64)(number a, number b, number n);
+extern num64(*udiv128)(num64 numhi, num64 numlo, num64 den, num64* rem);
+extern num64(*udiv128_noremainder)(num64 numlo, num64 numhi, num64 den);
+extern num64(*mulmod64)(num64 a, num64 b, num64 n);
 
-FORCEINLINE void add128(number a_lo, number a_hi, number b_lo, number b_hi, number* result_lo, number* result_hi)
+FORCEINLINE void add128(num64 a_lo, num64 a_hi, num64 b_lo, num64 b_hi, num64* result_lo, num64* result_hi)
 {
 #if _MSC_VER >= 1900
 	_addcarry_u64(_addcarry_u64(0, a_lo, b_lo, result_lo), a_hi, b_hi, result_hi);
@@ -78,7 +79,7 @@ FORCEINLINE void add128(number a_lo, number a_hi, number b_lo, number b_hi, numb
 #endif
 }
 
-FORCEINLINE void sub128(number a_lo, number a_hi, number b_lo, number b_hi, number* result_lo, number* result_hi)
+FORCEINLINE void sub128(num64 a_lo, num64 a_hi, num64 b_lo, num64 b_hi, num64* result_lo, num64* result_hi)
 {
 #if _MSC_VER >= 1900
 	_subborrow_u64(_subborrow_u64(0, a_lo, b_lo, result_lo), a_hi, b_hi, result_hi);
@@ -89,28 +90,38 @@ FORCEINLINE void sub128(number a_lo, number a_hi, number b_lo, number b_hi, numb
 #endif
 }
 
-FORCEINLINE byte leq128(number a_lo, number a_hi, number b_lo, number b_hi)
+FORCEINLINE byte leq128(num64 a_lo, num64 a_hi, num64 b_lo, num64 b_hi)
 {
 #if _MSC_VER >= 1900
-	number t[2];
+	num64 t[2];
 	return _subborrow_u64(_subborrow_u64(1, a_lo, b_lo, &t[0]), a_hi, b_hi, &t[1]);
 #else
 	return static_cast<byte>((a_hi < b_hi) || ((a_hi == b_hi) && (a_lo <= b_lo)));
 #endif
 }
 
-FORCEINLINE void shr128(number& lo, number& hi, unsigned char count)
+FORCEINLINE byte less128(num64 a_lo, num64 a_hi, num64 b_lo, num64 b_hi)
+{
+#if _MSC_VER >= 1900
+	num64 t[2];
+	return _subborrow_u64(_subborrow_u64(0, a_lo, b_lo, &t[0]), a_hi, b_hi, &t[1]);
+#else
+	return static_cast<byte>((a_hi < b_hi) || ((a_hi == b_hi) && (a_lo < b_lo)));
+#endif
+}
+
+FORCEINLINE void shr128(num64& lo, num64& hi, unsigned char count)
 {
 	lo = __shiftright128(lo, hi, count);
 	hi >>= count;
 }
 
-FORCEINLINE void* AllocateSystemMemory(number size, bool is_executable)
+FORCEINLINE void* AllocateSystemMemory(num64 size, bool is_executable)
 {
 	return VirtualAlloc(nullptr, size, MEM_COMMIT, static_cast<DWORD>(is_executable ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE));
 }
 
-FORCEINLINE void DisableAccessToMemory(void* ptr, number size)
+FORCEINLINE void DisableAccessToMemory(void* ptr, num64 size)
 {
 	DWORD oldProtect;
 	VirtualProtect(ptr, size, PAGE_NOACCESS, &oldProtect);
@@ -125,3 +136,5 @@ FORCEINLINE bool SetLowPriority()
 {
 	return SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_IDLE) ? true : false;
 }
+
+#include "num128.h"

@@ -24,6 +24,12 @@ int main(int argc, char* argv[])
 	_set_invalid_parameter_handler(AppInvalidParameterHandler);
 #endif
 
+	if (!TestNum128Division())
+	{
+		std::cerr << "128 bit division test failed" << std::endl;
+		return 1;
+	}
+
 	BOINC_OPTIONS options;
 	boinc_options_defaults(options);
 	options.multi_thread = true;
@@ -40,28 +46,11 @@ int main(int argc, char* argv[])
 
 	boinc_fraction_done(0.0);
 
-#if DYNAMIC_SEARCH_LIMIT
-	if (argc < 2)
-	{
-		std::cerr << "You must specify search limit as a first command-line argument" << std::endl;
-		return 0;
-	}
-	SearchLimit::value = static_cast<number>(StrToNumber(argv[1]));
-	if (SearchLimit::value < 1000)
-	{
-		SearchLimit::value = 1000;
-	}
-	SearchLimit::LinearLimit = static_cast<number>(sqrt(SearchLimit::value * 2.0)) + 1;
-	SearchLimit::MainPrimeTableBound = std::max<number>(SearchLimit::LinearLimit, 1000);
-	SearchLimit::PrimeInversesBound = std::max<number>(static_cast<number>(sqrt(SearchLimit::value / 4)), CompileTimePrimes<CompileTimePrimesCount>::value);
-	SearchLimit::SafeLimit = SearchLimit::value / 20;
-#endif
-
 	char* startFrom = nullptr;
 	char* stopAt = nullptr;
 	unsigned int largestPrimePower = 1;
-	number startPrime = 0;
-	number primeLimit = 0;
+	num64 startPrime = 0;
+	num64 primeLimit = 0;
 
 	// Parse command line parameters
 	for (int i = 1; i < argc; ++i)
@@ -166,11 +155,11 @@ int main(int argc, char* argv[])
 	}
 
 	g_outputFile = boinc_fopen(resolved_name.c_str(), "ab+");
-	RangeGen::Run(static_cast<number>(ceil(aid.ncpus)), startFrom, stopAt, largestPrimePower, startPrime, primeLimit);
+	RangeGen::Run(static_cast<num64>(ceil(aid.ncpus)), startFrom, stopAt, largestPrimePower, startPrime, primeLimit);
 
 	// Now sort all numbers found so far
 	rewind(g_outputFile);
-	std::vector<number> found_numbers;
+	std::vector<num64> found_numbers;
 	while (!feof(g_outputFile))
 	{
 		char buf[32];
@@ -178,7 +167,7 @@ int main(int argc, char* argv[])
 		{
 			break;
 		}
-		const number m = StrToNumber(buf);
+		const num64 m = StrToNumber(buf);
 		if (m)
 		{
 			found_numbers.push_back(m);
@@ -193,7 +182,7 @@ int main(int argc, char* argv[])
 
 	// And write remaining sorted numbers back to the output file
 	g_outputFile = boinc_fopen(resolved_name.c_str(), "wb");
-	for (number m : found_numbers)
+	for (num64 m : found_numbers)
 	{
 		fprintf(g_outputFile, "%llu\n", m);
 	}

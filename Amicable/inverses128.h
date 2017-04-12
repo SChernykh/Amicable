@@ -2,7 +2,7 @@
 
 // This file is auto-generated. DO NOT EDIT!!!
 
-CACHE_ALIGNED static const number locPowersOf2_128DivisibilityData[128][2][2] = {
+CACHE_ALIGNED static const num64 locPowersOf2_128DivisibilityData[128][2][2] = {
 	{{},{}},
 	{{0xaaaaaaaaaaaaaaabull,0xaaaaaaaaaaaaaaaaull},{0x5555555555555555ull,0x5555555555555555ull}},
 	{{0x6db6db6db6db6db7ull,0xb6db6db6db6db6dbull},{0x4924924924924924ull,0x2492492492492492ull}},
@@ -324,7 +324,7 @@ CACHE_ALIGNED static const InverseData128 locPowersOfP_128DivisibilityData[][128
 	},
 };
 
-CACHE_ALIGNED static const number locPrimeInverses_128[][2][2] = {
+CACHE_ALIGNED static const num64 locPrimeInverses_128[][2][2] = {
 	{{0xaaaaaaaaaaaaaaabull,0xaaaaaaaaaaaaaaaaull},{0x5555555555555555ull,0x5555555555555555ull}},
 	{{0xcccccccccccccccdull,0xccccccccccccccccull},{0x3333333333333333ull,0x3333333333333333ull}},
 	{{0x6db6db6db6db6db7ull,0xb6db6db6db6db6dbull},{0x4924924924924924ull,0x2492492492492492ull}},

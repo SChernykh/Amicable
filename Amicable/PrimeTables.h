@@ -1,7 +1,7 @@
 #pragma once
 
-void PrimeTablesInit(number startPrime, number primeLimit, const char* stopAt);
-bool IsPrime(number n);
+void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt);
+bool IsPrime(num64 n);
 
 enum
 {
@@ -14,18 +14,18 @@ enum
 #pragma pack(push, 1)
 struct SReciprocal
 {
-	number reciprocal;
+	num64 reciprocal;
 	unsigned char increment;
 	unsigned char shift;
 
-	FORCEINLINE void Init(const number aDivisor)
+	FORCEINLINE void Init(const num64 aDivisor)
 	{
 		unsigned long bitIndex;
 		_BitScanReverse64(&bitIndex, aDivisor);
 		shift = static_cast<unsigned char>(bitIndex);
 
-		number remainder;
-		number quotient = udiv128(number(1) << shift, 0, aDivisor, &remainder);
+		num64 remainder;
+		num64 quotient = udiv128(num64(1) << shift, 0, aDivisor, &remainder);
 		if (remainder * 2 < aDivisor)
 		{
 			reciprocal = quotient;
@@ -38,17 +38,17 @@ struct SReciprocal
 		}
 	}
 
-	FORCEINLINE bool Divide(const number n, const number divisor, number& q) const
+	FORCEINLINE bool Divide(const num64 n, const num64 divisor, num64& q) const
 	{
-		number highProduct;
+		num64 highProduct;
 		_umul128(n + increment, reciprocal, &highProduct);
 		q = highProduct >> shift;
 		return q * divisor == n;
 	}
 
-	FORCEINLINE number DivideNoRemainder(const number n) const
+	FORCEINLINE num64 DivideNoRemainder(const num64 n) const
 	{
-		number highProduct;
+		num64 highProduct;
 		_umul128(n + increment, reciprocal, &highProduct);
 		return highProduct >> shift;
 	}
@@ -62,7 +62,7 @@ extern CACHE_ALIGNED SReciprocal privPrimeReciprocals[ReciprocalsTableSize];
 struct AmicableCandidate
 {
 	AmicableCandidate() {}
-	AmicableCandidate(number _value, number _sum, unsigned char _is_over_abundant_mask);
+	AmicableCandidate(num64 _value, num64 _sum, unsigned char _is_over_abundant_mask);
 
 	unsigned int value;
 	unsigned int sum;
@@ -75,23 +75,23 @@ extern byte bitOffset[PrimeTableParameters::Modulo];
 extern byte* privNextPrimeShifts;
 extern std::vector<AmicableCandidate> privCandidatesData;
 extern CACHE_ALIGNED unsigned char privCandidatesDataMask[5 * 7 * 11];
-extern CACHE_ALIGNED std::pair<number, number> privPrimeInverses[CompileTimePrimesCount];
-extern CACHE_ALIGNED std::pair<number, number> privPrimeInverses2[CompileTimePrimesCount];
-extern CACHE_ALIGNED number privPrimeInverses3[ReciprocalsTableSize];
-extern CACHE_ALIGNED number privPrimeInverses4[ReciprocalsTableSize];
+extern CACHE_ALIGNED std::pair<num64, num64> privPrimeInverses[CompileTimePrimesCount];
+extern CACHE_ALIGNED std::pair<num64, num64> privPrimeInverses2[CompileTimePrimesCount];
+extern CACHE_ALIGNED num64 privPrimeInverses3[ReciprocalsTableSize];
+extern CACHE_ALIGNED num64 privPrimeInverses4[ReciprocalsTableSize];
 
 #define NextPrimeShifts ((const byte* const)(privNextPrimeShifts))
 #define CandidatesData ((const std::vector<AmicableCandidate>&)(privCandidatesData))
 #define CandidatesDataMask ((const unsigned char*)(privCandidatesDataMask))
 
-#define PrimeInverses ((const std::pair<number, number>*)(privPrimeInverses))
-#define PrimeInverses2 ((const std::pair<number, number>*)(privPrimeInverses2))
-#define PrimeInverses3 ((const number*)(privPrimeInverses3))
-#define PrimeInverses4 ((const number*)(privPrimeInverses4))
+#define PrimeInverses ((const std::pair<num64, num64>*)(privPrimeInverses))
+#define PrimeInverses2 ((const std::pair<num64, num64>*)(privPrimeInverses2))
+#define PrimeInverses3 ((const num64*)(privPrimeInverses3))
+#define PrimeInverses4 ((const num64*)(privPrimeInverses4))
 
-FORCEINLINE number Mod385(const number n)
+FORCEINLINE num64 Mod385(const num64 n)
 {
-	number highProduct;
+	num64 highProduct;
 	static_assert(ARRAYSIZE(privCandidatesDataMask) == 5 * 7 * 11, "!!! Recalculate these constants (12265886968492584971ULL and 8) if ARRAYSIZE(privLinearSearchDataIndex) changes !!!");
 	_umul128(n, 12265886968492584971ULL, &highProduct);
 	return n - (highProduct >> 8) * ARRAYSIZE(privCandidatesDataMask);
@@ -99,8 +99,8 @@ FORCEINLINE number Mod385(const number n)
 
 struct SumEstimateData
 {
-	number P;
-	number Q;
+	num64 P;
+	num64 Q;
 };
 
 enum
@@ -110,14 +110,14 @@ enum
 };
 
 extern const SumEstimateData* privSumEstimates[SumEstimatesSize];
-extern CACHE_ALIGNED number privSumEstimatesBeginP[SumEstimatesSize];
-extern CACHE_ALIGNED number privSumEstimatesBeginQ[SumEstimatesSize];
+extern CACHE_ALIGNED num64 privSumEstimatesBeginP[SumEstimatesSize];
+extern CACHE_ALIGNED num64 privSumEstimatesBeginQ[SumEstimatesSize];
 
 #define SumEstimates ((const SumEstimateData * const * const)(privSumEstimates))
-#define SumEstimatesBeginP (((const number* const)(privSumEstimatesBeginP)))
-#define SumEstimatesBeginQ (((const number* const)(privSumEstimatesBeginQ)))
+#define SumEstimatesBeginP (((const num64* const)(privSumEstimatesBeginP)))
+#define SumEstimatesBeginQ (((const num64* const)(privSumEstimatesBeginQ)))
 
-FORCEINLINE number GCD(number a, number b)
+FORCEINLINE num64 GCD(num64 a, num64 b)
 {
 	if (a == 0) return b;
 	if (b == 0) return a;
@@ -135,8 +135,8 @@ FORCEINLINE number GCD(number a, number b)
 		_BitScanForward64(&index_b, b);
 		b >>= index_b;
 
-		const number a1 = a;
-		const number b1 = b;
+		const num64 a1 = a;
+		const num64 b1 = b;
 		a = (a1 > b1) ? b1 : a1;
 		b = (a1 > b1) ? a1 : b1;
 
@@ -149,8 +149,8 @@ FORCEINLINE number GCD(number a, number b)
 class PrimeIterator
 {
 public:
-	explicit FORCEINLINE PrimeIterator(const number* aSieveData = reinterpret_cast<const number*>(MainPrimeTable))
-		: mySieveChunk(*aSieveData & ~number(1))
+	explicit FORCEINLINE PrimeIterator(const num64* aSieveData = reinterpret_cast<const num64*>(MainPrimeTable))
+		: mySieveChunk(*aSieveData & ~num64(1))
 		, mySieveData(aSieveData)
 		, myPossiblePrimesForModuloPtr(NumbersCoprimeToModulo)
 		, myModuloIndex(0)
@@ -159,7 +159,7 @@ public:
 	{
 	}
 
-	explicit PrimeIterator(number aStartNumber, const number* aSieveData = (const number*)(MainPrimeTable))
+	explicit PrimeIterator(num64 aStartNumber, const num64* aSieveData = (const num64*)(MainPrimeTable))
 		: mySieveData(aSieveData)
 		, myPossiblePrimesForModuloPtr(NumbersCoprimeToModulo)
 	{
@@ -168,14 +168,14 @@ public:
 			aStartNumber = 2;
 		}
 
-		const number chunkIndex = ((aStartNumber / PrimeTableParameters::Modulo) * (PrimeTableParameters::NumOffsets / ByteParams::Bits)) / sizeof(number);
+		const num64 chunkIndex = ((aStartNumber / PrimeTableParameters::Modulo) * (PrimeTableParameters::NumOffsets / ByteParams::Bits)) / sizeof(num64);
 		mySieveData = aSieveData + chunkIndex;
 		mySieveChunk = *mySieveData;
 		myModuloIndex = (chunkIndex / 3) * PrimeTableParameters::Modulo * 4 + (chunkIndex % 3) * PrimeTableParameters::Modulo;
 		myBitIndexShift = (chunkIndex % 3) * 16;
 		myPossiblePrimesForModuloPtr = NumbersCoprimeToModulo + myBitIndexShift;
 
-		myCurrentPrime = static_cast<number>(-1);
+		myCurrentPrime = static_cast<num64>(-1);
 		for (;;)
 		{
 			operator++();
@@ -186,7 +186,7 @@ public:
 		}
 	}
 
-	FORCEINLINE number Get() const { return myCurrentPrime; }
+	FORCEINLINE num64 Get() const { return myCurrentPrime; }
 
 	FORCEINLINE PrimeIterator& operator++()
 	{
@@ -200,8 +200,8 @@ public:
 		{
 			mySieveChunk = *(++mySieveData);
 
-			const number NewValues = (PrimeTableParameters::Modulo / 2) | (number(PrimeTableParameters::Modulo / 2) << 16) | (number(PrimeTableParameters::Modulo) << 32) |
-				(16 << 8) | (32 << 24) | (number(0) << 40);
+			const num64 NewValues = (PrimeTableParameters::Modulo / 2) | (num64(PrimeTableParameters::Modulo / 2) << 16) | (num64(PrimeTableParameters::Modulo) << 32) |
+				(16 << 8) | (32 << 24) | (num64(0) << 40);
 
 			myModuloIndex += ((NewValues >> myBitIndexShift) & 255) * 2;
 			myBitIndexShift = (NewValues >> (myBitIndexShift + 8)) & 255;
@@ -219,29 +219,29 @@ public:
 	}
 
 private:
-	number mySieveChunk;
-	const number* mySieveData;
+	num64 mySieveChunk;
+	const num64* mySieveData;
 	const unsigned int* myPossiblePrimesForModuloPtr;
-	number myModuloIndex;
-	number myBitIndexShift;
-	number myCurrentPrime;
+	num64 myModuloIndex;
+	num64 myBitIndexShift;
+	num64 myCurrentPrime;
 };
 
 struct Factor
 {
-	number p;
+	num64 p;
 	unsigned int k;
 	int index;
-	number p_inv;
-	number q_max;
+	num64 p_inv;
+	num64 q_max;
 };
 
-template<number sum_coeff_max_factor>
-FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const number value, const number sum, const number sum_coeff)
+template<num64 sum_coeff_max_factor>
+FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const num64 value, const num64 sum, const num64 sum_coeff)
 {
-	number g = 1;
-	number sum_g = 1;
-	number sum_for_gcd = sum;
+	num64 g = 1;
+	num64 sum_g = 1;
+	num64 sum_for_gcd = sum;
 
 	const Factor* last_factor = f + last_factor_index;
 
@@ -270,10 +270,10 @@ FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const numb
 
 	while (f <= last_factor)
 	{
-		const number prev_sum_g = sum_g;
+		const num64 prev_sum_g = sum_g;
 		for (unsigned int j = 0; j < f->k; ++j)
 		{
-			const number q = sum_for_gcd * f->p_inv;
+			const num64 q = sum_for_gcd * f->p_inv;
 			if (q > f->q_max)
 			{
 				IF_CONSTEXPR(sum_coeff_max_factor > 2)
@@ -293,35 +293,36 @@ FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const numb
 		++f;
 	}
 
-	number n1[2];
-	number n2[2];
+	num64 n1[2];
+	num64 n2[2];
 	n1[0] = _umul128(sum_g - g, sum - value, &n1[1]);
 	n2[0] = _umul128(g, value, &n2[1]);
 	return leq128(n2[0], n2[1], n1[0], n1[1]);
 }
 
-FORCEINLINE bool whole_branch_deficient(const number Limit, number value, number sum, const Factor* f)
+FORCEINLINE bool whole_branch_deficient(const num128& Limit, num64 value, num64 sum, const Factor* f)
 {
 	if (sum - value >= value)
 	{
 		return false;
 	}
 
-	number sumHi = 0;
-	number value1 = value;
-	number p = f->p;
+	num64 sumHi = 0;
+	num64 value1 = value;
+	num64 p = f->p;
 	const byte* shift = NextPrimeShifts + f->index * 2;
 	for (;;)
 	{
 		p += (*shift) * ShiftMultiplier;
 		shift += 2;
 
-		number h;
-		value = _umul128(value, p, &h);
-		if ((value >= Limit) || h)
+		num128 value1;
+		value1.lo = _umul128(value, p, &value1.hi);
+		if (value1 >= Limit)
 		{
 			break;
 		}
+		value = value1.lo;
 
 		// sigma(p^k) / p^k =
 		// (p^(k+1) - 1) / (p^k * (p - 1)) = 
@@ -333,10 +334,4 @@ FORCEINLINE bool whole_branch_deficient(const number Limit, number value, number
 	sub128(sum, sumHi, value1, 0, &sum, &sumHi);
 
 	return ((sum < value1) && !sumHi);
-}
-
-template<number Limit>
-FORCEINLINE bool whole_branch_deficient(number value, number sum, const Factor* f)
-{
-	return whole_branch_deficient(Limit, value, sum, f);
 }
