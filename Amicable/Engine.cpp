@@ -3,6 +3,10 @@
 #include "Engine.h"
 #include "RangeGen.h"
 
+//#pragma optimize("", off)
+//#undef FORCEINLINE
+//#define FORCEINLINE NOINLINE
+
 PRAGMA_WARNING(push, 1)
 PRAGMA_WARNING(disable : 4091 4917)
 #include <boinc_api.h>
@@ -460,7 +464,7 @@ FORCEINLINE void CheckPairInternal(const num64 n1, const num64 targetSum, num64 
 			n2_sqrt4 = Root4(n2);
 		}
 
-		p += static_cast<unsigned int>(NextPrimeShifts[numPrimesCheckedSoFar * 2] * ShiftMultiplier);
+		p += static_cast<unsigned int>(NextPrimeShifts[numPrimesCheckedSoFar] * ShiftMultiplier);
 
 		++numPrimesCheckedSoFar;
 		if (((numPrimesCheckedSoFar & 7) == 0) && (MaximumSumOfDivisorsN(n2, numPrimesCheckedSoFar, indexForMaximumSumOfDivisorsN) < n2TargetSum))
@@ -553,7 +557,7 @@ FORCEINLINE void CheckPairInternal(const num64 n1, const num64 targetSum, num64 
 					return;
 			}
 
-			p += static_cast<unsigned int>(NextPrimeShifts[numPrimesCheckedSoFar * 2] * ShiftMultiplier);
+			p += static_cast<unsigned int>(NextPrimeShifts[numPrimesCheckedSoFar] * ShiftMultiplier);
 			++numPrimesCheckedSoFar;
 		}
 	}
@@ -905,26 +909,24 @@ NOINLINE num64 SearchRange(const RangeData& r)
 		is_over_abundant_mask |= (((is_over_abundant_mask & 0x12) || OverAbundant<11>(f, k, r.value, r.sum, 2 * 5 * 11)) ? byte(1) : byte(0)) << 5;
 		is_over_abundant_mask |= (((is_over_abundant_mask & 0x14) || OverAbundant<11>(f, k, r.value, r.sum, 2 * 7 * 11)) ? byte(1) : byte(0)) << 6;
 		is_over_abundant_mask |= (((is_over_abundant_mask & 0x7E) || OverAbundant<11>(f, k, r.value, r.sum, 2 * 5 * 7 * 11)) ? byte(1) : byte(0)) << 7;
-		is_over_abundant_mask <<= 8;
 	}
 
-	num64 q = r.start_prime;
-	const byte* shift = NextPrimeShifts + r.index_start_prime * 2;
+	PrimeIterator q(r.start_prime);
+	num64 result = 0;
 	const num64 m = r.value;
 	const num64 sum_m = r.sum;
-	while (q <= prime_limit)
+	while (q.Get() <= prime_limit)
 	{
-		const unsigned int shiftData = *reinterpret_cast<const unsigned int*>(shift);
-		shift += 2;
-		const num64 prev_q = q;
-		q += (shiftData & 255) * ShiftMultiplier;
-		if ((shiftData & is_over_abundant_mask) == 0)
+		const num64 prev_q = q.Get();
+		++result;
+		++q;
+		if ((CandidatesDataMask[Mod385(prev_q + 1)] & is_over_abundant_mask) == 0)
 		{
 			CheckPairSafe(m * prev_q, sum_m, prev_q + 1);
 		}
 	}
 
-	return static_cast<num64>(shift - (NextPrimeShifts + r.index_start_prime * 2)) / 2;
+	return result;
 }
 
 NOINLINE num64 SearchRangeSquared(const RangeData& r)
@@ -946,32 +948,32 @@ NOINLINE num64 SearchRangeSquared(const RangeData& r)
 		}
 	}
 
-	num64 q = r.start_prime;
-	const byte* shift = NextPrimeShifts + r.index_start_prime * 2;
+	PrimeIterator q(r.start_prime);
+	num64 result = 0;
 	const num64 m = r.value;
 	const num64 sum_m = r.sum;
-	while (q < prime_limit)
+	while (q.Get() < prime_limit)
 	{
-		const num64 q2 = q * q;
-		CheckPairSafe(m * q2, sum_m, q2 + q + 1);
-		q += static_cast<unsigned int>(*shift) * ShiftMultiplier;
-		shift += 2;
+		const num64 q2 = q.Get() * q.Get();
+		CheckPairSafe(m * q2, sum_m, q2 + q.Get() + 1);
+		++q;
+		++result;
 	}
 
-	return static_cast<num64>(shift - (NextPrimeShifts + r.index_start_prime * 2)) / 2;
+	return result;
 }
 
 NOINLINE num64 SearchRangeCubed(const RangeData& r)
 {
-	num64 q = r.start_prime;
-	const byte* shift = NextPrimeShifts + r.index_start_prime * 2;
+	PrimeIterator q(r.start_prime);
+	num64 result = 0;
 	const num64 m = r.value;
 	const num64 sum_m = r.sum;
 	for (;;)
 	{
 		num64 h;
-		const num64 q2 = q * q;
-		const num64 q3 = _umul128(q2, q, &h);
+		const num64 q2 = q.Get() * q.Get();
+		const num64 q3 = _umul128(q2, q.Get(), &h);
 		if (h)
 		{
 			break;
@@ -982,12 +984,12 @@ NOINLINE num64 SearchRangeCubed(const RangeData& r)
 		{
 			break;
 		}
-		CheckPairSafe(value, sum_m, q3 + q2 + q + 1);
-		q += static_cast<unsigned int>(*shift) * ShiftMultiplier;
-		shift += 2;
+		CheckPairSafe(value, sum_m, q3 + q2 + q.Get() + 1);
+		++q;
+		++result;
 	}
 
-	return static_cast<num64>(shift - (NextPrimeShifts + r.index_start_prime * 2)) / 2;
+	return result;
 }
 
 #include <primesieve/SieveOfEratosthenes-inline.hpp>
@@ -1070,17 +1072,17 @@ NOINLINE void SearchLargePrimes(volatile num64* SharedCounterForSearch, const nu
 			finder.Init(curRangeBegin);
 
 			unsigned int p = 3;
-			const byte* shift = NextPrimeShifts + 2;
+			const byte* shift = NextPrimeShifts + 1;
 			while (p <= preSieve.getLimit())
 			{
-				p += *shift * ShiftMultiplier;
-				shift += 2;
+				p += static_cast<unsigned int>(*shift * ShiftMultiplier);
+				++shift;
 			}
 			while (p <= finder.getSqrtStop())
 			{
 				finder.addSievingPrime(p);
-				p += *shift * ShiftMultiplier;
-				shift += 2;
+				p += static_cast<unsigned int>(*shift * ShiftMultiplier);
+				++shift;
 			}
 
 			finder.sieve();

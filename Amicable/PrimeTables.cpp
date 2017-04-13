@@ -5,7 +5,7 @@
 #include "primesieve.hpp"
 
 CACHE_ALIGNED SReciprocal privPrimeReciprocals[ReciprocalsTableSize];
-byte* privNextPrimeShifts = nullptr;
+CACHE_ALIGNED byte privNextPrimeShifts[ReciprocalsTableSize];
 const SumEstimateData* privSumEstimates[SumEstimatesSize];
 CACHE_ALIGNED num64 privSumEstimatesBeginP[SumEstimatesSize];
 CACHE_ALIGNED num64 privSumEstimatesBeginQ[SumEstimatesSize];
@@ -16,7 +16,7 @@ CACHE_ALIGNED std::pair<num64, num64> privPrimeInverses2[CompileTimePrimesCount]
 CACHE_ALIGNED num64 privPrimeInverses3[ReciprocalsTableSize];
 CACHE_ALIGNED num64 privPrimeInverses4[ReciprocalsTableSize];
 
-byte* MainPrimeTable = nullptr;
+CACHE_ALIGNED byte MainPrimeTable[404061114];
 byte bitOffset[PrimeTableParameters::Modulo];
 num64 bitMask[PrimeTableParameters::Modulo];
 
@@ -26,15 +26,10 @@ struct MainPrimeTableInitializer
 
 	FORCEINLINE void operator()(num64 p)
 	{
-		if (nPrimes > 0)
+		if ((nPrimes > 0) && (nPrimes < ReciprocalsTableSize))
 		{
-			if (nPrimes < ReciprocalsTableSize)
-			{
-				privPrimeReciprocals[nPrimes].Init(p);
-			}
-
-			privNextPrimeShifts[nPrimes * 2 - 2] = static_cast<byte>((p - prev_p) / ShiftMultiplier);
-			privNextPrimeShifts[nPrimes * 2 - 1] = privCandidatesDataMask[Mod385(prev_p + 1)];
+			privPrimeReciprocals[nPrimes].Init(p);
+			privNextPrimeShifts[nPrimes - 1] = static_cast<byte>((p - prev_p) / ShiftMultiplier);
 		}
 
 		prev_p = p;
@@ -55,10 +50,14 @@ struct MainPrimeTableInitializer
 static num64 CalculateMainPrimeTable()
 {
 	// https://en.wikipedia.org/wiki/Prime_gap#Numerical_results
-	// Since we operate in the range 1..2^64, a gap = PrimeTableParameters::Modulo * 9 = 1890 is enough
-	const num64 upperBound = ((SearchLimit::MainPrimeTableBound / PrimeTableParameters::Modulo) + 10) * PrimeTableParameters::Modulo;
+	// Since we operate in the range 1..10^20, a gap = PrimeTableParameters::Modulo * 16 = 3360 is enough
+	const num64 upperBound = ((SearchLimit::MainPrimeTableBound / PrimeTableParameters::Modulo) + 16) * PrimeTableParameters::Modulo;
 	const size_t arraySize = static_cast<size_t>((upperBound + PrimeTableParameters::Modulo) / PrimeTableParameters::Modulo * (PrimeTableParameters::NumOffsets / ByteParams::Bits));
-	MainPrimeTable = reinterpret_cast<byte*>(AllocateSystemMemory(arraySize, false));
+	if (arraySize > ARRAYSIZE(MainPrimeTable))
+	{
+		std::cerr << "MainPrimeTable is too small: it should be at least " << arraySize << " elements" << std::endl;
+		abort();
+	}
 	MainPrimeTable[0] = 1;
 
 	MainPrimeTableInitializer p;
@@ -194,16 +193,13 @@ AmicableCandidate::AmicableCandidate(num64 _value, num64 _sum, unsigned char _is
 {
 }
 
-#pragma pack(push, 1)
 struct PrimeData
 {
-	PrimeData(unsigned int _p, num64 _p_inv, num64 _q_max) : p(_p), p_inv(_p_inv), q_max(_q_max) {}
+	PrimeData(num64 _p_inv, num64 _q_max) : p_inv(_p_inv), q_max(_q_max) {}
 
-	unsigned int p;
 	num64 p_inv;
 	num64 q_max;
 };
-#pragma pack(pop)
 
 static std::vector<PrimeData> g_PrimeData;
 static num64 g_MaxPrime;
@@ -228,7 +224,15 @@ NOINLINE void SearchCandidates(Factor* factors, const num64 value, const num64 s
 	int start_i = (depth == 0) ? 0 : (factors[depth - 1].index + 1);
 
 	Factor& f = factors[depth];
-	f.p = (depth == 0) ? 2U : g_PrimeData[static_cast<unsigned int>(factors[depth - 1].index + 1)].p;
+	if (depth > 0)
+	{
+		f.p = factors[depth - 1].p;
+		++f.p;
+	}
+	else
+	{
+		f.p = PrimeIterator();
+	}
 
 	// A check to ensure that m is not divisible by 6
 	if (depth == 1)
@@ -238,25 +242,22 @@ NOINLINE void SearchCandidates(Factor* factors, const num64 value, const num64 s
 		// change factors[1].p to 5
 		if (start_i == 1)
 		{
-			f.p = 5;
-		}
-		if (start_i == 1)
-		{
+			++f.p;
 			start_i = 2;
 		}
 	}
 
 	// Check only 2, 3, 5 as the smallest prime factor because the smallest abundant num64 coprime to 2*3*5 is ~2*10^25
 	const unsigned int max_prime = static_cast<unsigned int>((depth > 0) ? (g_MaxPrime + 1) : 7);
-	for (f.index = start_i; f.p < max_prime; ++f.index, f.p = (static_cast<unsigned int>(f.index) < g_PrimeData.size()) ? g_PrimeData[static_cast<unsigned int>(f.index)].p : max_prime)
+	for (f.index = start_i; f.p.Get() < max_prime; ++f.index, ++f.p)
 	{
 		num64 h;
-		num64 next_value = _umul128(value, f.p, &h);
+		num64 next_value = _umul128(value, f.p.Get(), &h);
 		if ((next_value > g_LargestCandidate) || h)
 		{
 			return;
 		}
-		num64 next_sum = sum * (f.p + 1);
+		num64 next_sum = sum * (f.p.Get() + 1);
 
 		f.k = 1;
 		f.p_inv = g_PrimeData[static_cast<unsigned int>(f.index)].p_inv;
@@ -279,12 +280,12 @@ NOINLINE void SearchCandidates(Factor* factors, const num64 value, const num64 s
 			SearchCandidates(factors, next_value, next_sum, depth + 1);
 			next:
 
-			next_value = _umul128(next_value, f.p, &h);
+			next_value = _umul128(next_value, f.p.Get(), &h);
 			if ((next_value > g_LargestCandidate) || h)
 			{
 				break;
 			}
-			next_sum = next_sum * f.p + sum;
+			next_sum = next_sum * f.p.Get() + sum;
 			++f.k;
 		}
 	}
@@ -296,11 +297,14 @@ NOINLINE void GenerateCandidates()
 	{
 		const num64 primeDataCount = 87348706;
 		g_PrimeData.reserve(primeDataCount);
-		g_PrimeData.emplace_back(2, 0, 0);
-		for (num64 p = 3, index = 1; index < primeDataCount; p += NextPrimeShifts[index * 2] * ShiftMultiplier, ++index)
+		g_PrimeData.emplace_back(0, 0);
+		PrimeIterator it(3);
+		for (num64 index = 1; index < primeDataCount; ++it, ++index)
 		{
+			const num64 p = it.Get();
+
 			PRAGMA_WARNING(suppress : 4146)
-			g_PrimeData.emplace_back(static_cast<unsigned int>(p), -modular_inverse64(p), num64(-1) / p);
+			g_PrimeData.emplace_back(-modular_inverse64(p), num64(-1) / p);
 			if (p > g_MaxPrime)
 			{
 				break;
@@ -328,10 +332,6 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 		bitMask[NumbersCoprimeToModulo[b]] = ~(1ULL << b);
 	}
 
-	const double nPrimesBound = static_cast<double>((static_cast<num64>(SearchLimit::MainPrimeTableBound) < 100000) ? 100000 : static_cast<num64>(SearchLimit::MainPrimeTableBound));
-	const num64 nPrimesEstimate = static_cast<num64>(nPrimesBound / (log(nPrimesBound) - 1.1));
-	privNextPrimeShifts = reinterpret_cast<byte*>(AllocateSystemMemory((nPrimesEstimate + (nPrimesEstimate & 1)) * 2, false));
-
 	for (unsigned int i = 0; i < 385; ++i)
 	{
 		unsigned int index = 0;
@@ -343,8 +343,10 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 
 	CalculateMainPrimeTable();
 
-	for (num64 p = 3, index = 1; index < ARRAYSIZE(privPrimeInverses3); p += NextPrimeShifts[index * 2] * ShiftMultiplier, ++index)
+	PrimeIterator it(3);
+	for (num64 index = 1; index < ARRAYSIZE(privPrimeInverses3); ++it, ++index)
 	{
+		const num64 p = it.Get();
 		const num64 p_max = num64(-1) / p;
 
 		PRAGMA_WARNING(suppress : 4146)

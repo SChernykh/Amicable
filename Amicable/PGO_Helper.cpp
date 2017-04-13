@@ -26,10 +26,10 @@ static NOINLINE void ProfileGuidedOptimization_Instrument_WorkerThread(num64 dat
 	TRY
 	{
 		RangeData r;
-		r.factors[0].p = 2;
+		r.factors[0].p = PrimeIterator();
 		r.factors[0].k = 8;
 		r.factors[0].index = 0;
-		r.factors[1].p = CompileTimePrimes<CompileTimePrimesCount>::value;
+		r.factors[1].p = PrimeIterator(CompileTimePrimes<CompileTimePrimesCount>::value);
 		r.factors[1].k = 1;
 		r.factors[1].index = CompileTimePrimesCount;
 		r.factors[1].p_inv = MultiplicativeInverse<CompileTimePrimes<CompileTimePrimesCount>::value>::value;

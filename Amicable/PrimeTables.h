@@ -70,9 +70,9 @@ struct AmicableCandidate
 };
 #pragma pack(pop)
 
-extern byte* MainPrimeTable;
+extern CACHE_ALIGNED byte MainPrimeTable[404061114];
 extern byte bitOffset[PrimeTableParameters::Modulo];
-extern byte* privNextPrimeShifts;
+extern CACHE_ALIGNED byte privNextPrimeShifts[ReciprocalsTableSize];
 extern std::vector<AmicableCandidate> privCandidatesData;
 extern CACHE_ALIGNED unsigned char privCandidatesDataMask[5 * 7 * 11];
 extern CACHE_ALIGNED std::pair<num64, num64> privPrimeInverses[CompileTimePrimesCount];
@@ -150,7 +150,7 @@ class PrimeIterator
 {
 public:
 	explicit FORCEINLINE PrimeIterator(const num64* aSieveData = reinterpret_cast<const num64*>(MainPrimeTable))
-		: mySieveChunk(*aSieveData & ~num64(1))
+		: mySieveChunk(0xfafd7bbef7fffffeULL)
 		, mySieveData(aSieveData)
 		, myPossiblePrimesForModuloPtr(NumbersCoprimeToModulo)
 		, myModuloIndex(0)
@@ -188,6 +188,39 @@ public:
 
 	FORCEINLINE num64 Get() const { return myCurrentPrime; }
 
+	FORCEINLINE num64 GetNext() const
+	{
+		if (myCurrentPrime < 7)
+		{
+			return (0x705320UL >> (myCurrentPrime * 4)) & 15;
+		}
+
+		num64 sieveChunk = mySieveChunk;
+		if (sieveChunk)
+		{
+			unsigned long bitIndex;
+			_BitScanForward64(&bitIndex, sieveChunk);
+			return myModuloIndex + myPossiblePrimesForModuloPtr[bitIndex];
+		}
+
+		const num64* sieveData = mySieveData;
+		num64 moduloIndex = myModuloIndex;
+		num64 bitIndexShift = myBitIndexShift;
+		const unsigned int* possiblePrimesForModuloPtr = myPossiblePrimesForModuloPtr;
+		const num64 NewValues = (PrimeTableParameters::Modulo / 2) | (num64(PrimeTableParameters::Modulo / 2) << 16) | (num64(PrimeTableParameters::Modulo) << 32) | (16 << 8) | (32 << 24) | (num64(0) << 40);
+		do
+		{
+			sieveChunk = *(++sieveData);
+			moduloIndex += ((NewValues >> bitIndexShift) & 255) * 2;
+			bitIndexShift = (NewValues >> (bitIndexShift + 8)) & 255;
+			possiblePrimesForModuloPtr = NumbersCoprimeToModulo + bitIndexShift;
+		} while (!sieveChunk);
+
+		unsigned long bitIndex;
+		_BitScanForward64(&bitIndex, sieveChunk);
+		return moduloIndex + possiblePrimesForModuloPtr[bitIndex];
+	}
+
 	FORCEINLINE PrimeIterator& operator++()
 	{
 		if (myCurrentPrime < 7)
@@ -196,25 +229,28 @@ public:
 			return *this;
 		}
 
-		while (!mySieveChunk)
+		if (mySieveChunk)
+		{
+			unsigned long bitIndex;
+			_BitScanForward64(&bitIndex, mySieveChunk);
+			mySieveChunk &= (mySieveChunk - 1);
+			myCurrentPrime = myModuloIndex + myPossiblePrimesForModuloPtr[bitIndex];
+			return *this;
+		}
+
+		const num64 NewValues = (PrimeTableParameters::Modulo / 2) | (num64(PrimeTableParameters::Modulo / 2) << 16) | (num64(PrimeTableParameters::Modulo) << 32) | (16 << 8) | (32 << 24) | (num64(0) << 40);
+		do
 		{
 			mySieveChunk = *(++mySieveData);
-
-			const num64 NewValues = (PrimeTableParameters::Modulo / 2) | (num64(PrimeTableParameters::Modulo / 2) << 16) | (num64(PrimeTableParameters::Modulo) << 32) |
-				(16 << 8) | (32 << 24) | (num64(0) << 40);
-
 			myModuloIndex += ((NewValues >> myBitIndexShift) & 255) * 2;
 			myBitIndexShift = (NewValues >> (myBitIndexShift + 8)) & 255;
-
 			myPossiblePrimesForModuloPtr = NumbersCoprimeToModulo + myBitIndexShift;
-		}
+		} while (!mySieveChunk);
 
 		unsigned long bitIndex;
 		_BitScanForward64(&bitIndex, mySieveChunk);
 		mySieveChunk &= (mySieveChunk - 1);
-
 		myCurrentPrime = myModuloIndex + myPossiblePrimesForModuloPtr[bitIndex];
-
 		return *this;
 	}
 
@@ -229,7 +265,7 @@ private:
 
 struct Factor
 {
-	num64 p;
+	PrimeIterator p;
 	unsigned int k;
 	int index;
 	num64 p_inv;
@@ -245,7 +281,7 @@ FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const num6
 
 	const Factor* last_factor = f + last_factor_index;
 
-	if (f->p == 2)
+	if (f->p.Get() == 2)
 	{
 		DWORD power_of_2;
 		_BitScanForward64(&power_of_2, sum_for_gcd);
@@ -278,17 +314,17 @@ FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const num6
 			{
 				IF_CONSTEXPR(sum_coeff_max_factor > 2)
 				{
-					if ((f->p <= sum_coeff_max_factor) && (sum_coeff * f->p_inv <= f->q_max))
+					if ((f->p.Get() <= sum_coeff_max_factor) && (sum_coeff * f->p_inv <= f->q_max))
 					{
-						g *= f->p;
-						sum_g = sum_g * f->p + prev_sum_g;
+						g *= f->p.Get();
+						sum_g = sum_g * f->p.Get() + prev_sum_g;
 					}
 				}
 				break;
 			}
 			sum_for_gcd = q;
-			g *= f->p;
-			sum_g = sum_g * f->p + prev_sum_g;
+			g *= f->p.Get();
+			sum_g = sum_g * f->p.Get() + prev_sum_g;
 		}
 		++f;
 	}
@@ -300,38 +336,33 @@ FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const num6
 	return leq128(n2[0], n2[1], n1[0], n1[1]);
 }
 
-FORCEINLINE bool whole_branch_deficient(const num128& Limit, num64 value, num64 sum, const Factor* f)
+FORCEINLINE byte whole_branch_deficient(const num128& Limit, num128 value, num128 sum, const Factor* f)
 {
 	if (sum - value >= value)
 	{
 		return false;
 	}
 
-	num64 sumHi = 0;
-	num64 value1 = value;
-	num64 p = f->p;
-	const byte* shift = NextPrimeShifts + f->index * 2;
+	num128 sum1 = sum;
+	num128 value1 = value;
+	PrimeIterator it = f->p;
 	for (;;)
 	{
-		p += (*shift) * ShiftMultiplier;
-		shift += 2;
-
-		num128 value2;
-		value2.lo = _umul128(value, p, &value2.hi);
-		if (value2 >= Limit)
+		++it;
+		const num64 p = it.Get();
+		if (value1 * p >= Limit)
 		{
 			break;
 		}
-		value = value2.lo;
 
 		// sigma(p^k) / p^k =
 		// (p^(k+1) - 1) / (p^k * (p - 1)) = 
 		// (p - p^-k) / (p-1) <
 		// p / (p-1)
 		value1 *= p - 1;
-		sum = _umul128(sum, p, &sumHi);
+		sum1 *= p;
 	}
-	sub128(sum, sumHi, value1, 0, &sum, &sumHi);
+	sum1 -= value1;
 
-	return ((sum < value1) && !sumHi);
+	return (sum1 < value1);
 }

@@ -161,10 +161,10 @@ NOINLINE bool TestMaximumSumOfDivisors3()
 	double minEstimate = 1e10;
 	int N = 1000;
 
-	const byte* shift1 = NextPrimeShifts;
-	num64 p1 = 2;
-	for (int i = 0; i < N; ++i)
+	PrimeIterator it1;
+	for (int i = 0; i < N; ++i, ++it1)
 	{
+		const num64 p1 = it1.Get();
 		num64 a = p1 * p1 * p1;
 		num64 sum = p1 * p1 * p1 + p1 * p1 + p1 + 1;
 		num64 sumEstimate = MaximumSumOfDivisors3NoInline(a, p1, p1 * p1);
@@ -187,19 +187,17 @@ NOINLINE bool TestMaximumSumOfDivisors3()
 		const double curEstimate = static_cast<double>(sumEstimate - sum) / sum;
 		if (curEstimate < minEstimate)
 			minEstimate = curEstimate;
-		p1 += *shift1 ? *shift1 * ShiftMultiplier : 1ULL;
-		shift1 += 2;
 	}
 
-	shift1 = NextPrimeShifts;
-	p1 = 2;
-	for (int i = 0; i < N; ++i)
+	it1 = PrimeIterator();
+	for (int i = 0; i < N; ++i, ++it1)
 	{
-		const byte* shift2 = shift1;
-		num64 p2 = p1 + (*shift2 ? *shift2 * ShiftMultiplier : 1ULL);
-		shift2 += 2;
-		for (int j = 0; j < N; ++j)
+		const num64 p1 = it1.Get();
+		PrimeIterator it2 = it1;
+		++it2;
+		for (int j = 0; j < N; ++j, ++it2)
 		{
+			const num64 p2 = it2.Get();
 			{
 				num64 a = p1 * (p2 * p2);
 				num64 sum = (p1 + 1) * (p2 * p2 + p2 + 1);
@@ -258,27 +256,23 @@ NOINLINE bool TestMaximumSumOfDivisors3()
 				if (curEstimate < minEstimate)
 					minEstimate = curEstimate;
 			}
-			p2 += *shift2 ? *shift2 * ShiftMultiplier : 1ULL;
-			shift2 += 2;
 		}
-		p1 += *shift1 ? *shift1 * ShiftMultiplier : 1ULL;
-		shift1 += 2;
 	}
 
-	shift1 = NextPrimeShifts;
-	p1 = 2;
-	for (int i = 0; i < N; ++i)
+	it1 = PrimeIterator();
+	for (int i = 0; i < N; ++i, ++it1)
 	{
-		const byte* shift2 = shift1;
-		num64 p2 = p1 + (*shift2 ? *shift2 * ShiftMultiplier : 1ULL);
-		shift2 += 2;
-		for (int j = 0; j < N; ++j)
+		const num64 p1 = it1.Get();
+		PrimeIterator it2 = it1;
+		++it2;
+		for (int j = 0; j < N; ++j, ++it2)
 		{
-			const byte* shift3 = shift2;
-			num64 p3 = p2 + (*shift3 ? *shift3 * ShiftMultiplier : 1ULL);
-			shift3 += 2;
-			for (int k = 0; k < N; ++k)
+			const num64 p2 = it2.Get();
+			PrimeIterator it3 = it2;
+			++it3;
+			for (int k = 0; k < N; ++k, ++it3)
 			{
+				const num64 p3 = it3.Get();
 				num64 a = p1 * p2 * p3;
 				num64 sum = (p1 + 1) * (p2 + 1) * (p3 + 1);
 				num64 sumEstimate = MaximumSumOfDivisors3NoInline(a, p1, p2 * p3);
@@ -322,14 +316,8 @@ NOINLINE bool TestMaximumSumOfDivisors3()
 				const double curEstimate = static_cast<double>(sumEstimate - sum) / sum;
 				if (curEstimate < minEstimate)
 					minEstimate = curEstimate;
-				p3 += *shift3 ? *shift3 * ShiftMultiplier : 1ULL;
-				shift3 += 2;
 			}
-			p2 += *shift2 ? *shift2 * ShiftMultiplier : 1ULL;
-			shift2 += 2;
 		}
-		p1 += *shift1 ? *shift1 * ShiftMultiplier : 1ULL;
-		shift1 += 2;
 	}
 	return true;
 }

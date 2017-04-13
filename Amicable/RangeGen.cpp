@@ -58,9 +58,17 @@ recurse_begin:
 		goto recurse_return;
 	}
 
-	start_i = (search_stack_depth == 0) ? 0 : (factors[search_stack_depth - 1].index + 1);
-
-	f->p = (search_stack_depth == 0) ? 2 : (factors[search_stack_depth - 1].p + NextPrimeShifts[factors[search_stack_depth - 1].index * 2] * ShiftMultiplier);
+	if (search_stack_depth > 0)
+	{
+		start_i = factors[search_stack_depth - 1].index + 1;
+		f->p = factors[search_stack_depth - 1].p;
+		++f->p;
+	}
+	else
+	{
+		start_i = 0;
+		f->p = PrimeIterator();
+	}
 
 	// A check to ensure that m is not divisible by 6
 	if (search_stack_depth == 1)
@@ -71,31 +79,32 @@ recurse_begin:
 		if (start_i == 1)
 		{
 			start_i = 2;
-			f->p = 5;
+			++f->p;
 		}
 	}
 
-	for (f->index = start_i; f->p <= SearchLimit::PrimeInversesBound; f->p += NextPrimeShifts[f->index * 2] * ShiftMultiplier, ++f->index)
+	for (f->index = start_i; f->p.Get() <= SearchLimit::PrimeInversesBound; ++f->p, ++f->index)
 	{
 		num64 h;
-		s[1].value = _umul128(s->value, f->p, &h);
+		s[1].value = _umul128(s->value, f->p.Get(), &h);
 		if ((SearchLimit::value <= s[1].value) || h)
 		{
 			RETURN;
 		}
-		s[1].sum = s->sum * (f->p + 1);
+		s[1].sum = s->sum * (f->p.Get() + 1);
 
 		f->k = 1;
 
-		f->q_max = num64(-1) / f->p;
+		f->q_max = num64(-1) / f->p.Get();
 
 		PRAGMA_WARNING(suppress : 4146)
-		f->p_inv = -modular_inverse64(f->p);
+		f->p_inv = -modular_inverse64(f->p.Get());
 
 		for (;;)
 		{
 			start_j = f->index + 1;
-			q0 = f->p + NextPrimeShifts[f->index * 2] * ShiftMultiplier;
+
+			q0 = f->p.GetNext();
 
 			// A check to ensure that m*q is not divisible by 6
 			if (search_stack_depth == 0)
@@ -171,7 +180,7 @@ recurse_begin:
 						}
 						for (unsigned int i = static_cast<unsigned int>(search_stack_depth) + 1; i < MaxPrimeFactors; ++i)
 						{
-							range.factors[i].p = 0;
+							memset(&range.factors[i].p, 0, sizeof(range.factors[i].p));
 							range.factors[i].k = 0;
 						}
 						range.last_factor_index = search_stack_depth;
@@ -187,24 +196,19 @@ recurse_begin:
 			}
 
 recurse_return:
-			s[1].value = _umul128(s[1].value, f->p, &h);
+			s[1].value = _umul128(s[1].value, f->p.Get(), &h);
 			if ((SearchLimit::value <= s[1].value) || h)
 			{
 				break;
 			}
-			s[1].sum = s[1].sum * f->p + s->sum;
+			s[1].sum = s[1].sum * f->p.Get() + s->sum;
 			++f->k;
 		}
 
-		// Workaround for shifting from 2 to 3 because NextPrimeShifts[0] is 0
 		if (search_stack_depth == 0)
 		{
-			if (f->p == 2)
-			{
-				f->p = 3;
-			}
 			// Check only 2, 3, 5 as the smallest prime factor because the smallest abundant num64 coprime to 2*3*5 is ~2*10^25
-			if (f->p >= 5)
+			if (f->p.Get() >= 5)
 			{
 				break;
 			}
@@ -268,7 +272,7 @@ FORCEINLINE unsigned int ParseFactorization(char* factorization, T callback)
 	int counter = 0;
 	num64 prev_p = 0;
 	num64 p = 0;
-	num64 p1 = 2;
+	PrimeIterator p1;
 	int index_p1 = 0;
 	unsigned int k = 0;
 	for (char* ptr = factorization, *prevPtr = factorization; ; ++ptr)
@@ -301,21 +305,21 @@ FORCEINLINE unsigned int ParseFactorization(char* factorization, T callback)
 				}
 				prev_p = p;
 
-				if (p1 < p)
+				if (p1.Get() < p)
 				{
-					if (p1 == 2)
+					if (p1.Get() == 2)
 					{
-						p1 = 3;
+						++p1;
 						++index_p1;
 					}
-					while (p1 < p)
+					while (p1.Get() < p)
 					{
-						p1 += NextPrimeShifts[index_p1 * 2] * ShiftMultiplier;
+						++p1;
 						++index_p1;
 					}
 				}
 
-				if (p1 != p)
+				if (p1.Get() != p)
 				{
 					std::cerr << "Factorization '" << factorization << "' is incorrect: " << p << " is not a prime" << std::endl;
 					abort();
@@ -369,7 +373,7 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 			[startFrom](num64 p, unsigned int k, int p_index, unsigned int factor_index)
 			{
 				Factor& f = factors[factor_index];
-				f.p = p;
+				f.p = PrimeIterator(p);
 				f.k = k;
 				f.index = p_index;
 
@@ -378,7 +382,7 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 				PRAGMA_WARNING(suppress : 4146)
 				f.p_inv = -modular_inverse64(p);
 
-				if ((f.p > 2) && (f.p * f.p_inv != 1))
+				if ((f.p.Get() > 2) && (f.p.Get() * f.p_inv != 1))
 				{
 					std::cerr << "Internal error: modular_inverse64 table is incorrect" << std::endl;
 					abort();
@@ -411,7 +415,7 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 		range.value = 0;
 
 		int start_j = f->index + 1;
-		num64 q0 = f->p + NextPrimeShifts[f->index * 2] * ShiftMultiplier;
+		num64 q0 = f->p.GetNext();
 
 		// A check to ensure that m*q is not divisible by 6
 		if (search_stack_depth == 1)
@@ -455,7 +459,7 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 		ParseFactorization(stopAt,
 			[outStopAtFactors](num64 p, unsigned int k, int /*p_index*/, unsigned int factor_index)
 			{
-				outStopAtFactors[factor_index].p = p;
+				outStopAtFactors[factor_index].p = PrimeIterator(p);
 				outStopAtFactors[factor_index].k = k;
 			}
 		);
@@ -605,9 +609,9 @@ NOINLINE void RangeGen::CheckpointThread(WorkerThreadParams* params, num64 numWo
 							num64 j;
 							for (j = 0; j <= static_cast<num64>(params[i].stateToSave.curRange.last_factor_index); ++j)
 							{
-								if (curFactors[j].p != mainFactors[j].p)
+								if (curFactors[j].p.Get() != mainFactors[j].p.Get())
 								{
-									is_less = (curFactors[j].p < mainFactors[j].p);
+									is_less = (curFactors[j].p.Get() < mainFactors[j].p.Get());
 									break;
 								}
 								else if (curFactors[j].k != mainFactors[j].k)
@@ -643,7 +647,7 @@ NOINLINE void RangeGen::CheckpointThread(WorkerThreadParams* params, num64 numWo
 					{
 						s << '*';
 					}
-					s << mainFactors[i].p;
+					s << mainFactors[i].p.Get();
 					if (mainFactors[i].k > 1)
 					{
 						s << '^' << mainFactors[i].k;
@@ -758,9 +762,9 @@ NOINLINE void RangeGen::WorkerThread(WorkerThreadParams* params)
 						num64 i;
 						for (i = 0; i < MaxPrimeFactors; ++i)
 						{
-							if (r.factors[i].p != params->stopAtFactors[i].p)
+							if (r.factors[i].p.Get() != params->stopAtFactors[i].p.Get())
 							{
-								done = (r.factors[i].p > params->stopAtFactors[i].p);
+								done = (r.factors[i].p.Get() > params->stopAtFactors[i].p.Get());
 								break;
 							}
 							else if (r.factors[i].k != params->stopAtFactors[i].k)
