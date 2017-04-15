@@ -34,10 +34,10 @@ NOINLINE bool TestCheckPair()
 
 			const num64 oldNumPairs = GetNumFoundPairsInThisThread();
 			const num128 sum = m + n;
-			CheckPair128NoInline(m.lo, sum.lo, sum.hi);
+			CheckPair128NoInline(m, sum);
 			if (GetNumFoundPairsInThisThread() != oldNumPairs + 1)
 			{
-				std::cerr << "CheckPair128 didn't recognize " << m.lo << " as a valid amicable num64" << std::endl;
+				std::cerr << "CheckPair128 didn't recognize " << m << " as a valid amicable number" << std::endl;
 				return false;
 			}
 			if (!sum.hi)
@@ -45,7 +45,7 @@ NOINLINE bool TestCheckPair()
 				CheckPairNoInline(m.lo, sum.lo);
 				if (GetNumFoundPairsInThisThread() != oldNumPairs + 2)
 				{
-					std::cerr << "CheckPair didn't recognize " << m.lo << " as a valid amicable num64" << std::endl;
+					std::cerr << "CheckPair didn't recognize " << m << " as a valid amicable number" << std::endl;
 					return false;
 				}
 			}

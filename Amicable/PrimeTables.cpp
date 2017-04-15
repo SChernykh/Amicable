@@ -16,6 +16,9 @@ CACHE_ALIGNED std::pair<num64, num64> privPrimeInverses2[CompileTimePrimesCount]
 CACHE_ALIGNED num64 privPrimeInverses3[ReciprocalsTableSize];
 CACHE_ALIGNED num64 privPrimeInverses4[ReciprocalsTableSize];
 
+CACHE_ALIGNED std::pair<num128, num128> privPrimeInverses128[ReciprocalsTableSize128];
+CACHE_ALIGNED InverseData128* privPowersOfP_128DivisibilityData[ReciprocalsTableSize128];
+
 CACHE_ALIGNED byte MainPrimeTable[404061114];
 byte bitOffset[PrimeTableParameters::Modulo];
 num64 bitMask[PrimeTableParameters::Modulo];
@@ -47,7 +50,7 @@ struct MainPrimeTableInitializer
 	num64 prev_p;
 };
 
-static num64 CalculateMainPrimeTable()
+static NOINLINE num64 CalculateMainPrimeTable()
 {
 	// https://en.wikipedia.org/wiki/Prime_gap#Numerical_results
 	// Since we operate in the range 1..10^20, a gap = PrimeTableParameters::Modulo * 16 = 3360 is enough
@@ -354,7 +357,7 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 
 		if (p_inv * p != 1)
 		{
-			std::cerr << "modular_inverse64 failed";
+			std::cerr << "modular_inverse64 failed for p = " << p << std::endl;
 			abort();
 		}
 
@@ -367,6 +370,54 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 		}
 		privPrimeInverses3[index] = p_inv;
 		privPrimeInverses4[index] = p_inv;
+	}
+
+	InverseData128* inverse_ptr128_buf = reinterpret_cast<InverseData128*>(AllocateSystemMemory(990035 * sizeof(InverseData128), false));
+	InverseData128* inverse_ptr128 = inverse_ptr128_buf;
+	it = PrimeIterator(3);
+	for (num64 index = 0; index < ARRAYSIZE(privPrimeInverses128); ++it, ++index)
+	{
+		const num64 p = it.Get();
+		const num128 p_inv = -modular_inverse128(p);
+		if (p_inv * p != 1)
+		{
+			std::cerr << "modular_inverse128 failed for p = " << p << std::endl;
+			abort();
+		}
+		const num128 p_max = num128(num64(-1), num64(-1)) / p;
+		privPrimeInverses128[index].first = p_inv;
+		privPrimeInverses128[index].second = p_max;
+
+		privPowersOfP_128DivisibilityData[index] = inverse_ptr128;
+		num128 p1 = p;
+		num128 sum1 = p + 1;
+		const num128 sum_limit = SearchLimit::value * 3;
+		do
+		{
+			if (sum1.lo == 0)
+			{
+				std::cerr << "shift is too large for p = " << p << std::endl;
+				abort();
+			}
+
+			unsigned long k;
+			_BitScanForward64(&k, sum1.lo);
+			inverse_ptr128->shift = k;
+			inverse_ptr128->shift_bits = (1U << k) - 1;
+
+			const num128 value = sum1 >> k;
+			inverse_ptr128->inverse = -modular_inverse128(value);
+			inverse_ptr128->max_value = num128(num64(-1), num64(-1)) / value;
+			if (inverse_ptr128->inverse * value != 1)
+			{
+				std::cerr << "modular_inverse128 failed for value = " << value << std::endl;
+				abort();
+			}
+
+			p1 *= p;
+			sum1 += p1;
+			++inverse_ptr128;
+		} while (sum1 <= sum_limit);
 	}
 
 	// Gather data for linear search and do preliminary filtering

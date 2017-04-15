@@ -221,7 +221,14 @@ FORCEINLINE num64 MaximumSumOfDivisorsN(const num64 m, const num64 i, num64& j)
 {
 	num64 highProduct;
 	_umul128(m, GetCoeffForMaximumSumOfDivisorsN(m, i, j), &highProduct);
-	return m + highProduct;
+
+	num64 m1;
+	if (_addcarry_u64(0, m, highProduct, &m1))
+	{
+		return num64(-1);
+	}
+
+	return m1;
 }
 
 template<int numPrimesCheckedSoFar>
@@ -245,7 +252,15 @@ template<> FORCEINLINE bool IsNumEligible<IS_NUM_ELIGIBLE_BEGIN>(const num64 a, 
 		{
 			num64 highProduct;
 			_umul128(a, SumEstimatesBeginQ[k], &highProduct);
-			const num64 maxPossibleSum = _umul128(sumA, a + highProduct, &highProduct);
+
+			num64 a1;
+			if (_addcarry_u64(0, a, highProduct, &a1))
+			{
+				j = k;
+				return true;
+			}
+
+			const num64 maxPossibleSum = _umul128(sumA, a1, &highProduct);
 			j = k;
 			return (maxPossibleSum >= targetSum) || highProduct;
 		}
@@ -745,114 +760,105 @@ NOINLINE void CheckPairNoInline(const num64 n1, const num64 targetSum)
 	CheckPair(n1, targetSum);
 }
 
-struct InverseData128
-{
-	unsigned char shift;
-	num64 inverse[2];
-	num64 max_value[2];
-};
-
 #include "inverses128.h"
 
-FORCEINLINE num64 InitialCheck128(const num64 n1, num64 targetSumLow, num64 targetSumHigh, num64& n2)
+FORCEINLINE num128 InitialCheck128(const num128 n1, num128 targetSum, num128& n2)
 {
-	num64 n2_128[2];
-	sub128(targetSumLow, targetSumHigh, n1, 0, n2_128, n2_128 + 1);
+	n2 = targetSum - n1;
 
 	unsigned long powerOf2;
-	if (n2_128[0])
+	if (n2.lo)
 	{
-		_BitScanForward64(&powerOf2, n2_128[0]);
-		shr128(n2_128[0], n2_128[1], static_cast<unsigned char>(powerOf2));
+		_BitScanForward64(&powerOf2, n2.lo);
+		n2 >>= powerOf2;
 	}
 	else
 	{
-		_BitScanForward64(&powerOf2, n2_128[1]);
-		n2_128[0] = n2_128[1] >> powerOf2;
-		n2_128[1] = 0;
+		_BitScanForward64(&powerOf2, n2.hi);
+		n2.lo = n2.hi >> powerOf2;
+		n2.hi = 0;
 		powerOf2 += 64;
 	}
 
 	if (powerOf2 > 0)
 	{
-		const num64 (&data)[2][2] = locPowersOf2_128DivisibilityData[powerOf2];
-
-		num64 q[2];
-		q[0] = _umul128(targetSumLow, data[0][0], &q[1]);
-		q[1] += targetSumLow * data[0][1] + targetSumHigh * data[0][0];
-		if (q[1])
+		const num128 q = targetSum * locPowersOf2_128DivisibilityData[powerOf2][0];
+		if (q > locPowersOf2_128DivisibilityData[powerOf2][1])
 		{
 			return 0;
 		}
-		n2 = n2_128[0];
-		targetSumLow = q[0];
-		ASSUME(targetSumLow > 0);
-		return targetSumLow;
+		targetSum = q;
 	}
 
-	for (unsigned int i = 0; targetSumHigh && (i < ARRAYSIZE(locPrimeInverses_128)); ++i)
+	if (targetSum.hi == 0)
 	{
-		const num64(&prime_inverse)[2][2] = locPrimeInverses_128[i];
+		return targetSum;
+	}
 
-		num64 powerOf_p;
-		for (powerOf_p = 0;; ++powerOf_p)
+	for (const std::pair<num128, num128>* prime_inverse = PrimeInverses128; prime_inverse < PrimeInverses128 + ReciprocalsTableSize128; ++prime_inverse)
+	{
+		num128 q = n2 * prime_inverse->first;
+		if (q > prime_inverse->second)
 		{
-			num64 q[2];
-			q[0] = _umul128(n2_128[0], prime_inverse[0][0], &q[1]);
-			q[1] += n2_128[0] * prime_inverse[0][1] + n2_128[1] * prime_inverse[0][0];
-			if ((q[1] > prime_inverse[1][1]) || (((q[1] == prime_inverse[1][1])) && (q[0] > prime_inverse[1][0])))
+			continue;
+		}
+
+		const InverseData128* data = PowersOfP_128DivisibilityData[prime_inverse - PrimeInverses128];
+		for (;;)
+		{
+			n2 = q;
+			q *= prime_inverse->first;
+			if (q > prime_inverse->second)
 			{
 				break;
 			}
-			n2_128[0] = q[0];
-			n2_128[1] = q[1];
+			++data;
 		}
 
-		if (powerOf_p > 0)
+		if (data->shift)
 		{
-			const InverseData128& data = locPowersOfP_128DivisibilityData[i][powerOf_p];
-
-			if (data.shift)
-			{
-				if (targetSumLow & ((1 << data.shift) - 1))
-				{
-					return 0;
-				}
-				shr128(targetSumLow, targetSumHigh, data.shift);
-			}
-
-			num64 q[2];
-			q[0] = _umul128(targetSumLow, data.inverse[0], &q[1]);
-			q[1] += targetSumLow * data.inverse[1] + targetSumHigh * data.inverse[0];
-			if (q[1])
+			if (targetSum.lo & data->shift_bits)
 			{
 				return 0;
 			}
-
-			n2 = n2_128[0];
-			targetSumLow = q[0];
-			ASSUME(targetSumLow > 0);
-			return targetSumLow;
+			targetSum >>= data->shift;
 		}
+
+		const num128 q1 = targetSum * data->inverse;
+		if (q1 > data->max_value)
+		{
+			return 0;
+		}
+
+		if (q1.hi == 0)
+		{
+			return q1;
+		}
+
+		if (n2 >= q1)
+		{
+			return 0;
+		}
+
+		targetSum = q1;
 	}
 
-	n2 = n2_128[0];
-
-	ASSUME(targetSumLow > 0);
-	return targetSumLow;
+	return targetSum;
 }
 
-FORCEINLINE void CheckPair128(const num64 n1, num64 targetSumLow, num64 targetSumHigh)
+FORCEINLINE void CheckPair128(const num128 n1, num128 targetSum)
 {
-	num64 n2;
-	const num64 n2TargetSum = InitialCheck128(n1, targetSumLow, targetSumHigh, n2);
-	if (n2TargetSum && (n2 < n2TargetSum))
-		CheckPairInternalNoInline(n1, n2TargetSum, n2TargetSum, n2, 1);
+	num128 n2;
+	const num128 n2TargetSum = InitialCheck128(n1, targetSum, n2);
+	if (!n2TargetSum.hi && n2TargetSum.lo && (n2 < n2TargetSum.lo))
+	{
+		CheckPairInternalNoInline(n1.lo, n2TargetSum.lo, n2TargetSum.lo, n2.lo, 1);
+	}
 }
 
-NOINLINE void CheckPair128NoInline(const num64 n1, num64 targetSumLow, num64 targetSumHigh)
+NOINLINE void CheckPair128NoInline(const num128 n1, const num128 targetSum)
 {
-	CheckPair128(n1, targetSumLow, targetSumHigh);
+	CheckPair128(n1, targetSum);
 }
 
 template<bool HandleLargeSums> void CheckPairSafeImpl(const num64 m, const num64 target_sum1, const num64 target_sum2);
@@ -872,7 +878,7 @@ template<> FORCEINLINE void CheckPairSafeImpl<true>(const num64 m, const num64 t
 	}
 	else
 	{
-		CheckPair128(m, targetSum, targetSumHi);
+		CheckPair128(m, num128(targetSum, targetSumHi));
 	}
 }
 

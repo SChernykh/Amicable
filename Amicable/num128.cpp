@@ -16,6 +16,29 @@ num128 atoi128(const char* s)
 	return result;
 }
 
+std::ostream& operator<<(std::ostream& s, num128 a)
+{
+	char buf[40];
+	char* c = buf + sizeof(buf);
+	*(--c) = '\0';
+
+	if (a == 0)
+	{
+		*(--c) = '0';
+		return s;
+	}
+
+	do 
+	{
+		const num128 prev_a = a;
+		a /= 10;
+		*(--c) = '0' + static_cast<char>((prev_a - a * 10).lo);
+	} while (a != 0);
+
+	s << c;
+	return s;
+}
+
 #ifndef __GNUG__
 
 NOINLINE num128 num128::operator/(const num128& a) const

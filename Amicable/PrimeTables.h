@@ -8,6 +8,10 @@ enum
 	// There are exactly 192725 primes below 2^(64/3)
 	// We can use this table for factorization when p^3 <= N < 2^64
 	ReciprocalsTableSize = 192725,
+
+	// There are exactly 325161 primes below 10^(20/3)
+	// We can use this table for factorization when p^3 <= N < 10^20
+	ReciprocalsTableSize128 = 325161,
 };
 
 // Reciprocals are calculated using algorithm published in http://www.agner.org/optimize/optimizing_assembly.pdf (section 16.9 "Integer division by a constant")
@@ -70,6 +74,14 @@ struct AmicableCandidate
 };
 #pragma pack(pop)
 
+struct InverseData128
+{
+	unsigned int shift;
+	unsigned int shift_bits;
+	num128 inverse;
+	num128 max_value;
+};
+
 extern CACHE_ALIGNED byte MainPrimeTable[404061114];
 extern byte bitOffset[PrimeTableParameters::Modulo];
 extern CACHE_ALIGNED byte privNextPrimeShifts[ReciprocalsTableSize];
@@ -80,6 +92,9 @@ extern CACHE_ALIGNED std::pair<num64, num64> privPrimeInverses2[CompileTimePrime
 extern CACHE_ALIGNED num64 privPrimeInverses3[ReciprocalsTableSize];
 extern CACHE_ALIGNED num64 privPrimeInverses4[ReciprocalsTableSize];
 
+extern CACHE_ALIGNED std::pair<num128, num128> privPrimeInverses128[ReciprocalsTableSize128];
+extern CACHE_ALIGNED InverseData128* privPowersOfP_128DivisibilityData[ReciprocalsTableSize128];
+
 #define NextPrimeShifts ((const byte* const)(privNextPrimeShifts))
 #define CandidatesData ((const std::vector<AmicableCandidate>&)(privCandidatesData))
 #define CandidatesDataMask ((const unsigned char*)(privCandidatesDataMask))
@@ -88,6 +103,9 @@ extern CACHE_ALIGNED num64 privPrimeInverses4[ReciprocalsTableSize];
 #define PrimeInverses2 ((const std::pair<num64, num64>*)(privPrimeInverses2))
 #define PrimeInverses3 ((const num64*)(privPrimeInverses3))
 #define PrimeInverses4 ((const num64*)(privPrimeInverses4))
+
+#define PrimeInverses128 ((const std::pair<num128, num128>*)(privPrimeInverses128))
+#define PowersOfP_128DivisibilityData ((const InverseData128* const*)(privPowersOfP_128DivisibilityData))
 
 FORCEINLINE num64 Mod385(const num64 n)
 {

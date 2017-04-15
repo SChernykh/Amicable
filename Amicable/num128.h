@@ -9,7 +9,7 @@ struct num128
 
 	FORCEINLINE num128(const num128& a) : lo(a.lo), hi(a.hi) {}
 
-	FORCEINLINE num128(int a) : lo(static_cast<num64>(a)), hi(0) {}
+	FORCEINLINE num128(int a) : lo(static_cast<unsigned int>(a)), hi(0) {}
 	FORCEINLINE num128(num64 a) : lo(a), hi(0) {}
 	FORCEINLINE num128(num64 _lo, num64 _hi) : lo(_lo), hi(_hi) {}
 
@@ -38,6 +38,13 @@ struct num128
 	{
 		add128(lo, hi, a, 0, &lo, &hi);
 		return *this;
+	}
+
+	FORCEINLINE num128 operator-() const
+	{
+		num128 result;
+		add128(~lo, ~hi, 1, 0, &result.lo, &result.hi);
+		return result;
 	}
 
 	FORCEINLINE num128 operator-(num64 a) const
@@ -114,16 +121,16 @@ struct num128
 		return *this;
 	}
 
-	FORCEINLINE num128 operator>>(unsigned char count) const
+	FORCEINLINE num128 operator>>(unsigned int count) const
 	{
 		num128 result = *this;
-		shr128(result.lo, result.hi, count);
+		shr128(result.lo, result.hi, static_cast<unsigned char>(count));
 		return result;
 	}
 
-	FORCEINLINE num128& operator>>=(unsigned char count)
+	FORCEINLINE num128& operator>>=(unsigned int count)
 	{
-		shr128(lo, hi, count);
+		shr128(lo, hi, static_cast<unsigned char>(count));
 		return *this;
 	}
 
@@ -166,3 +173,4 @@ struct num128
 #endif
 
 num128 atoi128(const char* s);
+std::ostream& operator<<(std::ostream& s, num128 a);

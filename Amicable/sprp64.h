@@ -74,23 +74,21 @@ static FORCEINLINE num64 modular_inverse64(const num64 a)
 	return result;
 }
 
-static FORCEINLINE void modular_inverse64_2(const num64 a1, const num64 a2, num64* results)
+static FORCEINLINE num128 modular_inverse128(const num128 a)
 {
 	static const unsigned char mask[128] = { 255,85,51,73,199,93,59,17,15,229,195,89,215,237,203,33,31,117,83,105,231,125,91,49,47,5,227,121,247,13,235,65,63,149,115,137,7,157,123,81,79,37,3,153,23,45,11,97,95,181,147,169,39,189,155,113,111,69,35,185,55,77,43,129,127,213,179,201,71,221,187,145,143,101,67,217,87,109,75,161,159,245,211,233,103,253,219,177,175,133,99,249,119,141,107,193,191,21,243,9,135,29,251,209,207,165,131,25,151,173,139,225,223,53,19,41,167,61,27,241,239,197,163,57,183,205,171,1 };
 
-	const unsigned char amask1 = mask[static_cast<unsigned char>(a1) >> 1];
-	const unsigned char amask2 = mask[static_cast<unsigned char>(a2) >> 1];
+	const unsigned char amask = mask[static_cast<unsigned char>(a.lo) >> 1];
 
-	num64 S1 = 1;
-	num64 S2 = 1;
+	unsigned char resultBytes[sizeof(num128)];
 
-	for (num64 i = 0; i < 8; ++i)
+	num128 S = 1;
+	for (num64 i = 0; i < sizeof(resultBytes); ++i)
 	{
-		reinterpret_cast<unsigned char*>(results + 0)[i] = amask1 * S1;
-		reinterpret_cast<unsigned char*>(results + 1)[i] = amask2 * S2;
-		S1 = (S1 + a1 * reinterpret_cast<unsigned char*>(results + 0)[i]) >> 8;
-		S2 = (S2 + a2 * reinterpret_cast<unsigned char*>(results + 1)[i]) >> 8;
+		resultBytes[i] = amask * S.lo;
+		S = (S + a * resultBytes[i]) >> 8;
 	}
+	return *reinterpret_cast<num128*>(resultBytes);
 }
 
 // returns 2^64 mod n
