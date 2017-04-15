@@ -108,7 +108,7 @@ NOINLINE bool TestGeneric(T test)
 				{
 					return a.first < b.first;
 				});
-				if (!test(m.lo, factorization))
+				if (!test(m, factorization))
 				{
 					return false;
 				}
@@ -126,7 +126,7 @@ NOINLINE bool TestGeneric(T test)
 
 NOINLINE bool TestAmicableCandidates()
 {
-	return TestGeneric([](num64 m, const std::vector<std::pair<num64, num64>>& factorization)
+	return TestGeneric([](num128 m, const std::vector<std::pair<num64, num64>>& factorization)
 	{
 		const std::pair<num64, num64>& max_factor = factorization.back();
 		if (max_factor.first >= SearchLimit::LinearLimit)
@@ -135,11 +135,11 @@ NOINLINE bool TestAmicableCandidates()
 			{
 				m /= max_factor.first;
 			}
-			auto it = std::lower_bound(CandidatesData.begin(), CandidatesData.end(), m, [](const AmicableCandidate& a, num64 b)
+			auto it = std::lower_bound(CandidatesData.begin(), CandidatesData.end(), m, [](const AmicableCandidate& a, num128 b)
 			{
-				return a.value < b;
+				return b > a.value;
 			});
-			if ((it == CandidatesData.end()) || (it->value != m))
+			if ((it == CandidatesData.end()) || (m != it->value))
 			{
 				std::cerr << "LinearSearchData doesn't include " << m << " as a valid amicable candidate" << std::endl;
 				return false;
