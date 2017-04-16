@@ -159,7 +159,7 @@ int main(int argc, char* argv[])
 
 	// Now sort all numbers found so far
 	rewind(g_outputFile);
-	std::vector<num64> found_numbers;
+	std::vector<num128> found_numbers;
 	while (!feof(g_outputFile))
 	{
 		char buf[32];
@@ -167,8 +167,8 @@ int main(int argc, char* argv[])
 		{
 			break;
 		}
-		const num64 m = StrToNumber(buf);
-		if (m)
+		const num128 m = atoi128(buf);
+		if (m != 0)
 		{
 			found_numbers.push_back(m);
 		}
@@ -182,9 +182,10 @@ int main(int argc, char* argv[])
 
 	// And write remaining sorted numbers back to the output file
 	g_outputFile = boinc_fopen(resolved_name.c_str(), "wb");
-	for (num64 m : found_numbers)
+	for (num128 m : found_numbers)
 	{
-		fprintf(g_outputFile, "%llu\n", m);
+		char buf[40];
+		fprintf(g_outputFile, "%s\n", itoa128(m, buf, sizeof(buf)));
 	}
 	fclose(g_outputFile);
 

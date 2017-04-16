@@ -25,15 +25,6 @@ const char* const CHECKPOINT_LOGICAL_NAME = "amicable_checkpoint";
 
 RangeGen RangeGen::RangeGen_instance;
 
-static FORCEINLINE bool is_abundant_q(const num64 sum, const num64 sum_q, const num64 value_to_check)
-{
-	// sum * sum_q can be >= 2^64 when SearchLimit::value is large enough, so use 128-bit arithmetic here
-	num64 s2[2];
-	s2[0] = _umul128(sum, sum_q, &s2[1]);
-	sub128(s2[0], s2[1], value_to_check, 0, s2, s2 + 1);
-	return (s2[0] > value_to_check) || s2[1];
-}
-
 template<unsigned int largest_prime_power>
 NOINLINE bool RangeGen::Iterate(RangeData& range)
 {
@@ -41,7 +32,9 @@ NOINLINE bool RangeGen::Iterate(RangeData& range)
 	Factor* f = factors + search_stack_depth;
 
 	int start_i, start_j;
-	num64 q0, q, sum_q;
+	num64 q0;
+	num128 q;
+	num128 sum_q;
 
 #define RECURSE ++search_stack_depth; ++s; ++f; goto recurse_begin
 #define RETURN --search_stack_depth; --s; --f; goto recurse_begin
@@ -85,9 +78,8 @@ recurse_begin:
 
 	for (f->index = start_i; f->p.Get() <= SearchLimit::PrimeInversesBound; ++f->p, ++f->index)
 	{
-		num64 h;
-		s[1].value = _umul128(s->value, f->p.Get(), &h);
-		if ((SearchLimit::value <= s[1].value) || h)
+		s[1].value = s->value * f->p.Get();
+		if (s[1].value >= SearchLimit::value)
 		{
 			RETURN;
 		}
@@ -95,10 +87,11 @@ recurse_begin:
 
 		f->k = 1;
 
-		f->q_max = num64(-1) / f->p.Get();
-
 		PRAGMA_WARNING(suppress : 4146)
 		f->p_inv = -modular_inverse64(f->p.Get());
+		f->q_max = num64(-1) / f->p.Get();
+		f->p_inv128 = -modular_inverse128(f->p.Get());
+		f->q_max128 = num128(num64(-1), num64(-1)) / f->p.Get();
 
 		for (;;)
 		{
@@ -125,37 +118,18 @@ recurse_begin:
 
 				IF_CONSTEXPR(largest_prime_power > 1)
 				{
-					q = _umul128(q, q0, &h);
-					if (h)
-					{
-						if (f->k == 1)
-						{
-							RETURN;
-						}
-						break;
-					}
+					q *= q0;
 					sum_q += q;
 				}
 
 				IF_CONSTEXPR(largest_prime_power > 2)
 				{
-					q = _umul128(q, q0, &h);
-					if (h)
-					{
-						if (f->k == 1)
-						{
-							RETURN;
-						}
-						break;
-					}
+					q *= q0;
 					sum_q += q;
 				}
 
-				// We don't need to check if sum_q fits in 64 bits because q < SearchLimit::value / s[1].value,
-				// where s[1].value must be >= 20 for s[1].value * q to be amicable num64
-
-				const num64 value_to_check = _umul128(s[1].value, q, &h);
-				if ((SearchLimit::value <= value_to_check) || h)
+				const num128 value_to_check = s[1].value * q;
+				if (value_to_check >= SearchLimit::value)
 				{
 					if (f->k == 1)
 					{
@@ -165,10 +139,10 @@ recurse_begin:
 				}
 
 				// Skip overabundant numbers
-				const bool is_deficient = (s[1].sum - s[1].value < s[1].value);
+				const byte is_deficient = (s[1].sum - s[1].value < s[1].value);
 				if (is_deficient || !OverAbundant<(largest_prime_power & 1) ? 2 : 1>(factors, search_stack_depth, s[1].value, s[1].sum, (largest_prime_power & 1) ? 2 : 1))
 				{
-					if (!is_deficient || is_abundant_q(s[1].sum, sum_q, value_to_check))
+					if (!is_deficient || (s[1].sum * sum_q - value_to_check > value_to_check))
 					{
 						range.value = s[1].value;
 						range.sum = s[1].sum;
@@ -196,8 +170,8 @@ recurse_begin:
 			}
 
 recurse_return:
-			s[1].value = _umul128(s[1].value, f->p.Get(), &h);
-			if ((SearchLimit::value <= s[1].value) || h)
+			s[1].value *= f->p.Get();
+			if (s[1].value >= SearchLimit::value)
 			{
 				break;
 			}
@@ -377,10 +351,11 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 				f.k = k;
 				f.index = p_index;
 
-				f.q_max = num64(-1) / p;
-
 				PRAGMA_WARNING(suppress : 4146)
 				f.p_inv = -modular_inverse64(p);
+				f.q_max = num64(-1) / p;
+				f.p_inv128 = -modular_inverse128(p);
+				f.q_max128 = num128(num64(-1), num64(-1)) / p;
 
 				if ((f.p.Get() > 2) && (f.p.Get() * f.p_inv != 1))
 				{
@@ -394,9 +369,8 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 				next_s.sum = cur_s.sum;
 				for (num64 i = 0; i < k; ++i)
 				{
-					num64 h;
-					next_s.value = _umul128(next_s.value, p, &h);
-					if ((SearchLimit::value <= next_s.value) || h)
+					next_s.value *= p;
+					if (next_s.value >= SearchLimit::value)
 					{
 						std::cerr << "Factorization '" << startFrom << "' is incorrect: num64 is too large" << std::endl;
 						abort();
@@ -433,15 +407,14 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 		num64 q = q0;
 		num64 sum_q = q0 + 1;
 
-		num64 h;
-		const num64 value_to_check = _umul128(s->value, q, &h);
-		if ((SearchLimit::value > value_to_check) && !h)
+		const num128 value_to_check = s->value * q;
+		if (value_to_check < SearchLimit::value)
 		{
 			// Skip overabundant numbers
-			const bool is_deficient = (s->sum - s->value < s->value);
+			const byte is_deficient = (s->sum - s->value < s->value);
 			if (is_deficient || !OverAbundant<2>(factors, static_cast<int>(numFactors) - 1, s->value, s->sum, static_cast<num64>((cur_largest_prime_power & 1) ? 2 : 1)))
 			{
-				if (!is_deficient || is_abundant_q(s->sum, sum_q, value_to_check))
+				if (!is_deficient || (s->sum * sum_q - value_to_check > value_to_check))
 				{
 					range.value = s->value;
 					range.sum = s->sum;
@@ -534,7 +507,7 @@ NOINLINE void RangeGen::Run(num64 numThreads, char* startFrom, char* stopAt, uns
 	WorkerThreadParams* params = reinterpret_cast<WorkerThreadParams*>(alloca(sizeof(WorkerThreadParams) * numThreads));
 	for (num64 i = 0; i < numThreads; ++i)
 	{
-		params[i].rangeToCheckFirst = (startFrom && startFromRange.value && (i == 0)) ? &startFromRange : nullptr;
+		params[i].rangeToCheckFirst = (startFrom && (startFromRange.value != 0) && (i == 0)) ? &startFromRange : nullptr;
 		params[i].stopAtFactors = stopAt ? stopAtFactors : nullptr;
 		params[i].startPrime = startPrime;
 		params[i].primeLimit = primeLimit;

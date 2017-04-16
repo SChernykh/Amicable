@@ -166,6 +166,8 @@ struct num128
 	FORCEINLINE byte operator<(const num128& a) const { return less128(lo, hi, a.lo, a.hi); }
 	FORCEINLINE byte operator>(const num128& a) const { return less128(a.lo, a.hi, lo, hi); }
 
+	FORCEINLINE double ToDouble() const { return hi * 18446744073709551616.0 + lo; }
+
 	num64 lo;
 	num64 hi;
 };
@@ -173,4 +175,5 @@ struct num128
 #endif
 
 num128 atoi128(const char* s);
+char* itoa128(num128 a, char* buf, size_t bufSize);
 std::ostream& operator<<(std::ostream& s, num128 a);

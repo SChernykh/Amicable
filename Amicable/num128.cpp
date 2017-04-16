@@ -16,26 +16,31 @@ num128 atoi128(const char* s)
 	return result;
 }
 
-std::ostream& operator<<(std::ostream& s, num128 a)
+char* itoa128(num128 a, char* buf, size_t bufSize)
 {
-	char buf[40];
-	char* c = buf + sizeof(buf);
+	char* c = buf + bufSize;
 	*(--c) = '\0';
 
 	if (a == 0)
 	{
 		*(--c) = '0';
-		return s;
+		return c;
 	}
 
-	do 
+	do
 	{
 		const num128 prev_a = a;
 		a /= 10;
 		*(--c) = '0' + static_cast<char>((prev_a - a * 10).lo);
 	} while (a != 0);
 
-	s << c;
+	return c;
+}
+
+std::ostream& operator<<(std::ostream& s, num128 a)
+{
+	char buf[40];
+	s << itoa128(a, buf, sizeof(buf));
 	return s;
 }
 

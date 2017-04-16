@@ -288,47 +288,66 @@ struct Factor
 	int index;
 	num64 p_inv;
 	num64 q_max;
+	num128 p_inv128;
+	num128 q_max128;
 };
 
 template<num64 sum_coeff_max_factor>
-FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const num64 value, const num64 sum, const num64 sum_coeff)
+FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const num128 value, const num128 sum, const num64 sum_coeff)
 {
-	num64 g = 1;
-	num64 sum_g = 1;
-	num64 sum_for_gcd = sum;
+	num128 g = 1;
+	num128 sum_g = 1;
+	num128 sum_for_gcd = sum;
 
 	const Factor* last_factor = f + last_factor_index;
 
 	if (f->p.Get() == 2)
 	{
-		DWORD power_of_2;
-		_BitScanForward64(&power_of_2, sum_for_gcd);
+		unsigned long power_of_2;
+		if (sum_for_gcd.lo)
+		{
+			_BitScanForward64(&power_of_2, sum_for_gcd.lo);
+		}
+		else
+		{
+			_BitScanForward64(&power_of_2, sum_for_gcd.hi);
+			power_of_2 += 64;
+		}
 
 		IF_CONSTEXPR(sum_coeff_max_factor > 1)
 		{
-			DWORD power_of_2_sum_coeff;
+			unsigned long power_of_2_sum_coeff;
 			_BitScanForward64(&power_of_2_sum_coeff, sum_coeff);
 			power_of_2 += power_of_2_sum_coeff;
 		}
 
-		const DWORD k = static_cast<DWORD>(f->k);
+		const unsigned long k = f->k;
 		if (power_of_2 > k)
 		{
 			power_of_2 = k;
 		}
-		g <<= power_of_2;
-		sum_g <<= power_of_2;
-		sum_g = sum_g * 2 - 1;
+
+		if (power_of_2 < 64)
+		{
+			g = num64(1) << power_of_2;
+			sum_g = num64(1) << power_of_2;
+		}
+		else
+		{
+			g = num128(0, num64(1) << (power_of_2 - 64));
+			sum_g = num128(0, num64(1) << (power_of_2 - 64));
+		}
+		sum_g = sum_g * 2 + 1;
 		++f;
 	}
 
 	while (f <= last_factor)
 	{
-		const num64 prev_sum_g = sum_g;
+		const num128 prev_sum_g = sum_g;
 		for (unsigned int j = 0; j < f->k; ++j)
 		{
-			const num64 q = sum_for_gcd * f->p_inv;
-			if (q > f->q_max)
+			const num128 q = sum_for_gcd * f->p_inv128;
+			if (q > f->q_max128)
 			{
 				IF_CONSTEXPR(sum_coeff_max_factor > 2)
 				{
@@ -347,11 +366,7 @@ FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const num6
 		++f;
 	}
 
-	num64 n1[2];
-	num64 n2[2];
-	n1[0] = _umul128(sum_g - g, sum - value, &n1[1]);
-	n2[0] = _umul128(g, value, &n2[1]);
-	return leq128(n2[0], n2[1], n1[0], n1[1]);
+	return (sum - value) * (sum_g - g) >= value * g;
 }
 
 FORCEINLINE byte whole_branch_deficient(const num128& Limit, num128 value, num128 sum, const Factor* f)

@@ -196,15 +196,6 @@ AmicableCandidate::AmicableCandidate(num64 _value, num64 _sum, unsigned char _is
 {
 }
 
-struct PrimeData
-{
-	PrimeData(num64 _p_inv, num64 _q_max) : p_inv(_p_inv), q_max(_q_max) {}
-
-	num64 p_inv;
-	num64 q_max;
-};
-
-static std::vector<PrimeData> g_PrimeData;
 static num64 g_MaxPrime;
 static num64 g_LargestCandidate;
 
@@ -263,8 +254,11 @@ NOINLINE void SearchCandidates(Factor* factors, const num64 value, const num64 s
 		num64 next_sum = sum * (f.p.Get() + 1);
 
 		f.k = 1;
-		f.p_inv = g_PrimeData[static_cast<unsigned int>(f.index)].p_inv;
-		f.q_max = g_PrimeData[static_cast<unsigned int>(f.index)].q_max;
+		PRAGMA_WARNING(suppress : 4146)
+		f.p_inv = -modular_inverse64(f.p.Get());
+		f.q_max = num64(-1) / f.p.Get();
+		f.p_inv128 = -modular_inverse128(f.p.Get());
+		f.q_max128 = num128(num64(-1), num64(-1)) / f.p.Get();
 
 		for (;;)
 		{
@@ -297,29 +291,10 @@ NOINLINE void SearchCandidates(Factor* factors, const num64 value, const num64 s
 NOINLINE void GenerateCandidates()
 {
 	privCandidatesData.reserve(std::min<num64>(178832709, g_LargestCandidate / 30));
-	{
-		const num64 primeDataCount = 87348706;
-		g_PrimeData.reserve(primeDataCount);
-		g_PrimeData.emplace_back(0, 0);
-		PrimeIterator it(3);
-		for (num64 index = 1; index < primeDataCount; ++it, ++index)
-		{
-			const num64 p = it.Get();
 
-			PRAGMA_WARNING(suppress : 4146)
-			g_PrimeData.emplace_back(-modular_inverse64(p), num64(-1) / p);
-			if (p > g_MaxPrime)
-			{
-				break;
-			}
-		}
+	Factor factors[16];
+	SearchCandidates(factors, 1, 1, 0);
 
-		Factor factors[16];
-		SearchCandidates(factors, 1, 1, 0);
-
-		std::vector<PrimeData> tmp;
-		g_PrimeData.swap(tmp);
-	}
 	std::sort(privCandidatesData.begin(), privCandidatesData.end(), [](const AmicableCandidate& a, const AmicableCandidate& b){ return a.value < b.value; });
 }
 

@@ -362,12 +362,13 @@ unsigned int GetNumFoundPairsInThisThread()
 bool g_PrintNumbers = true;
 FILE* g_outputFile = nullptr;
 
-NOINLINE void NumberFound(const num64 n1)
+NOINLINE void NumberFound(const num128 n1)
 {
 	++NumFoundPairs;
 	if (g_PrintNumbers)
 	{
-		fprintf(g_outputFile, "%llu\n", n1);
+		char buf[40];
+		fprintf(g_outputFile, "%s\n", itoa128(n1, buf, sizeof(buf)));
 		fflush(g_outputFile);
 	}
 }
@@ -402,7 +403,7 @@ FORCEINLINE num64 Root4(const num64 n)
 	return static_cast<num64>(static_cast<__int64>(sqrt(sqrt(n))));
 }
 
-FORCEINLINE void CheckPairInternal(const num64 n1, const num64 targetSum, num64 n2TargetSum, num64 n2, num64 sum)
+FORCEINLINE void CheckPairInternal(const num128 n1, const num64 targetSum, num64 n2TargetSum, num64 n2, num64 sum)
 {
 	num64 indexForMaximumSumOfDivisorsN;
 	if (!CheckDivisibility<1>(n2, sum, targetSum, n2TargetSum, indexForMaximumSumOfDivisorsN))
@@ -703,7 +704,7 @@ FORCEINLINE void CheckPairInternal(const num64 n1, const num64 targetSum, num64 
 		NumberFound(n1);
 }
 
-NOINLINE static void CheckPairInternalNoInline(const num64 n1, const num64 targetSum, num64 n2TargetSum, num64 n2, num64 sum)
+NOINLINE static void CheckPairInternalNoInline(const num128 n1, const num64 targetSum, num64 n2TargetSum, num64 n2, num64 sum)
 {
 	CheckPairInternal(n1, targetSum, n2TargetSum, n2, sum);
 }
@@ -852,7 +853,7 @@ FORCEINLINE void CheckPair128(const num128 n1, num128 targetSum)
 	const num128 n2TargetSum = InitialCheck128(n1, targetSum, n2);
 	if (!n2TargetSum.hi && n2TargetSum.lo && (n2 < n2TargetSum.lo))
 	{
-		CheckPairInternalNoInline(n1.lo, n2TargetSum.lo, n2TargetSum.lo, n2.lo, 1);
+		CheckPairInternalNoInline(n1, n2TargetSum.lo, n2TargetSum.lo, n2.lo, 1);
 	}
 }
 
@@ -889,7 +890,7 @@ FORCEINLINE void CheckPairSafe(const num64 m, const num64 target_sum1, const num
 
 NOINLINE num64 SearchRange(const RangeData& r)
 {
-	num64 prime_limit = ((SearchLimit::value - 1) / r.value).lo;
+	num128 prime_limit = (SearchLimit::value - 1) / r.value;
 	if (prime_limit > SearchLimit::MainPrimeTableBound)
 	{
 		prime_limit = SearchLimit::MainPrimeTableBound;
@@ -898,7 +899,7 @@ NOINLINE num64 SearchRange(const RangeData& r)
 	unsigned int is_over_abundant_mask = 0;
 	if (r.sum - r.value < r.value)
 	{
-		const num64 prime_limit2 = (r.sum - 1) / (r.value * 2 - r.sum);
+		const num128 prime_limit2 = (r.sum - 1) / (r.value * 2 - r.sum);
 		if (prime_limit > prime_limit2)
 		{
 			prime_limit = prime_limit2;
@@ -919,16 +920,16 @@ NOINLINE num64 SearchRange(const RangeData& r)
 
 	PrimeIterator q(r.start_prime);
 	num64 result = 0;
-	const num64 m = r.value;
-	const num64 sum_m = r.sum;
-	while (q.Get() <= prime_limit)
+	const num128 m = r.value;
+	const num128 sum_m = r.sum;
+	while (q.Get() <= prime_limit.lo)
 	{
 		const num64 prev_q = q.Get();
 		++result;
 		++q;
 		if ((CandidatesDataMask[Mod385(prev_q + 1)] & is_over_abundant_mask) == 0)
 		{
-			CheckPairSafe(m * prev_q, sum_m, prev_q + 1);
+			CheckPair128NoInline(m * prev_q, sum_m * (prev_q + 1));
 		}
 	}
 
@@ -937,7 +938,7 @@ NOINLINE num64 SearchRange(const RangeData& r)
 
 NOINLINE num64 SearchRangeSquared(const RangeData& r)
 {
-	num64 prime_limit = static_cast<num64>(sqrt((SearchLimit::value / r.value).lo)) + 1;
+	num64 prime_limit = static_cast<num64>(sqrt((SearchLimit::value / r.value).ToDouble())) + 1;
 	if (r.sum - r.value < r.value)
 	{
 		// r.sum * (p^2 + p + 1) = r.value * p^2 * 2
@@ -946,7 +947,7 @@ NOINLINE num64 SearchRangeSquared(const RangeData& r)
 		// (r.value * 2 - r.sum) * p^2 - r.sum * p - r.sum = 0
 		// (r.value * 2 - r.sum) / r.sum * p^2 - p - 1 = 0
 		// (r.value * 2 / r.sum - 1) * p^2 - p - 1 = 0
-		const double A = static_cast<double>(r.value * 2 - r.sum) / r.sum;
+		const double A = (r.value * 2 - r.sum).ToDouble() / r.sum.ToDouble();
 		const num64 prime_limit2 = static_cast<num64>((1.0 + sqrt(1.0 + 4.0 * A)) / (2.0 * A)) + 1;
 		if (prime_limit > prime_limit2)
 		{
@@ -956,12 +957,12 @@ NOINLINE num64 SearchRangeSquared(const RangeData& r)
 
 	PrimeIterator q(r.start_prime);
 	num64 result = 0;
-	const num64 m = r.value;
-	const num64 sum_m = r.sum;
+	const num128 m = r.value;
+	const num128 sum_m = r.sum;
 	while (q.Get() < prime_limit)
 	{
 		const num64 q2 = q.Get() * q.Get();
-		CheckPairSafe(m * q2, sum_m, q2 + q.Get() + 1);
+		CheckPair128NoInline(m * q2, sum_m * (q2 + q.Get() + 1));
 		++q;
 		++result;
 	}
@@ -973,28 +974,21 @@ NOINLINE num64 SearchRangeCubed(const RangeData& r)
 {
 	PrimeIterator q(r.start_prime);
 	num64 result = 0;
-	const num64 m = r.value;
-	const num64 sum_m = r.sum;
+	const num128 m = r.value;
+	const num128 sum_m = r.sum;
 	for (;;)
 	{
-		num64 h;
-		const num64 q2 = q.Get() * q.Get();
-		const num64 q3 = _umul128(q2, q.Get(), &h);
-		if (h)
+		const num128 q2 = q.Get() * q.Get();
+		const num128 q3 = q2 * q.Get();
+		const num128 value = m * q3;
+		if (value >= SearchLimit::value)
 		{
 			break;
 		}
-
-		const num64 value = _umul128(m, q3, &h);
-		if ((SearchLimit::value <= value) || h)
-		{
-			break;
-		}
-		CheckPairSafe(value, sum_m, q3 + q2 + q.Get() + 1);
+		CheckPair128NoInline(value, sum_m * (q3 + q2 + q.Get() + 1));
 		++q;
 		++result;
 	}
-
 	return result;
 }
 

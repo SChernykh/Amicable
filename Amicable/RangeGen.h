@@ -23,8 +23,8 @@
 struct RangeData
 {
 	Factor factors[16];
-	num64 value;
-	num64 sum;
+	num128 value;
+	num128 sum;
 	num64 start_prime;
 	unsigned int index_start_prime;
 	int last_factor_index;
@@ -50,7 +50,8 @@ private:
 
 	struct StackFrame
 	{
-		num64 value, sum;
+		num128 value;
+		num128 sum;
 	};
 
 	template<unsigned int largest_prime_power> static bool Iterate(RangeData& range);

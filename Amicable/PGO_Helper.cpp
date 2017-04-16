@@ -3,6 +3,7 @@
 #include "Engine.h"
 #include "RangeGen.h"
 #include "PGO_Helper.h"
+#include "sprp64.h"
 #include <setjmp.h>
 #include <signal.h>
 
@@ -34,6 +35,8 @@ static NOINLINE void ProfileGuidedOptimization_Instrument_WorkerThread(num64 dat
 		r.factors[1].index = CompileTimePrimesCount;
 		r.factors[1].p_inv = MultiplicativeInverse<CompileTimePrimes<CompileTimePrimesCount>::value>::value;
 		r.factors[1].q_max = num64(-1) / CompileTimePrimes<CompileTimePrimesCount>::value;
+		r.factors[1].p_inv128 = -modular_inverse128(CompileTimePrimes<CompileTimePrimesCount>::value);
+		r.factors[1].q_max128 = num128(num64(-1), num64(-1)) / CompileTimePrimes<CompileTimePrimesCount>::value;
 		r.value = 256 * CompileTimePrimes<CompileTimePrimesCount>::value;
 		r.sum = 511 * (CompileTimePrimes<CompileTimePrimesCount>::value + 1);
 		r.start_prime = CompileTimePrimes<CompileTimePrimesCount + 1>::value;
