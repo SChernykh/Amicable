@@ -337,7 +337,7 @@ FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const num1
 			g = num128(0, num64(1) << (power_of_2 - 64));
 			sum_g = num128(0, num64(1) << (power_of_2 - 64));
 		}
-		sum_g = sum_g * 2 + 1;
+		sum_g += sum_g - 1;
 		++f;
 	}
 
