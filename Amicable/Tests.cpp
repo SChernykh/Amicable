@@ -336,8 +336,7 @@ NOINLINE bool TestNum128Division()
 {
 	num128 a, b, c;
 
-	a.lo = num64(-1);
-	a.hi = num64(-1);
+	a = NUM128_MAX;
 
 	b = 1;
 	c = a / b;
@@ -349,16 +348,15 @@ NOINLINE bool TestNum128Division()
 
 	b = num64(-1);
 	c = a / b;
-	if ((c.lo != 1) || (c.hi != 1))
+	if ((LowWord(c) != 1) || (HighWord(c) != 1))
 	{
 		std::cerr << "(2^128 - 1) / (2^64 - 1) division check failed" << std::endl;
 		return false;
 	}
 
-	b.lo = 1;
-	b.hi = 1;
+	b = CombineNum128(1, 1);
 	c = a / b;
-	if ((c.lo != num64(-1)) || (c.hi != 0))
+	if ((LowWord(c) != num64(-1)) || (HighWord(c) != 0))
 	{
 		std::cerr << "(2^128 - 1) / (2^64 + 1) division check failed" << std::endl;
 		return false;
@@ -366,7 +364,7 @@ NOINLINE bool TestNum128Division()
 
 	b = 6700417;
 	c = a / b;
-	if ((c.lo != 2753074036095) || (c.hi != 2753074036095))
+	if ((LowWord(c) != 2753074036095) || (HighWord(c) != 2753074036095))
 	{
 		std::cerr << "(2^128 - 1) / 6700417 division check failed" << std::endl;
 		return false;
@@ -374,29 +372,25 @@ NOINLINE bool TestNum128Division()
 
 	b = a;
 	c = a / b;
-	if ((c.lo != 1) || (c.hi != 0))
+	if ((LowWord(c) != 1) || (HighWord(c) != 0))
 	{
 		std::cerr << "(2^128 - 1) / (2^128 - 1) division check failed" << std::endl;
 		return false;
 	}
 
-	a.lo = num64(-2);
-	a.hi = num64(-1);
-	b.lo = 1;
-	b.hi = 1;
+	a = CombineNum128(num64(-2), num64(-1));
+	b = CombineNum128(1, 1);
 	c = a / b;
-	if ((c.lo != num64(-2)) || (c.hi != 0))
+	if ((LowWord(c) != num64(-2)) || (HighWord(c) != 0))
 	{
 		std::cerr << "(2^128 - 2) / (2^64 + 1) division check failed" << std::endl;
 		return false;
 	}
 
-	a.lo = 0;
-	a.hi = (num64(1) << 63) + 1;
-	b.lo = 0;
-	b.hi = 1;
+	a = CombineNum128(0, (num64(1) << 63) + 1);
+	b = CombineNum128(0, 1);
 	c = a / b;
-	if ((c.lo != (num64(1) << 63) + 1) || (c.hi != 0))
+	if ((LowWord(c) != (num64(1) << 63) + 1) || (HighWord(c) != 0))
 	{
 		std::cerr << "(2^127 + 1) / 2^64 division check failed" << std::endl;
 		return false;

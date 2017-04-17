@@ -11,7 +11,6 @@ struct num128
 
 	FORCEINLINE num128(int a) : lo(static_cast<unsigned int>(a)), hi(0) {}
 	FORCEINLINE num128(num64 a) : lo(a), hi(0) {}
-	FORCEINLINE num128(num64 _lo, num64 _hi) : lo(_lo), hi(_hi) {}
 
 	FORCEINLINE num128& operator=(num64 a)
 	{
@@ -166,8 +165,6 @@ struct num128
 	FORCEINLINE byte operator<(const num128& a) const { return less128(lo, hi, a.lo, a.hi); }
 	FORCEINLINE byte operator>(const num128& a) const { return less128(a.lo, a.hi, lo, hi); }
 
-	FORCEINLINE double ToDouble() const { return hi * 18446744073709551616.0 + lo; }
-
 	num64 lo;
 	num64 hi;
 };
@@ -177,3 +174,5 @@ struct num128
 num128 atoi128(const char* s);
 char* itoa128(num128 a, char* buf, size_t bufSize);
 std::ostream& operator<<(std::ostream& s, num128 a);
+
+extern const num128 NUM128_MAX;

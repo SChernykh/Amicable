@@ -223,7 +223,7 @@ FORCEINLINE num64 MaximumSumOfDivisorsN(const num64 m, const num64 i, num64& j)
 	_umul128(m, GetCoeffForMaximumSumOfDivisorsN(m, i, j), &highProduct);
 
 	num64 m1;
-	if (_addcarry_u64(0, m, highProduct, &m1))
+	if (AddAndDetectOverflow(m, highProduct, &m1))
 	{
 		return num64(-1);
 	}
@@ -255,7 +255,7 @@ template<> FORCEINLINE bool IsNumEligible<IS_NUM_ELIGIBLE_BEGIN>(const num64 a, 
 			j = k;
 
 			num64 a1;
-			if (_addcarry_u64(0, a, highProduct, &a1))
+			if (AddAndDetectOverflow(a, highProduct, &a1))
 			{
 				return true;
 			}
@@ -708,37 +708,34 @@ NOINLINE static void CheckPairInternalNoInline(const num128 n1, const num64 targ
 	CheckPairInternal(n1, targetSum, n2TargetSum, n2, sum);
 }
 
-#include "inverses128.h"
-
 FORCEINLINE num128 InitialCheck128(const num128 n1, num128 targetSum, num128& n2)
 {
 	n2 = targetSum - n1;
 
 	unsigned long powerOf2;
-	if (n2.lo)
+	if (LowWord(n2))
 	{
-		_BitScanForward64(&powerOf2, n2.lo);
+		_BitScanForward64(&powerOf2, LowWord(n2));
 		n2 >>= powerOf2;
 	}
 	else
 	{
-		_BitScanForward64(&powerOf2, n2.hi);
-		n2.lo = n2.hi >> powerOf2;
-		n2.hi = 0;
+		_BitScanForward64(&powerOf2, HighWord(n2));
+		n2 = HighWord(n2) >> powerOf2;
 		powerOf2 += 64;
 	}
 
 	if (powerOf2 > 0)
 	{
-		const num128 q = targetSum * locPowersOf2_128DivisibilityData[powerOf2][0];
-		if (q > locPowersOf2_128DivisibilityData[powerOf2][1])
+		const num128 q = targetSum * PowersOf2_128DivisibilityData[powerOf2].first;
+		if (q > PowersOf2_128DivisibilityData[powerOf2].second)
 		{
 			return 0;
 		}
 		targetSum = q;
 	}
 
-	if (targetSum.hi == 0)
+	if (HighWord(targetSum) == 0)
 	{
 		return targetSum;
 	}
@@ -765,7 +762,7 @@ FORCEINLINE num128 InitialCheck128(const num128 n1, num128 targetSum, num128& n2
 
 		if (data->shift)
 		{
-			if (targetSum.lo & data->shift_bits)
+			if (LowWord(targetSum) & data->shift_bits)
 			{
 				return 0;
 			}
@@ -778,7 +775,7 @@ FORCEINLINE num128 InitialCheck128(const num128 n1, num128 targetSum, num128& n2
 			return 0;
 		}
 
-		if (q1.hi == 0)
+		if (HighWord(q1) == 0)
 		{
 			return q1;
 		}
@@ -798,9 +795,9 @@ FORCEINLINE void CheckPair128(const num128 n1, num128 targetSum)
 {
 	num128 n2;
 	const num128 n2TargetSum = InitialCheck128(n1, targetSum, n2);
-	if (!n2TargetSum.hi && n2TargetSum.lo && (n2 < n2TargetSum.lo))
+	if (!HighWord(n2TargetSum) && LowWord(n2TargetSum) && (n2 < LowWord(n2TargetSum)))
 	{
-		CheckPairInternalNoInline(n1, n2TargetSum.lo, n2TargetSum.lo, n2.lo, 1);
+		CheckPairInternalNoInline(n1, LowWord(n2TargetSum), LowWord(n2TargetSum), LowWord(n2), 1);
 	}
 }
 
@@ -843,7 +840,7 @@ NOINLINE num64 SearchRange(const RangeData& r)
 	num64 result = 0;
 	const num128 m = r.value;
 	const num128 sum_m = r.sum;
-	while (q.Get() <= prime_limit.lo)
+	while (q.Get() <= LowWord(prime_limit))
 	{
 		const num64 prev_q = q.Get();
 		++result;
@@ -859,7 +856,7 @@ NOINLINE num64 SearchRange(const RangeData& r)
 
 NOINLINE num64 SearchRangeSquared(const RangeData& r)
 {
-	num64 prime_limit = static_cast<num64>(sqrt((SearchLimit::value / r.value).ToDouble())) + 1;
+	num64 prime_limit = static_cast<num64>(sqrt(Num128ToDouble(SearchLimit::value / r.value))) + 1;
 	if (r.sum - r.value < r.value)
 	{
 		// r.sum * (p^2 + p + 1) = r.value * p^2 * 2
@@ -868,7 +865,7 @@ NOINLINE num64 SearchRangeSquared(const RangeData& r)
 		// (r.value * 2 - r.sum) * p^2 - r.sum * p - r.sum = 0
 		// (r.value * 2 - r.sum) / r.sum * p^2 - p - 1 = 0
 		// (r.value * 2 / r.sum - 1) * p^2 - p - 1 = 0
-		const double A = (r.value * 2 - r.sum).ToDouble() / r.sum.ToDouble();
+		const double A = Num128ToDouble(r.value * 2 - r.sum) / Num128ToDouble(r.sum);
 		const num64 prime_limit2 = static_cast<num64>((1.0 + sqrt(1.0 + 4.0 * A)) / (2.0 * A)) + 1;
 		if (prime_limit > prime_limit2)
 		{

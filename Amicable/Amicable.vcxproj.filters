@@ -134,9 +134,6 @@
     <ClInclude Include="CompileTimeFunctions.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="inverses128.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="num128.h">
       <Filter>Header Files</Filter>
     </ClInclude>

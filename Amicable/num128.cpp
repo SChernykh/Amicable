@@ -1,6 +1,8 @@
 #include "stdafx.h"
 #include "num128.h"
 
+const num128 NUM128_MAX = CombineNum128(num64(-1), num64(-1));
+
 num128 atoi128(const char* s)
 {
 	num128 result = 0;
@@ -31,7 +33,7 @@ char* itoa128(num128 a, char* buf, size_t bufSize)
 	{
 		const num128 prev_a = a;
 		a /= 10;
-		*(--c) = '0' + static_cast<char>((prev_a - a * 10).lo);
+		*(--c) = '0' + static_cast<char>(LowWord(prev_a - a * 10));
 	} while (a != 0);
 
 	return c;

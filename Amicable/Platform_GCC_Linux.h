@@ -1,7 +1,5 @@
 #pragma once
 
-typedef unsigned __int128 num128
-
 #ifndef NOINLINE
 #define NOINLINE __attribute__ ((noinline))
 #endif
@@ -148,6 +146,10 @@ FORCEINLINE void Sleep(DWORD ms)
 
 FORCEINLINE void* AllocateSystemMemory(num64 size, bool is_executable)
 {
+	if (size & 4095)
+	{
+		size += 4096 - (size & 4095);
+	}
 	return mmap(0, size, is_executable ? (PROT_READ | PROT_WRITE | PROT_EXEC) : (PROT_READ | PROT_WRITE), MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 }
 
@@ -172,16 +174,18 @@ FORCEINLINE bool SetLowPriority()
 
 #pragma GCC system_header
 
+typedef unsigned __int128 num128;
+
 FORCEINLINE num64 _umul128(num64 a, num64 b, num64* h)
 {
-	const unsigned __int128 result = static_cast<unsigned __int128>(a) * b;
+	const num128 result = static_cast<num128>(a) * b;
 	*h = static_cast<num64>(result >> 64);
 	return static_cast<num64>(result);
 }
 
 FORCEINLINE num64 udiv128(num64 numhi, num64 numlo, num64 den, num64* rem)
 {
-	const unsigned __int128 n = (static_cast<unsigned __int128>(numhi) << 64) + numlo;
+	const num128 n = (static_cast<num128>(numhi) << 64) + numlo;
 
 	const num64 result = n / den;
 	*rem = n % den;
@@ -191,43 +195,63 @@ FORCEINLINE num64 udiv128(num64 numhi, num64 numlo, num64 den, num64* rem)
 
 FORCEINLINE num64 udiv128_noremainder(num64 numlo, num64 numhi, num64 den)
 {
-	const num64 result = ((static_cast<unsigned __int128>(numhi) << 64) + numlo) / den;
+	const num64 result = ((static_cast<num128>(numhi) << 64) + numlo) / den;
 	return result;
 }
 
 FORCEINLINE num64 mulmod64(num64 a, num64 b, num64 n)
 {
-	return (static_cast<unsigned __int128>(a) * b) % n;
+	return (static_cast<num128>(a) * b) % n;
+}
+
+FORCEINLINE bool AddAndDetectOverflow(num64 a, num64 b, num64* sum)
+{
+	const num64 prev_a = a;
+	a += b;
+	*sum = a;
+	return (a < prev_a);
 }
 
 FORCEINLINE void add128(num64 a_lo, num64 a_hi, num64 b_lo, num64 b_hi, num64* result_lo, num64* result_hi)
 {
-	const unsigned __int128 result = ((static_cast<unsigned __int128>(a_hi) << 64) + a_lo) + ((static_cast<unsigned __int128>(b_hi) << 64) + b_lo);
+	const num128 result = ((static_cast<num128>(a_hi) << 64) + a_lo) + ((static_cast<num128>(b_hi) << 64) + b_lo);
 	*result_lo = static_cast<num64>(result);
 	*result_hi = static_cast<num64>(result >> 64);
 }
 
 FORCEINLINE void sub128(num64 a_lo, num64 a_hi, num64 b_lo, num64 b_hi, num64* result_lo, num64* result_hi)
 {
-	const unsigned __int128 result = ((static_cast<unsigned __int128>(a_hi) << 64) + a_lo) - ((static_cast<unsigned __int128>(b_hi) << 64) + b_lo);
+	const num128 result = ((static_cast<num128>(a_hi) << 64) + a_lo) - ((static_cast<num128>(b_hi) << 64) + b_lo);
 	*result_lo = static_cast<num64>(result);
 	*result_hi = static_cast<num64>(result >> 64);
 }
 
 FORCEINLINE byte leq128(num64 a_lo, num64 a_hi, num64 b_lo, num64 b_hi)
 {
-	return (static_cast<__int128>(((static_cast<unsigned __int128>(a_hi) << 64) + a_lo) - ((static_cast<unsigned __int128>(b_hi) << 64) + b_lo)) <= 0) ? 1 : 0;
+	return (static_cast<__int128>(((static_cast<num128>(a_hi) << 64) + a_lo) - ((static_cast<num128>(b_hi) << 64) + b_lo)) <= 0) ? 1 : 0;
 }
 
 FORCEINLINE byte less128(num64 a_lo, num64 a_hi, num64 b_lo, num64 b_hi)
 {
-	return (static_cast<__int128>(((static_cast<unsigned __int128>(a_hi) << 64) + a_lo) - ((static_cast<unsigned __int128>(b_hi) << 64) + b_lo)) < 0) ? 1 : 0;
+	return (static_cast<__int128>(((static_cast<num128>(a_hi) << 64) + a_lo) - ((static_cast<num128>(b_hi) << 64) + b_lo)) < 0) ? 1 : 0;
 }
 
 FORCEINLINE void shr128(num64& lo, num64& hi, unsigned char count)
 {
-	unsigned __int128 t = (static_cast<unsigned __int128>(hi) << 64) + lo;
+	num128 t = (static_cast<num128>(hi) << 64) + lo;
 	t >>= count;
 	lo = static_cast<num64>(t);
 	hi = static_cast<num64>(t >> 64);
 }
+
+#include "num128.h"
+
+FORCEINLINE num64 LowWord(const num128& a) { return static_cast<num64>(a); }
+FORCEINLINE num64 HighWord(const num128& a) { return static_cast<num64>(a >> 64); }
+
+FORCEINLINE num128 CombineNum128(num64 _lo, num64 _hi)
+{
+	return (static_cast<num128>(_hi) << 64) + _lo;
+}
+
+FORCEINLINE double Num128ToDouble(const num128 a) { return static_cast<double>(a); }

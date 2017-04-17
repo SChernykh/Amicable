@@ -36,7 +36,7 @@ static NOINLINE void ProfileGuidedOptimization_Instrument_WorkerThread(num64 dat
 		r.factors[1].p_inv = MultiplicativeInverse<CompileTimePrimes<CompileTimePrimesCount>::value>::value;
 		r.factors[1].q_max = num64(-1) / CompileTimePrimes<CompileTimePrimesCount>::value;
 		r.factors[1].p_inv128 = -modular_inverse128(CompileTimePrimes<CompileTimePrimesCount>::value);
-		r.factors[1].q_max128 = num128(num64(-1), num64(-1)) / CompileTimePrimes<CompileTimePrimesCount>::value;
+		r.factors[1].q_max128 = NUM128_MAX / CompileTimePrimes<CompileTimePrimesCount>::value;
 		r.value = 256 * CompileTimePrimes<CompileTimePrimesCount>::value;
 		r.sum = 511 * (CompileTimePrimes<CompileTimePrimesCount>::value + 1);
 		r.start_prime = CompileTimePrimes<CompileTimePrimesCount + 1>::value;
@@ -137,10 +137,12 @@ NOINLINE void ProfileGuidedOptimization_Instrument()
 
 	// Just disable access to some crucial data structures to crash running threads.
 	// Access violation will be caught and the thread will then finish gracefully, saving all profiling data.
-	DisableAccessToMemory(privNextPrimeShifts, 4096);
+	memset(privPowersOfP_128DivisibilityData, 0, sizeof(privPowersOfP_128DivisibilityData));
+	memset(privSumEstimates, 0, sizeof(privSumEstimates));
 
-	for (num64 i = 0; i < threads.size(); ++i)
-	{
-		threads[i].join();
-	}
+	const size_t k = reinterpret_cast<size_t>(privNextPrimeShifts);
+	DisableAccessToMemory(reinterpret_cast<void*>(k - (k & 4095)), 4096);
+
+	Sleep(1000);
+	exit(0);
 }

@@ -91,7 +91,7 @@ recurse_begin:
 		f->p_inv = -modular_inverse64(f->p.Get());
 		f->q_max = num64(-1) / f->p.Get();
 		f->p_inv128 = -modular_inverse128(f->p.Get());
-		f->q_max128 = num128(num64(-1), num64(-1)) / f->p.Get();
+		f->q_max128 = NUM128_MAX / f->p.Get();
 
 		for (;;)
 		{
@@ -355,7 +355,7 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 				f.p_inv = -modular_inverse64(p);
 				f.q_max = num64(-1) / p;
 				f.p_inv128 = -modular_inverse128(p);
-				f.q_max128 = num128(num64(-1), num64(-1)) / p;
+				f.q_max128 = NUM128_MAX / p;
 
 				if ((f.p.Get() > 2) && (f.p.Get() * f.p_inv != 1))
 				{

@@ -68,6 +68,11 @@ extern num64(*udiv128)(num64 numhi, num64 numlo, num64 den, num64* rem);
 extern num64(*udiv128_noremainder)(num64 numlo, num64 numhi, num64 den);
 extern num64(*mulmod64)(num64 a, num64 b, num64 n);
 
+FORCEINLINE unsigned char AddAndDetectOverflow(num64 a, num64 b, num64* sum)
+{
+	return _addcarry_u64(0, a, b, sum);
+}
+
 FORCEINLINE void add128(num64 a_lo, num64 a_hi, num64 b_lo, num64 b_hi, num64* result_lo, num64* result_hi)
 {
 #if _MSC_VER >= 1900
@@ -138,3 +143,16 @@ FORCEINLINE bool SetLowPriority()
 }
 
 #include "num128.h"
+
+FORCEINLINE num64 LowWord(const num128& a) { return a.lo; }
+FORCEINLINE num64 HighWord(const num128& a) { return a.hi; }
+
+FORCEINLINE num128 CombineNum128(num64 _lo, num64 _hi)
+{
+	num128 result;
+	result.lo = _lo;
+	result.hi = _hi;
+	return result;
+}
+
+FORCEINLINE double Num128ToDouble(const num128 a) { return a.hi * 18446744073709551616.0 + a.lo; }

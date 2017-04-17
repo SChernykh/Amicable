@@ -17,6 +17,7 @@ CACHE_ALIGNED num64 privPrimeInverses3[ReciprocalsTableSize];
 CACHE_ALIGNED num64 privPrimeInverses4[ReciprocalsTableSize];
 
 CACHE_ALIGNED std::pair<num128, num128> privPrimeInverses128[ReciprocalsTableSize128];
+CACHE_ALIGNED std::pair<num128, num128> privPowersOf2_128DivisibilityData[128];
 CACHE_ALIGNED InverseData128* privPowersOfP_128DivisibilityData[ReciprocalsTableSize128];
 
 CACHE_ALIGNED byte MainPrimeTable[404061114];
@@ -258,7 +259,7 @@ NOINLINE void SearchCandidates(Factor* factors, const num64 value, const num64 s
 		f.p_inv = -modular_inverse64(f.p.Get());
 		f.q_max = num64(-1) / f.p.Get();
 		f.p_inv128 = -modular_inverse128(f.p.Get());
-		f.q_max128 = num128(num64(-1), num64(-1)) / f.p.Get();
+		f.q_max128 = NUM128_MAX / f.p.Get();
 
 		for (;;)
 		{
@@ -347,8 +348,19 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 		privPrimeInverses4[index] = p_inv;
 	}
 
-	InverseData128* inverse_ptr128_buf = reinterpret_cast<InverseData128*>(AllocateSystemMemory(990035 * sizeof(InverseData128), false));
+	num128 curPowerOf2 = 4;
+	for (num64 i = 1; i < 128; ++i, curPowerOf2 += curPowerOf2)
+	{
+		const num128 value = curPowerOf2 - 1;
+		privPowersOf2_128DivisibilityData[i].first = -modular_inverse128(value);
+		privPowersOf2_128DivisibilityData[i].second = NUM128_MAX / value;
+	}
+
+	const size_t inverse_ptr128_size = 990038;
+	InverseData128* inverse_ptr128_buf = reinterpret_cast<InverseData128*>(AllocateSystemMemory(inverse_ptr128_size * sizeof(InverseData128), false));
 	InverseData128* inverse_ptr128 = inverse_ptr128_buf;
+	InverseData128* inverse_ptr128_end = inverse_ptr128_buf + inverse_ptr128_size;
+
 	it = PrimeIterator(3);
 	for (num64 index = 0; index < ARRAYSIZE(privPrimeInverses128); ++it, ++index)
 	{
@@ -359,9 +371,8 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 			std::cerr << "modular_inverse128 failed for p = " << p << std::endl;
 			abort();
 		}
-		const num128 p_max = num128(num64(-1), num64(-1)) / p;
 		privPrimeInverses128[index].first = p_inv;
-		privPrimeInverses128[index].second = p_max;
+		privPrimeInverses128[index].second = NUM128_MAX / p;
 
 		privPowersOfP_128DivisibilityData[index] = inverse_ptr128;
 		num128 p1 = p;
@@ -369,24 +380,27 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 		const num128 sum_limit = SearchLimit::value * 3;
 		do
 		{
-			if (sum1.lo == 0)
+			if (LowWord(sum1) == 0)
 			{
 				std::cerr << "shift is too large for p = " << p << std::endl;
 				abort();
 			}
 
-			unsigned long k;
-			_BitScanForward64(&k, sum1.lo);
-			inverse_ptr128->shift = k;
-			inverse_ptr128->shift_bits = (1U << k) - 1;
-
-			const num128 value = sum1 >> k;
-			inverse_ptr128->inverse = -modular_inverse128(value);
-			inverse_ptr128->max_value = num128(num64(-1), num64(-1)) / value;
-			if (inverse_ptr128->inverse * value != 1)
+			if (inverse_ptr128 < inverse_ptr128_end)
 			{
-				std::cerr << "modular_inverse128 failed for value = " << value << std::endl;
-				abort();
+				unsigned long k;
+				_BitScanForward64(&k, LowWord(sum1));
+				inverse_ptr128->shift = k;
+				inverse_ptr128->shift_bits = (1U << k) - 1;
+
+				const num128 value = sum1 >> k;
+				inverse_ptr128->inverse = -modular_inverse128(value);
+				inverse_ptr128->max_value = NUM128_MAX / value;
+				if (inverse_ptr128->inverse * value != 1)
+				{
+					std::cerr << "modular_inverse128 failed for value = " << value << std::endl;
+					abort();
+				}
 			}
 
 			p1 *= p;
@@ -395,12 +409,18 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 		} while (sum1 <= sum_limit);
 	}
 
+	if (inverse_ptr128 > inverse_ptr128_end)
+	{
+		std::cerr << "inverse_ptr128_size must be at least " << (inverse_ptr128 - inverse_ptr128_buf) << std::endl;
+		abort();
+	}
+
 	// Gather data for linear search and do preliminary filtering
 	// All filters combined leave 971348 numbers out of the first 1000000
 	// It's a great speed-up compared to the recursive search
 	if ((startPrime && primeLimit) || !stopAt)
 	{
-		g_LargestCandidate = (SearchLimit::value / std::max<num64>(SearchLimit::LinearLimit, startPrime)).lo;
+		g_LargestCandidate = LowWord(SearchLimit::value / std::max<num64>(SearchLimit::LinearLimit, startPrime));
 		g_MaxPrime = g_LargestCandidate / 4;
 		GenerateCandidates();
 	}

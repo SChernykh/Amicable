@@ -93,6 +93,7 @@ extern CACHE_ALIGNED num64 privPrimeInverses3[ReciprocalsTableSize];
 extern CACHE_ALIGNED num64 privPrimeInverses4[ReciprocalsTableSize];
 
 extern CACHE_ALIGNED std::pair<num128, num128> privPrimeInverses128[ReciprocalsTableSize128];
+extern CACHE_ALIGNED std::pair<num128, num128> privPowersOf2_128DivisibilityData[128];
 extern CACHE_ALIGNED InverseData128* privPowersOfP_128DivisibilityData[ReciprocalsTableSize128];
 
 #define NextPrimeShifts ((const byte* const)(privNextPrimeShifts))
@@ -105,6 +106,7 @@ extern CACHE_ALIGNED InverseData128* privPowersOfP_128DivisibilityData[Reciproca
 #define PrimeInverses4 ((const num64*)(privPrimeInverses4))
 
 #define PrimeInverses128 ((const std::pair<num128, num128>*)(privPrimeInverses128))
+#define PowersOf2_128DivisibilityData ((const std::pair<num128, num128>*)(privPowersOf2_128DivisibilityData))
 #define PowersOfP_128DivisibilityData ((const InverseData128* const*)(privPowersOfP_128DivisibilityData))
 
 FORCEINLINE num64 Mod385(const num64 n)
@@ -167,9 +169,9 @@ FORCEINLINE num64 GCD(num64 a, num64 b)
 class PrimeIterator
 {
 public:
-	explicit FORCEINLINE PrimeIterator(const num64* aSieveData = reinterpret_cast<const num64*>(MainPrimeTable))
+	FORCEINLINE PrimeIterator()
 		: mySieveChunk(0xfafd7bbef7fffffeULL)
-		, mySieveData(aSieveData)
+		, mySieveData((const num64*)(MainPrimeTable))
 		, myPossiblePrimesForModuloPtr(NumbersCoprimeToModulo)
 		, myModuloIndex(0)
 		, myBitIndexShift(0)
@@ -177,9 +179,7 @@ public:
 	{
 	}
 
-	explicit PrimeIterator(num64 aStartNumber, const num64* aSieveData = (const num64*)(MainPrimeTable))
-		: mySieveData(aSieveData)
-		, myPossiblePrimesForModuloPtr(NumbersCoprimeToModulo)
+	explicit PrimeIterator(num64 aStartNumber)
 	{
 		if (aStartNumber < 2)
 		{
@@ -187,7 +187,7 @@ public:
 		}
 
 		const num64 chunkIndex = ((aStartNumber / PrimeTableParameters::Modulo) * (PrimeTableParameters::NumOffsets / ByteParams::Bits)) / sizeof(num64);
-		mySieveData = aSieveData + chunkIndex;
+		mySieveData = ((const num64*)(MainPrimeTable)) + chunkIndex;
 		mySieveChunk = *mySieveData;
 		myModuloIndex = (chunkIndex / 3) * PrimeTableParameters::Modulo * 4 + (chunkIndex % 3) * PrimeTableParameters::Modulo;
 		myBitIndexShift = (chunkIndex % 3) * 16;
@@ -304,13 +304,13 @@ FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const num1
 	if (f->p.Get() == 2)
 	{
 		unsigned long power_of_2;
-		if (sum_for_gcd.lo)
+		if (LowWord(sum_for_gcd))
 		{
-			_BitScanForward64(&power_of_2, sum_for_gcd.lo);
+			_BitScanForward64(&power_of_2, LowWord(sum_for_gcd));
 		}
 		else
 		{
-			_BitScanForward64(&power_of_2, sum_for_gcd.hi);
+			_BitScanForward64(&power_of_2, HighWord(sum_for_gcd));
 			power_of_2 += 64;
 		}
 
@@ -334,8 +334,8 @@ FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const num1
 		}
 		else
 		{
-			g = num128(0, num64(1) << (power_of_2 - 64));
-			sum_g = num128(0, num64(1) << (power_of_2 - 64));
+			g = CombineNum128(0, num64(1) << (power_of_2 - 64));
+			sum_g = CombineNum128(0, num64(1) << (power_of_2 - 64));
 		}
 		sum_g += sum_g - 1;
 		++f;
