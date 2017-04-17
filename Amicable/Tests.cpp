@@ -40,15 +40,6 @@ NOINLINE bool TestCheckPair()
 				std::cerr << "CheckPair128 didn't recognize " << m << " as a valid amicable number" << std::endl;
 				return false;
 			}
-			if (!sum.hi)
-			{
-				CheckPairNoInline(m.lo, sum.lo);
-				if (GetNumFoundPairsInThisThread() != oldNumPairs + 2)
-				{
-					std::cerr << "CheckPair didn't recognize " << m << " as a valid amicable number" << std::endl;
-					return false;
-				}
-			}
 		}
 	}
 	return true;

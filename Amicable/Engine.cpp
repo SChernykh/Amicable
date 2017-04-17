@@ -252,16 +252,15 @@ template<> FORCEINLINE bool IsNumEligible<IS_NUM_ELIGIBLE_BEGIN>(const num64 a, 
 		{
 			num64 highProduct;
 			_umul128(a, SumEstimatesBeginQ[k], &highProduct);
+			j = k;
 
 			num64 a1;
 			if (_addcarry_u64(0, a, highProduct, &a1))
 			{
-				j = k;
 				return true;
 			}
 
 			const num64 maxPossibleSum = _umul128(sumA, a1, &highProduct);
-			j = k;
 			return (maxPossibleSum >= targetSum) || highProduct;
 		}
 	}
@@ -709,58 +708,6 @@ NOINLINE static void CheckPairInternalNoInline(const num128 n1, const num64 targ
 	CheckPairInternal(n1, targetSum, n2TargetSum, n2, sum);
 }
 
-#define X(N) {MultiplicativeInverse<(num64(1) << (N + 2)) - 1>::value, num64(-1) / ((num64(1) << (N + 2)) - 1)}
-
-// Cache aligned
-CACHE_ALIGNED static const num64 locPowersOf2DivisibilityData[63][2] = {
-	X(0), X(1), X(2), X(3), X(4), X(5), X(6), X(7), X(8), X(9),
-	X(10), X(11), X(12), X(13), X(14), X(15), X(16), X(17), X(18), X(19),
-	X(20), X(21), X(22), X(23), X(24), X(25), X(26), X(27), X(28), X(29),
-	X(30), X(31), X(32), X(33), X(34), X(35), X(36), X(37), X(38), X(39),
-	X(40), X(41), X(42), X(43), X(44), X(45), X(46), X(47), X(48), X(49),
-	X(50), X(51), X(52), X(53), X(54), X(55), X(56), X(57), X(58), X(59),
-	X(60), X(61), {num64(-1), 1},
-};
-
-#undef X
-
-FORCEINLINE num64 InitialCheck(const num64 n1, const num64 targetSum, num64& n2)
-{
-	n2 = targetSum - n1;
-
-	unsigned long bitIndex;
-	_BitScanForward64(&bitIndex, n2);
-	num64 n2TargetSum = targetSum;
-	ASSUME(n2TargetSum > 0);
-	if (bitIndex > 0)
-	{
-		n2 >>= bitIndex;
-		const num64 minSum = n2 + 1;
-		if ((minSum << (bitIndex + 1)) - minSum > targetSum)
-			return 0;
-
-		n2TargetSum = targetSum * locPowersOf2DivisibilityData[bitIndex - 1][0];
-		ASSUME(n2TargetSum > 0);
-		if ((n2TargetSum > locPowersOf2DivisibilityData[bitIndex - 1][1]) || (n2 >= n2TargetSum))
-			return 0;
-	}
-
-	return n2TargetSum;
-}
-
-FORCEINLINE void CheckPair(const num64 n1, const num64 targetSum)
-{
-	num64 n2;
-	const num64 n2TargetSum = InitialCheck(n1, targetSum, n2);
-	if (n2TargetSum)
-		CheckPairInternal(n1, n2TargetSum, n2TargetSum, n2, 1);
-}
-
-NOINLINE void CheckPairNoInline(const num64 n1, const num64 targetSum)
-{
-	CheckPair(n1, targetSum);
-}
-
 #include "inverses128.h"
 
 FORCEINLINE num128 InitialCheck128(const num128 n1, num128 targetSum, num128& n2)
@@ -860,32 +807,6 @@ FORCEINLINE void CheckPair128(const num128 n1, num128 targetSum)
 NOINLINE void CheckPair128NoInline(const num128 n1, const num128 targetSum)
 {
 	CheckPair128(n1, targetSum);
-}
-
-template<bool HandleLargeSums> void CheckPairSafeImpl(const num64 m, const num64 target_sum1, const num64 target_sum2);
-
-template<> FORCEINLINE void CheckPairSafeImpl<false>(const num64 m, const num64 target_sum1, const num64 target_sum2)
-{
-	CheckPair(m, target_sum1 * target_sum2);
-}
-
-template<> FORCEINLINE void CheckPairSafeImpl<true>(const num64 m, const num64 target_sum1, const num64 target_sum2)
-{
-	num64 targetSumHi;
-	const num64 targetSum = _umul128(target_sum1, target_sum2, &targetSumHi);
-	if (targetSumHi == 0)
-	{
-		CheckPair(m, targetSum);
-	}
-	else
-	{
-		CheckPair128(m, num128(targetSum, targetSumHi));
-	}
-}
-
-FORCEINLINE void CheckPairSafe(const num64 m, const num64 target_sum1, const num64 target_sum2)
-{
-	CheckPairSafeImpl<true>(m, target_sum1, target_sum2);
 }
 
 NOINLINE num64 SearchRange(const RangeData& r)
@@ -1038,7 +959,7 @@ namespace primesieve
 					{
 						if ((candidate->is_over_abundant_mask & mask) == 0)
 						{
-							CheckPairSafe(curPrime * candidate->value, static_cast<num64>(candidate->sum) + static_cast<num64>(candidate->value) * 2, curPrime + 1);
+							CheckPair128NoInline(num128(candidate->value) * curPrime, num128(candidate->sum + candidate->value * 2) * (curPrime + 1));
 						}
 					}
 				}
