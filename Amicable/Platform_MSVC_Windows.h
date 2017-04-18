@@ -68,10 +68,20 @@ extern num64(*udiv128)(num64 numhi, num64 numlo, num64 den, num64* rem);
 extern num64(*udiv128_noremainder)(num64 numlo, num64 numhi, num64 den);
 extern num64(*mulmod64)(num64 a, num64 b, num64 n);
 
+#if _MSC_VER >= 1900
 FORCEINLINE unsigned char AddAndDetectOverflow(num64 a, num64 b, num64* sum)
 {
 	return _addcarry_u64(0, a, b, sum);
 }
+#else
+FORCEINLINE bool AddAndDetectOverflow(num64 a, num64 b, num64* sum)
+{
+	const num64 prev_a = a;
+	a += b;
+	*sum = a;
+	return (a < prev_a);
+}
+#endif
 
 FORCEINLINE void add128(num64 a_lo, num64 a_hi, num64 b_lo, num64 b_hi, num64* result_lo, num64* result_hi)
 {
