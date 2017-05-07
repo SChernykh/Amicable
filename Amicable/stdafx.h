@@ -19,11 +19,18 @@ PRAGMA_WARNING(disable : 4592)
 PRAGMA_WARNING(disable : 4710)
 PRAGMA_WARNING(disable : 4711)
 PRAGMA_WARNING(disable : 4820)
+PRAGMA_WARNING(disable : 4987)
 
 PRAGMA_WARNING(push, 1)
 PRAGMA_WARNING(disable : 4265)
 PRAGMA_WARNING(disable : 4365)
 PRAGMA_WARNING(disable : 4571)
+PRAGMA_WARNING(disable : 4623)
+PRAGMA_WARNING(disable : 4625)
+PRAGMA_WARNING(disable : 4626)
+PRAGMA_WARNING(disable : 4774)
+PRAGMA_WARNING(disable : 5026)
+PRAGMA_WARNING(disable : 5027)
 
 typedef unsigned char byte;
 typedef unsigned long long int num64;
@@ -34,8 +41,9 @@ typedef unsigned long long int num64;
 #include <algorithm>
 #include <vector>
 #include <thread>
-
-PRAGMA_WARNING(pop)
+#include <string>
+#include <sstream>
+#include <list>
 
 #include "Platform.h"
 #include "Definitions.h"
@@ -50,3 +58,5 @@ PRAGMA_WARNING(pop)
 #include <primesieve/PrimeGenerator.hpp>
 #include <primesieve/pmath.hpp>
 #include <primesieve/PrimeSieve.hpp>
+
+PRAGMA_WARNING(pop)

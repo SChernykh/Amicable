@@ -6,7 +6,7 @@
 #include <sstream>
 
 PRAGMA_WARNING(push, 1)
-PRAGMA_WARNING(disable : 4091 4917)
+PRAGMA_WARNING(disable : 4091 4917 4625 4626 5026 5027)
 #include <boinc_api.h>
 PRAGMA_WARNING(pop)
 
