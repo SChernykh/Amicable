@@ -5,11 +5,9 @@
 #include "sprp64.h"
 #include "inverses128.h"
 #include "kernel.cl.inl"
-#include <iomanip>
-#include <sstream>
 
 PRAGMA_WARNING(push, 1)
-PRAGMA_WARNING(disable : 4091 4917)
+PRAGMA_WARNING(disable : 4091 4917 4625 4626 5026 5027)
 #include <boinc_api.h>
 #include <boinc_opencl.h>
 PRAGMA_WARNING(pop)
