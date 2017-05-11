@@ -236,6 +236,14 @@ FORCEINLINE byte less128(num64 a_lo, num64 a_hi, num64 b_lo, num64 b_hi)
 	return (static_cast<__int128>(((static_cast<num128>(a_hi) << 64) + a_lo) - ((static_cast<num128>(b_hi) << 64) + b_lo)) < 0) ? 1 : 0;
 }
 
+FORCEINLINE void shl128(num64& lo, num64& hi, unsigned char count)
+{
+	num128 t = (static_cast<num128>(hi) << 64) + lo;
+	t <<= count;
+	lo = static_cast<num64>(t);
+	hi = static_cast<num64>(t >> 64);
+}
+
 FORCEINLINE void shr128(num64& lo, num64& hi, unsigned char count)
 {
 	num128 t = (static_cast<num128>(hi) << 64) + lo;

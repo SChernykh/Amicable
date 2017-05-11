@@ -11,7 +11,8 @@ enum
 
 	// There are exactly 325161 primes below 10^(20/3)
 	// We can use this table for factorization when p^3 <= N < 10^20
-	ReciprocalsTableSize128 = 325161,
+	// Set it to 325168 because it's divisible by 16
+	ReciprocalsTableSize128 = 325168,
 };
 
 // Reciprocals are calculated using algorithm published in http://www.agner.org/optimize/optimizing_assembly.pdf (section 16.9 "Integer division by a constant")
@@ -96,6 +97,9 @@ extern CACHE_ALIGNED std::pair<num128, num128> privPrimeInverses128[ReciprocalsT
 extern CACHE_ALIGNED std::pair<num128, num128> privPowersOf2_128DivisibilityData[128];
 extern CACHE_ALIGNED InverseData128* privPowersOfP_128DivisibilityData[ReciprocalsTableSize128];
 
+static_assert(ReciprocalsTableSize128 % 16 == 0, "ReciprocalsTableSize128 must be divisible by 16");
+extern CACHE_ALIGNED num64 privSumEstimates128[ReciprocalsTableSize128 / 16];
+
 #define NextPrimeShifts ((const byte* const)(privNextPrimeShifts))
 #define CandidatesData ((const std::vector<AmicableCandidate>&)(privCandidatesData))
 #define CandidatesDataMask ((const unsigned char*)(privCandidatesDataMask))
@@ -108,6 +112,8 @@ extern CACHE_ALIGNED InverseData128* privPowersOfP_128DivisibilityData[Reciproca
 #define PrimeInverses128 ((const std::pair<num128, num128>*)(privPrimeInverses128))
 #define PowersOf2_128DivisibilityData ((const std::pair<num128, num128>*)(privPowersOf2_128DivisibilityData))
 #define PowersOfP_128DivisibilityData ((const InverseData128* const*)(privPowersOfP_128DivisibilityData))
+
+#define SumEstimates128 ((const num64*)(privSumEstimates128))
 
 FORCEINLINE num64 Mod385(const num64 n)
 {

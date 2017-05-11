@@ -125,6 +125,12 @@ FORCEINLINE byte less128(num64 a_lo, num64 a_hi, num64 b_lo, num64 b_hi)
 #endif
 }
 
+FORCEINLINE void shl128(num64& lo, num64& hi, unsigned char count)
+{
+	hi = __shiftleft128(lo, hi, count);
+	lo <<= count;
+}
+
 FORCEINLINE void shr128(num64& lo, num64& hi, unsigned char count)
 {
 	lo = __shiftright128(lo, hi, count);

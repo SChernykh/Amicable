@@ -19,6 +19,7 @@ CACHE_ALIGNED num64 privPrimeInverses4[ReciprocalsTableSize];
 CACHE_ALIGNED std::pair<num128, num128> privPrimeInverses128[ReciprocalsTableSize128];
 CACHE_ALIGNED std::pair<num128, num128> privPowersOf2_128DivisibilityData[128];
 CACHE_ALIGNED InverseData128* privPowersOfP_128DivisibilityData[ReciprocalsTableSize128];
+CACHE_ALIGNED num64 privSumEstimates128[ReciprocalsTableSize128 / 16];
 
 CACHE_ALIGNED byte MainPrimeTable[404061114];
 byte bitOffset[PrimeTableParameters::Modulo];
@@ -113,81 +114,72 @@ bool IsPrime(num64 n)
 
 struct NumberAndSumOfDivisors
 {
-	NumberAndSumOfDivisors() : N(1), sumLow(1), sumHigh(0), q(1), r(0) {}
+	NumberAndSumOfDivisors() : N(1), sumN(1), ratio(0.0) {}
 
-	num64 N;
-	num64 sumLow;
-	num64 sumHigh;
-	num64 q;
-	num64 r;
+	num128 N;
+	num128 sumN;
+	double ratio;
 };
 
-NOINLINE void GetSuperAbundantNumber(PrimeIterator p, const num64 maxPower, const num64 maxN, NumberAndSumOfDivisors cur, NumberAndSumOfDivisors& best)
+NOINLINE void GetSuperAbundantNumber(PrimeIterator p, const num64 maxPower, const num128 maxN, NumberAndSumOfDivisors cur, NumberAndSumOfDivisors& best)
 {
 	++p;
 
-	num64 curSumLow = cur.sumLow;
-	num64 curSumHigh = cur.sumHigh;
-	num64 h;
+	const num128 startSum = cur.sumN;
 	for (num64 k = 1; k <= maxPower; ++k)
 	{
-		const num64 nextN = _umul128(cur.N, p.Get(), &h);
-		if (h || (nextN >= maxN))
+		const num128 nextN = cur.N * p.Get();
+		if (nextN >= maxN)
 		{
-			// cur.sum / cur.N > best.sum / best.N
-			cur.q = udiv128(cur.sumHigh, cur.sumLow, cur.N, &cur.r);
-
-			if (cur.q > best.q)
+			cur.ratio = Num128ToDouble(cur.sumN - cur.N) / Num128ToDouble(cur.N);
+			if (cur.ratio > best.ratio)
 			{
 				best = cur;
-			}
-			else if (cur.q == best.q)
-			{
-				// cur.r / cur.N > best.r / best.N
-				// cur.r * best.N > best.r * cur.N
-				num64 a[2];
-				a[0] = _umul128(cur.r, best.N, &a[1]);
-
-				num64 b[2];
-				b[0] = _umul128(best.r, cur.N, &b[1]);
-
-				if ((a[1] > b[1]) || ((a[1] == b[1]) && (a[0] > b[0])))
-					best = cur;
 			}
 			return;
 		}
 
 		cur.N = nextN;
-
-		curSumLow = _umul128(curSumLow, p.Get(), &h);
-		curSumHigh = curSumHigh * p.Get() + h;
-
-		num64 carry = 0;
-		if (cur.sumLow > ~curSumLow)
-			carry = 1;
-		cur.sumLow += curSumLow;
-		cur.sumHigh += curSumHigh + carry;
+		cur.sumN = cur.sumN * p.Get() + startSum;
 
 		GetSuperAbundantNumber(p, k, maxN, cur, best);
 	}
 }
 
-static std::vector<std::pair<num64, num64>> locTmpFactorization;
-
-NOINLINE num64 GetMaxSumRatio(const PrimeIterator& p, const num64 limit, num64* numberWihMaxSumRatio = nullptr)
+NOINLINE num64 GetMaxSumRatio(const PrimeIterator& p, const num128 limit)
 {
 	NumberAndSumOfDivisors cur;
 	NumberAndSumOfDivisors result;
 	GetSuperAbundantNumber(p, num64(-1), limit, cur, result);
 
-	num64 r;
-	num64 q = udiv128(result.sumHigh, result.sumLow, result.N, &r);
-	if (numberWihMaxSumRatio)
-		*numberWihMaxSumRatio = result.N;
-	if (q > 1)
-		return num64(-1);
+	const num128 q = result.sumN / result.N;
+	num128 r = result.sumN - result.N * q;
 
-	return udiv128(r, 0, result.N, &r) + 1;
+	if (q > 1)
+	{
+		return num64(-1);
+	}
+
+	if (HighWord(r) == 0)
+	{
+		return LowWord(CombineNum128(0, LowWord(r)) / result.N) + 1;
+	}
+	else
+	{
+		unsigned long index;
+		_BitScanReverse64(&index, HighWord(r));
+		if (index < 12)
+		{
+			r <<= 63 - index;
+			return (LowWord(r / result.N) + 1) << (index + 1);
+		}
+		else
+		{
+			// If index >= 12, we get less than 52 bits of precision from integer division
+			// So it makes more sense to use floating point instead of integer division
+			return static_cast<num64>(Num128ToDouble(r) / Num128ToDouble(result.N) * 18446744073709551616.0) + 1;
+		}
+	}
 }
 
 AmicableCandidate::AmicableCandidate(num64 _value, num64 _sum, unsigned char _is_over_abundant_mask)
@@ -356,13 +348,13 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 		privPowersOf2_128DivisibilityData[i].second = NUM128_MAX / value;
 	}
 
-	const size_t inverse_ptr128_size = 990038;
+	const size_t inverse_ptr128_size = 990059;
 	InverseData128* inverse_ptr128_buf = reinterpret_cast<InverseData128*>(AllocateSystemMemory(inverse_ptr128_size * sizeof(InverseData128), false));
 	InverseData128* inverse_ptr128 = inverse_ptr128_buf;
 	InverseData128* inverse_ptr128_end = inverse_ptr128_buf + inverse_ptr128_size;
 
 	it = PrimeIterator(3);
-	for (num64 index = 0; index < ARRAYSIZE(privPrimeInverses128); ++it, ++index)
+	for (num64 index = 0; index < ReciprocalsTableSize128; ++it, ++index)
 	{
 		const num64 p = it.Get();
 		const num128 p_inv = -modular_inverse128(p);
@@ -407,6 +399,20 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 			sum1 += p1;
 			++inverse_ptr128;
 		} while (sum1 <= sum_limit);
+
+		if (((index + 1) % 16) == 0)
+		{
+			const num64 r = GetMaxSumRatio(it, SearchLimit::value);
+
+			// Check if "SearchLimit::value * r" overflows
+			if (((SearchLimit::value * r) % r) != 0)
+			{
+				std::cerr << "TODO: use less than 64 bits for privSumEstimates128" << std::endl;
+				abort();
+			}
+
+			privSumEstimates128[index / 16] = r;
+		}
 	}
 
 	if (inverse_ptr128 > inverse_ptr128_end)

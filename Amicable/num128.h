@@ -120,6 +120,19 @@ struct num128
 		return *this;
 	}
 
+	FORCEINLINE num128 operator<<(unsigned int count) const
+	{
+		num128 result = *this;
+		shl128(result.lo, result.hi, static_cast<unsigned char>(count));
+		return result;
+	}
+
+	FORCEINLINE num128& operator<<=(unsigned int count)
+	{
+		shl128(lo, hi, static_cast<unsigned char>(count));
+		return *this;
+	}
+
 	FORCEINLINE num128 operator>>(unsigned int count) const
 	{
 		num128 result = *this;
@@ -152,10 +165,20 @@ struct num128
 
 	NOINLINE num128 operator/(const num128& a) const;
 
+	FORCEINLINE num128 operator%(const num128& a) const
+	{
+		return *this - a * operator/(a);
+	}
+
 	FORCEINLINE num128& operator/=(const num128& a)
 	{
 		*this = operator/(a);
 		return *this;
+	}
+
+	FORCEINLINE num128& operator%=(const num128& a)
+	{
+		return operator-=(a * operator/(a));
 	}
 
 	FORCEINLINE bool operator==(const num128& a) const { return (lo == a.lo) && (hi == a.hi); }

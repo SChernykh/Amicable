@@ -740,53 +740,65 @@ FORCEINLINE num128 InitialCheck128(const num128 n1, num128 targetSum, num128& n2
 		return targetSum;
 	}
 
-	for (const std::pair<num128, num128>* prime_inverse = PrimeInverses128; prime_inverse < PrimeInverses128 + ReciprocalsTableSize128; ++prime_inverse)
+	const std::pair<num128, num128>* prime_inverse = PrimeInverses128;
+	const num64* max_sum_ratio = SumEstimates128;
+	do
 	{
-		num128 q = n2 * prime_inverse->first;
-		if (q > prime_inverse->second)
+		for (const std::pair<num128, num128>* e = prime_inverse + 16; prime_inverse < e; ++prime_inverse)
 		{
-			continue;
-		}
-
-		const InverseData128* data = PowersOfP_128DivisibilityData[prime_inverse - PrimeInverses128];
-		for (;;)
-		{
-			n2 = q;
-			q *= prime_inverse->first;
+			num128 q = n2 * prime_inverse->first;
 			if (q > prime_inverse->second)
 			{
-				break;
+				continue;
 			}
-			++data;
-		}
 
-		if (data->shift)
-		{
-			if (LowWord(targetSum) & data->shift_bits)
+			const InverseData128* data = PowersOfP_128DivisibilityData[prime_inverse - PrimeInverses128];
+			for (;;)
+			{
+				n2 = q;
+				q *= prime_inverse->first;
+				if (q > prime_inverse->second)
+				{
+					break;
+				}
+				++data;
+			}
+
+			if (data->shift)
+			{
+				if (LowWord(targetSum) & data->shift_bits)
+				{
+					return 0;
+				}
+				targetSum >>= data->shift;
+			}
+
+			const num128 q1 = targetSum * data->inverse;
+			if (q1 > data->max_value)
 			{
 				return 0;
 			}
-			targetSum >>= data->shift;
+
+			if (n2 >= q1)
+			{
+				return 0;
+			}
+
+			if (HighWord(q1) == 0)
+			{
+				return q1;
+			}
+
+			targetSum = q1;
 		}
 
-		const num128 q1 = targetSum * data->inverse;
-		if (q1 > data->max_value)
+		if (n2 + HighWord(n2 * (*max_sum_ratio)) < targetSum)
 		{
 			return 0;
 		}
+		++max_sum_ratio;
 
-		if (HighWord(q1) == 0)
-		{
-			return q1;
-		}
-
-		if (n2 >= q1)
-		{
-			return 0;
-		}
-
-		targetSum = q1;
-	}
+	} while (prime_inverse < PrimeInverses128 + ReciprocalsTableSize128);
 
 	return targetSum;
 }
