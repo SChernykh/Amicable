@@ -108,8 +108,7 @@ FORCEINLINE void sub128(num64 a_lo, num64 a_hi, num64 b_lo, num64 b_hi, num64* r
 FORCEINLINE byte leq128(num64 a_lo, num64 a_hi, num64 b_lo, num64 b_hi)
 {
 #if _MSC_VER >= 1900
-	num64 t[2];
-	return _subborrow_u64(_subborrow_u64(1, a_lo, b_lo, &t[0]), a_hi, b_hi, &t[1]);
+	return _subborrow_u64(_subborrow_u64(1, a_lo, b_lo, nullptr), a_hi, b_hi, nullptr);
 #else
 	return static_cast<byte>((a_hi < b_hi) || ((a_hi == b_hi) && (a_lo <= b_lo)));
 #endif
@@ -118,8 +117,7 @@ FORCEINLINE byte leq128(num64 a_lo, num64 a_hi, num64 b_lo, num64 b_hi)
 FORCEINLINE byte less128(num64 a_lo, num64 a_hi, num64 b_lo, num64 b_hi)
 {
 #if _MSC_VER >= 1900
-	num64 t[2];
-	return _subborrow_u64(_subborrow_u64(0, a_lo, b_lo, &t[0]), a_hi, b_hi, &t[1]);
+	return _subborrow_u64(_subborrow_u64(0, a_lo, b_lo, nullptr), a_hi, b_hi, nullptr);
 #else
 	return static_cast<byte>((a_hi < b_hi) || ((a_hi == b_hi) && (a_lo < b_lo)));
 #endif
