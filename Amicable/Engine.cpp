@@ -708,7 +708,7 @@ NOINLINE static void CheckPairInternalNoInline(const num128 n1, const num64 targ
 	CheckPairInternal(n1, targetSum, n2TargetSum, n2, sum);
 }
 
-FORCEINLINE num128 InitialCheck128(const num128 n1, num128 targetSum, num128& n2)
+FORCEINLINE bool InitialCheck128(const num128 n1, num128& targetSum, num128& n2)
 {
 	n2 = targetSum - n1;
 
@@ -727,17 +727,16 @@ FORCEINLINE num128 InitialCheck128(const num128 n1, num128 targetSum, num128& n2
 
 	if (powerOf2 > 0)
 	{
-		const num128 q = targetSum * PowersOf2_128DivisibilityData[powerOf2].first;
-		if (q > PowersOf2_128DivisibilityData[powerOf2].second)
+		targetSum *= PowersOf2_128DivisibilityData[powerOf2].first;
+		if (targetSum > PowersOf2_128DivisibilityData[powerOf2].second)
 		{
-			return 0;
+			return false;
 		}
-		targetSum = q;
 	}
 
 	if (HighWord(targetSum) == 0)
 	{
-		return targetSum;
+		return true;
 	}
 
 	const std::pair<num128, num128>* prime_inverse = PrimeInverses128;
@@ -768,48 +767,47 @@ FORCEINLINE num128 InitialCheck128(const num128 n1, num128 targetSum, num128& n2
 			{
 				if (LowWord(targetSum) & data->shift_bits)
 				{
-					return 0;
+					return false;
 				}
 				targetSum >>= data->shift;
 			}
 
-			const num128 q1 = targetSum * data->inverse;
-			if (q1 > data->max_value)
+			targetSum *= data->inverse;
+			if (targetSum > data->max_value)
 			{
-				return 0;
+				return false;
 			}
 
-			if (n2 >= q1)
+			if (n2 >= targetSum)
 			{
-				return 0;
+				return false;
 			}
 
-			if (HighWord(q1) == 0)
+			if (HighWord(targetSum) == 0)
 			{
-				return q1;
+				return true;
 			}
-
-			targetSum = q1;
 		}
 
 		if (n2 + HighWord(n2 * (*max_sum_ratio)) < targetSum)
 		{
-			return 0;
+			return false;
 		}
 		++max_sum_ratio;
 
 	} while (prime_inverse < PrimeInverses128 + ReciprocalsTableSize128);
 
-	return targetSum;
+	// TODO: check the case when n2 = p1 * p2 or n2 = p^2
+
+	return false;
 }
 
 FORCEINLINE void CheckPair128(const num128 n1, num128 targetSum)
 {
 	num128 n2;
-	const num128 n2TargetSum = InitialCheck128(n1, targetSum, n2);
-	if (!HighWord(n2TargetSum) && LowWord(n2TargetSum) && (n2 < LowWord(n2TargetSum)))
+	if (InitialCheck128(n1, targetSum, n2))
 	{
-		CheckPairInternalNoInline(n1, LowWord(n2TargetSum), LowWord(n2TargetSum), LowWord(n2), 1);
+		CheckPairInternalNoInline(n1, LowWord(targetSum), LowWord(targetSum), LowWord(n2), 1);
 	}
 }
 
