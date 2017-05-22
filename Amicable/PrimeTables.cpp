@@ -415,6 +415,15 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 		}
 	}
 
+	{
+		const num64 p = it.Get();
+		if ((num128(p) * p) * p < SearchLimit::value)
+		{
+			std::cerr << "Increase ReciprocalsTableSize128: it must be at least the number of primes below cube root of SearchLimit::value" << std::endl;
+			abort();
+		}
+	}
+
 	if (inverse_ptr128 > inverse_ptr128_end)
 	{
 		std::cerr << "inverse_ptr128_size must be at least " << (inverse_ptr128 - inverse_ptr128_buf) << std::endl;

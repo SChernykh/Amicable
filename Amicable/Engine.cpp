@@ -632,64 +632,51 @@ FORCEINLINE void CheckPairInternal(const num128 n1, const num64 targetSum, num64
 		// If n2 + 1 != n2TargetSum then n2 must be composite to satisfy S(N) = target sum
 		if (n2 + 1 != n2TargetSum)
 		{
-			// 1) Check the case n2 = p*q, p < q
-			// A=n2
-			// B=n2TargetSum-n2-1
-			// D=B^2-4*A
-			// p=(B-sqrt(D))/2
-			// q=(B+sqrt(D))/2
-			const num64 B = n2TargetSum - n2 - 1;
-			num64 B2[2], D[2];
-			B2[0] = _umul128(B, B, &B2[1]);
-			sub128(B2[0], B2[1], n2 << 2, n2 >> 62, &D[0], &D[1]);
-			if (IsPerfectSquareCandidate(D[0]))
+			if ((n2TargetSum & 1) == 0)
 			{
-				// Using floating point arithmetic gives 52 bits of precision
-				// 1 or 2 bits will be lost because of rounding errors
-				// but even if 4 bits are lost, this will be correct if sqrt_D < 2^48
-				//
-				// p and q here must be > cuberoot(N).
-				// q - p = sqrt_D, so if q > 2^48 then this code might work incorrectly.
-				//
-				// Let's try to get a lower bound for such num64.
-				// N > p * q > p * 2^48 > cuberoot(N) * 2^48
-				// N / cuberoot(N) > 2^48
-				// N^(2/3) > 2^48
-				// N > 2^(48*3/2) = 2^72
-				// N must be > 2^72 (which is a very conservative estimate) to break this code
-				// Since N is always < 2^64 here, it'll be safe
-				//
-				// sqrt is rounded up here, so for example sqrt(15241383936) will give 123456.00000000000001
-				// static_cast<num64>(...) will round it down to a correct integer
-				const double D1 = static_cast<double>(D[0]) + static_cast<double>(D[1]) * 18446744073709551616.0;
-				if (D1 > 0)
+				// 1) Check the case n2 = p*q, p < q
+				// B=(n2TargetSum-n2-1)/2
+				// D=B^2-n2
+				// p=B-sqrt(D)
+				// q=B+sqrt(D)
+				const num64 B = (n2TargetSum - n2 - 1) >> 1;
+				num128 D = num128(B) * B;
+				if (D > n2)
 				{
-					const num64 sqrt_D = static_cast<num64>(sqrt(D1));
-					if (sqrt_D * sqrt_D == D[0])
+					D -= n2;
+					if (IsPerfectSquareCandidate(LowWord(D)))
 					{
-						p = (B - sqrt_D) / 2;
-						q = (B + sqrt_D) / 2;
-						if ((p * q == n2) && IsPrime(p) && IsPrime(q))
-							NumberFound(n1);
-						return;
+						const num64 sqrt_D = IntegerSquareRoot(D);
+						if (num128(sqrt_D) * sqrt_D == D)
+						{
+							p = B - sqrt_D;
+							q = B + sqrt_D;
+							if ((p * q == n2) && IsPrime(p) && IsPrime(q))
+							{
+								NumberFound(n1);
+							}
+							return;
+						}
 					}
 				}
 			}
-
-			// 2) Check the case n2 = p^2
-			if (IsPerfectSquareCandidate(n2))
+			else
 			{
-				p = static_cast<num64>(sqrt(static_cast<double>(n2)));
-				const num64 p_squared = p * p;
-				if ((p_squared == n2) && (p_squared + p + 1 == n2TargetSum) && IsPrime(p))
+				// 2) Check the case n2 = p^2
+				p = n2TargetSum - n2 - 1;
+				if ((p * p == n2) && IsPrime(p))
+				{
 					NumberFound(n1);
+				}
 			}
 		}
 		else
 		{
-			// n2 + 1 == n2TargetSum, n2 must be a prime num64
+			// n2 + 1 == n2TargetSum, n2 must be a prime number
 			if (IsPrime(n2))
+			{
 				NumberFound(n1);
+			}
 		}
 
 		// There are no other cases, so just exit now
@@ -706,6 +693,57 @@ FORCEINLINE void CheckPairInternal(const num128 n1, const num64 targetSum, num64
 NOINLINE static void CheckPairInternalNoInline(const num128 n1, const num64 targetSum, num64 n2TargetSum, num64 n2, num64 sum)
 {
 	CheckPairInternal(n1, targetSum, n2TargetSum, n2, sum);
+}
+
+// n2 is either a prime, squared prime, or has two distinct prime factors
+NOINLINE void FinalCheck128(const num128 n1, const num128& targetSum, const num128& n2)
+{
+	if (LowWord(targetSum) & 1)
+	{
+		// targetSum is odd, it can only happen if n2 = p^2
+		// targetSum = 1 + p + p^2 = 1 + p + n2, p = targetSum - n2 - 1
+		const num128 p = targetSum - n2 - 1;
+		if ((p * p == n2) && IsPrime(LowWord(p)))
+		{
+			NumberFound(n1);
+		}
+	}
+	else
+	{
+		// targetSum is even, n2 is either p or p * q
+		if (targetSum == n2 + 1)
+		{
+			// May give some false positives if n2 is composite
+			// TODO: check that n2 is prime
+			NumberFound(n1);
+		}
+		else
+		{
+			// B=(n2TargetSum-n2-1)/2
+			// D=B^2-n2
+			// p=B-sqrt(D)
+			// q=B+sqrt(D)
+			const num128 B = (targetSum - n2 - 1) >> 1;
+			num128 D = B * B;
+			if (D > n2)
+			{
+				D -= n2;
+				if (IsPerfectSquareCandidate(LowWord(D)))
+				{
+					const num64 sqrtD = IntegerSquareRoot(D);
+					if (num128(sqrtD) * sqrtD == D)
+					{
+						const num128 p = B - sqrtD;
+						const num128 q = B + sqrtD;
+						if ((p * q == n2) && IsPrime(LowWord(p)) && IsPrime(LowWord(q)))
+						{
+							NumberFound(n1);
+						}
+					}
+				}
+			}
+		}
+	}
 }
 
 FORCEINLINE bool InitialCheck128(const num128 n1, num128& targetSum, num128& n2)
@@ -797,8 +835,7 @@ FORCEINLINE bool InitialCheck128(const num128 n1, num128& targetSum, num128& n2)
 
 	} while (prime_inverse < PrimeInverses128 + ReciprocalsTableSize128);
 
-	// TODO: check the case when n2 = p1 * p2 or n2 = p^2
-
+	FinalCheck128(n1, targetSum, n2);
 	return false;
 }
 

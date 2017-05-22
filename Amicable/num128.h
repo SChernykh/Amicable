@@ -197,5 +197,6 @@ struct num128
 num128 atoi128(const char* s);
 char* itoa128(num128 a, char* buf, size_t bufSize);
 std::ostream& operator<<(std::ostream& s, num128 a);
+num64 IntegerSquareRoot(const num128& n);
 
 extern const num128 NUM128_MAX;

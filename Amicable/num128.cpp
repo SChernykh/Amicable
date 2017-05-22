@@ -46,6 +46,37 @@ std::ostream& operator<<(std::ostream& s, num128 a)
 	return s;
 }
 
+num64 IntegerSquareRoot(const num128& n)
+{
+	if (n == 0)
+	{
+		return 0;
+	}
+
+	num64 result = 1;
+	DWORD highest_bit_index;
+	if (HighWord(n))
+	{
+		_BitScanReverse64(&highest_bit_index, HighWord(n));
+		highest_bit_index += 64;
+	}
+	else
+	{
+		_BitScanReverse64(&highest_bit_index, LowWord(n));
+	}
+	result <<= (highest_bit_index >> 1);
+
+	for (num64 cur_bit = result >> 1; cur_bit > 0; cur_bit >>= 1)
+	{
+		const num64 k = result | cur_bit;
+		if (num128(k) * k <= n)
+		{
+			result = k;
+		}
+	}
+	return result;
+}
+
 #ifndef __GNUG__
 
 NOINLINE num128 num128::operator/(const num128& a) const
