@@ -5,7 +5,7 @@
 #include "primesieve.hpp"
 
 CACHE_ALIGNED SReciprocal privPrimeReciprocals[ReciprocalsTableSize];
-CACHE_ALIGNED byte privNextPrimeShifts[ReciprocalsTableSize];
+CACHE_ALIGNED byte* privNextPrimeShifts = (byte*) AllocateSystemMemory(ReciprocalsTableSize, false);
 const SumEstimateData* privSumEstimates[SumEstimatesSize];
 CACHE_ALIGNED num64 privSumEstimatesBeginP[SumEstimatesSize];
 CACHE_ALIGNED num64 privSumEstimatesBeginQ[SumEstimatesSize];
@@ -21,7 +21,8 @@ CACHE_ALIGNED std::pair<num128, num128> privPowersOf2_128DivisibilityData[128];
 CACHE_ALIGNED InverseData128* privPowersOfP_128DivisibilityData[ReciprocalsTableSize128];
 CACHE_ALIGNED num64 privSumEstimates128[ReciprocalsTableSize128 / 16];
 
-CACHE_ALIGNED byte MainPrimeTable[404061114];
+byte* MainPrimeTable = (byte*) AllocateSystemMemory(MainPrimeTableSize, false);
+
 byte bitOffset[PrimeTableParameters::Modulo];
 num64 bitMask[PrimeTableParameters::Modulo];
 
@@ -54,11 +55,9 @@ struct MainPrimeTableInitializer
 
 static NOINLINE num64 CalculateMainPrimeTable()
 {
-	// https://en.wikipedia.org/wiki/Prime_gap#Numerical_results
-	// Since we operate in the range 1..10^20, a gap = PrimeTableParameters::Modulo * 16 = 3360 is enough
 	const num64 upperBound = ((SearchLimit::MainPrimeTableBound / PrimeTableParameters::Modulo) + 16) * PrimeTableParameters::Modulo;
 	const size_t arraySize = static_cast<size_t>((upperBound + PrimeTableParameters::Modulo) / PrimeTableParameters::Modulo * (PrimeTableParameters::NumOffsets / ByteParams::Bits));
-	if (arraySize > ARRAYSIZE(MainPrimeTable))
+	if (arraySize > MainPrimeTableSize)
 	{
 		std::cerr << "MainPrimeTable is too small: it should be at least " << arraySize << " elements" << std::endl;
 		abort();
@@ -283,7 +282,7 @@ NOINLINE void SearchCandidates(Factor* factors, const num64 value, const num64 s
 
 NOINLINE void GenerateCandidates()
 {
-	privCandidatesData.reserve(std::min<num64>(178832709, g_LargestCandidate / 30));
+	privCandidatesData.reserve(std::min<num64>(559560862, g_LargestCandidate / 30));
 
 	Factor factors[16];
 	SearchCandidates(factors, 1, 1, 0);
@@ -348,7 +347,7 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 		privPowersOf2_128DivisibilityData[i].second = NUM128_MAX / value;
 	}
 
-	const size_t inverse_ptr128_size = 990059;
+	const size_t inverse_ptr128_size = 2017787;
 	InverseData128* inverse_ptr128_buf = reinterpret_cast<InverseData128*>(AllocateSystemMemory(inverse_ptr128_size * sizeof(InverseData128), false));
 	InverseData128* inverse_ptr128 = inverse_ptr128_buf;
 	InverseData128* inverse_ptr128_end = inverse_ptr128_buf + inverse_ptr128_size;
@@ -402,12 +401,12 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 
 		if (((index + 1) % 16) == 0)
 		{
-			const num64 r = GetMaxSumRatio(it, SearchLimit::value);
+			const num64 r = (GetMaxSumRatio(it, SearchLimit::value) + ((1 << SumEstimates128Shift) - 1)) >> SumEstimates128Shift;
 
 			// Check if "SearchLimit::value * r" overflows
 			if (((SearchLimit::value * r) % r) != 0)
 			{
-				std::cerr << "TODO: use less than 64 bits for privSumEstimates128" << std::endl;
+				std::cerr << "Increase SumEstimates128Shift" << std::endl;
 				abort();
 			}
 

@@ -140,9 +140,11 @@ NOINLINE void ProfileGuidedOptimization_Instrument()
 	memset(privPowersOfP_128DivisibilityData, 0, sizeof(privPowersOfP_128DivisibilityData));
 	memset(privSumEstimates, 0, sizeof(privSumEstimates));
 
-	const size_t k = reinterpret_cast<size_t>(privNextPrimeShifts);
-	DisableAccessToMemory(reinterpret_cast<void*>(k - (k & 4095)), 4096);
+	DisableAccessToMemory(privNextPrimeShifts, ReciprocalsTableSize);
+	DisableAccessToMemory(MainPrimeTable, MainPrimeTableSize);
 
-	Sleep(1000);
-	exit(0);
+	for (num64 i = 0; i < NumWorkerThreads; ++i)
+	{
+		threads[i].join();
+	}
 }

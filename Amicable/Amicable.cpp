@@ -63,7 +63,7 @@ int main(int argc, char* argv[])
 		if (strcmp(argv[i], "/instrument") == 0)
 		{
 			// Quickly generate profile data for all hot (most used) code paths
-			PrimeTablesInit(SearchLimit::LinearLimit, SearchLimit::SafeLimit, nullptr);
+			PrimeTablesInit(LowWord(SearchLimit::value / 1000000), SearchLimit::SafeLimit, nullptr);
 			ProfileGuidedOptimization_Instrument();
 			return 0;
 		}

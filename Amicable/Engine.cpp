@@ -827,7 +827,11 @@ FORCEINLINE bool InitialCheck128(const num128 n1, num128& targetSum, num128& n2)
 			}
 		}
 
+#if SumEstimates128Shift == 0
 		if (n2 + HighWord(n2 * (*max_sum_ratio)) < targetSum)
+#else
+		if (n2 + ((n2 * (*max_sum_ratio)) >> (64 - SumEstimates128Shift)) < targetSum)
+#endif
 		{
 			return false;
 		}
