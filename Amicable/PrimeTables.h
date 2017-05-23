@@ -3,18 +3,18 @@
 void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt);
 bool IsPrime(num64 n);
 
-enum
+enum PrimeTablesParams : num64
 {
 	// There are exactly 192725 primes below 2^(64/3)
 	// We can use this table for factorization when p^3 <= N < 2^64
 	ReciprocalsTableSize = 192725,
 
-	// There are exactly 664579 primes below 10^(21/3)
-	// We can use this table for factorization when p^3 <= N < 10^21
-	// Set it to 664592 because it's divisible by 16
-	ReciprocalsTableSize128 = 664592,
+	// There are exactly 1362201 primes below 10^(22/3)
+	// We can use this table for factorization when p^3 <= N < 10^22
+	// Set it to 1362208 because it's divisible by 16
+	ReciprocalsTableSize128 = 1362208,
 
-	MainPrimeTableSize = 1277753232,
+	MainPrimeTableSize = 4040610276,
 };
 
 // Reciprocals are calculated using algorithm published in http://www.agner.org/optimize/optimizing_assembly.pdf (section 16.9 "Integer division by a constant")
@@ -118,7 +118,7 @@ extern CACHE_ALIGNED num64 privSumEstimates128[ReciprocalsTableSize128 / 16];
 #define SumEstimates128 ((const num64*)(privSumEstimates128))
 
 // Can be zero if search limit is <= 10^20
-#define SumEstimates128Shift 3
+#define SumEstimates128Shift 7
 
 FORCEINLINE num64 Mod385(const num64 n)
 {

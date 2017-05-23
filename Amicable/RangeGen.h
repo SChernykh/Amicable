@@ -22,7 +22,7 @@
 
 struct RangeData
 {
-	Factor factors[16];
+	Factor factors[MaxPrimeFactors];
 	num128 value;
 	num128 sum;
 	num64 start_prime;

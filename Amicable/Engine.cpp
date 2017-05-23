@@ -41,7 +41,12 @@ PRAGMA_WARNING(pop)
 // So, S(a) <= a + p + a / p + 1 = a + p + q + 1
 FORCEINLINE num64 MaximumSumOfDivisors2(const num64 a, const num64 p, const num64 q)
 {
-	return a + p + q + 1;
+	num64 m1;
+	if (AddAndDetectOverflow(a, p + q + 1, &m1))
+	{
+		return num64(-1);
+	}
+	return m1;
 }
 
 // a = pqr, p0 <= p < q < r, p0^4 > a, S(a) = (p+1)(q+1)(r+1)
@@ -191,7 +196,12 @@ FORCEINLINE num64 MaximumSumOfDivisors3(const num64 a, const num64 p0, const num
 	// So we can just remove "+ 1".
 
 	//  F0(p0)
-	return a + (a_div_p0 + p0 * p0 + p0) * 2 /*+ 1*/;
+	num64 m1;
+	if (AddAndDetectOverflow(a, (a_div_p0 + p0 * p0 + p0) * 2 /*+ 1*/, &m1))
+	{
+		return num64(-1);
+	}
+	return m1;
 	
 	// F0(sqrt(a) / p0)
 	//const num64 p0_2 = p0 * p0;

@@ -5,7 +5,7 @@
 enum
 {
 	ShiftMultiplier = 2,
-	MaxPrimeFactors = 16,
+	MaxPrimeFactors = 18,
 };
 
 struct SearchLimit
@@ -13,7 +13,7 @@ struct SearchLimit
 	static const num128 value;
 	static const num64 LinearLimit;
 	static const num64 MainPrimeTableBound;
-	static const num64 PrimeInversesBound;
+	static const num64 RangeGenPrimeBound;
 	static const num64 SafeLimit;
 };
 

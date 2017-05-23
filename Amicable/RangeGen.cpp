@@ -76,7 +76,7 @@ recurse_begin:
 		}
 	}
 
-	for (f->index = start_i; f->p.Get() <= SearchLimit::PrimeInversesBound; ++f->p, ++f->index)
+	for (f->index = start_i; f->p.Get() <= SearchLimit::RangeGenPrimeBound; ++f->p, ++f->index)
 	{
 		s[1].value = s->value * f->p.Get();
 		if (s[1].value >= SearchLimit::value)
