@@ -9,12 +9,12 @@ enum PrimeTablesParams : num64
 	// We can use this table for factorization when p^3 <= N < 2^64
 	ReciprocalsTableSize = 192725,
 
-	// There are exactly 1362201 primes below 10^(22/3)
-	// We can use this table for factorization when p^3 <= N < 10^22
-	// Set it to 1362208 because it's divisible by 16
-	ReciprocalsTableSize128 = 1362208,
+	// There are exactly 325161 primes below 10^(20/3)
+	// We can use this table for factorization when p^3 <= N < 10^20
+	// Set it to 325168 because it's divisible by 16
+	ReciprocalsTableSize128 = 325168,
 
-	MainPrimeTableSize = 4040610276,
+	MainPrimeTableSize = 404061114,
 };
 
 // Reciprocals are calculated using algorithm published in http://www.agner.org/optimize/optimizing_assembly.pdf (section 16.9 "Integer division by a constant")
@@ -118,7 +118,7 @@ extern CACHE_ALIGNED num64 privSumEstimates128[ReciprocalsTableSize128 / 16];
 #define SumEstimates128 ((const num64*)(privSumEstimates128))
 
 // Can be zero if search limit is <= 10^20
-#define SumEstimates128Shift 7
+#define SumEstimates128Shift 0
 
 FORCEINLINE num64 Mod385(const num64 n)
 {
