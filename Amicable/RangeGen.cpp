@@ -408,6 +408,7 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 		num64 sum_q = q0 + 1;
 
 		const num128 value_to_check = s->value * q;
+		bool is_initialized = false;
 		if (value_to_check < SearchLimit::value)
 		{
 			// Skip overabundant numbers
@@ -416,6 +417,7 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 			{
 				if (!is_deficient || (s->sum * sum_q - value_to_check > value_to_check))
 				{
+					is_initialized = true;
 					range.value = s->value;
 					range.sum = s->sum;
 					range.start_prime = q0;
@@ -424,6 +426,11 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 					range.last_factor_index = static_cast<int>(numFactors) - 1;
 				}
 			}
+		}
+		if (!is_initialized)
+		{
+			std::cerr << "Command-line parameter \"/from " << startFrom << "\" is invalid\n" << std::endl;
+			boinc_finish(-1);
 		}
 	}
 
