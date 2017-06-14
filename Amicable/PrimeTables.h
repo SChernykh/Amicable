@@ -95,7 +95,7 @@ extern CACHE_ALIGNED std::pair<num64, num64> privPrimeInverses2[CompileTimePrime
 extern CACHE_ALIGNED num64 privPrimeInverses3[ReciprocalsTableSize];
 extern CACHE_ALIGNED num64 privPrimeInverses4[ReciprocalsTableSize];
 
-extern CACHE_ALIGNED std::pair<num128, num128> privPrimeInverses128[ReciprocalsTableSize128];
+extern CACHE_ALIGNED num128 privPrimeInverses128[ReciprocalsTableSize128];
 extern CACHE_ALIGNED std::pair<num128, num128> privPowersOf2_128DivisibilityData[128];
 extern CACHE_ALIGNED InverseData128* privPowersOfP_128DivisibilityData[ReciprocalsTableSize128];
 
@@ -111,7 +111,7 @@ extern CACHE_ALIGNED num64 privSumEstimates128[ReciprocalsTableSize128 / 16];
 #define PrimeInverses3 ((const num64*)(privPrimeInverses3))
 #define PrimeInverses4 ((const num64*)(privPrimeInverses4))
 
-#define PrimeInverses128 ((const std::pair<num128, num128>*)(privPrimeInverses128))
+#define PrimeInverses128 ((const num128*)(privPrimeInverses128))
 #define PowersOf2_128DivisibilityData ((const std::pair<num128, num128>*)(privPowersOf2_128DivisibilityData))
 #define PowersOfP_128DivisibilityData ((const InverseData128* const*)(privPowersOfP_128DivisibilityData))
 

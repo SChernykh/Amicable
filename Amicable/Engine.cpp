@@ -787,14 +787,14 @@ FORCEINLINE bool InitialCheck128(const num128 n1, num128& targetSum, num128& n2)
 		return true;
 	}
 
-	const std::pair<num128, num128>* prime_inverse = PrimeInverses128;
+	const num128* prime_inverse = PrimeInverses128;
 	const num64* max_sum_ratio = SumEstimates128;
 	do
 	{
-		for (const std::pair<num128, num128>* e = prime_inverse + 16; prime_inverse < e; ++prime_inverse)
+		for (const num128* e = prime_inverse + 16; prime_inverse < e; ++prime_inverse)
 		{
-			num128 q = n2 * prime_inverse->first;
-			if (q > prime_inverse->second)
+			num128 q = n2 * (*prime_inverse);
+			if (q > n2)
 			{
 				continue;
 			}
@@ -803,8 +803,8 @@ FORCEINLINE bool InitialCheck128(const num128 n1, num128& targetSum, num128& n2)
 			for (;;)
 			{
 				n2 = q;
-				q *= prime_inverse->first;
-				if (q > prime_inverse->second)
+				q *= *prime_inverse;
+				if (q > n2)
 				{
 					break;
 				}

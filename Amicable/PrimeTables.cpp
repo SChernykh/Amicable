@@ -16,7 +16,7 @@ CACHE_ALIGNED std::pair<num64, num64> privPrimeInverses2[CompileTimePrimesCount]
 CACHE_ALIGNED num64 privPrimeInverses3[ReciprocalsTableSize];
 CACHE_ALIGNED num64 privPrimeInverses4[ReciprocalsTableSize];
 
-CACHE_ALIGNED std::pair<num128, num128> privPrimeInverses128[ReciprocalsTableSize128];
+CACHE_ALIGNED num128 privPrimeInverses128[ReciprocalsTableSize128];
 CACHE_ALIGNED std::pair<num128, num128> privPowersOf2_128DivisibilityData[128];
 CACHE_ALIGNED InverseData128* privPowersOfP_128DivisibilityData[ReciprocalsTableSize128];
 CACHE_ALIGNED num64 privSumEstimates128[ReciprocalsTableSize128 / 16];
@@ -365,8 +365,7 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 			std::cerr << "modular_inverse128 failed for p = " << p << std::endl;
 			abort();
 		}
-		privPrimeInverses128[index].first = p_inv;
-		privPrimeInverses128[index].second = NUM128_MAX / p;
+		privPrimeInverses128[index] = p_inv;
 
 		privPowersOfP_128DivisibilityData[index] = inverse_ptr128;
 		num128 p1 = p;
