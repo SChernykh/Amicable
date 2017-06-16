@@ -875,6 +875,10 @@ bool OpenCL::ProcessLargePrimes()
 		const number CandidatesCount = static_cast<number>(it - CandidatesData.begin());
 
 		const number TotalNumbersToCheck = CandidatesCount * LargePrimesCount;
+		if (LargePrimesStartOffset >= TotalNumbersToCheck)
+		{
+			continue;
+		}
 
 		CL_CHECKED_CALL(clSetKernelArg, mySearchLargePrimes, 7, sizeof(LargePrimesCount), &LargePrimesCount);
 		CL_CHECKED_CALL(clSetKernelArg, mySearchLargePrimes, 8, sizeof(LargePrimesCountReciprocal), &LargePrimesCountReciprocal);
