@@ -2,6 +2,11 @@
 #include "PrimeTables.h"
 #include "RangeGen.h"
 #include "sprp64.h"
+#include <sstream>
+
+//#pragma optimize("", off)
+//#undef FORCEINLINE
+//#define FORCEINLINE NOINLINE
 
 PRAGMA_WARNING(push, 1)
 PRAGMA_WARNING(disable : 4091 4917 4625 4626 5026 5027)
@@ -14,23 +19,14 @@ CACHE_ALIGNED Factor RangeGen::factors[MaxPrimeFactors];
 int RangeGen::search_stack_depth;
 int RangeGen::prev_search_stack_depth;
 unsigned int RangeGen::cur_largest_prime_power;
-volatile number RangeGen::SharedCounterForSearch;
-number RangeGen::total_numbers_checked;
+volatile num64 RangeGen::SharedCounterForSearch;
+num64 RangeGen::total_numbers_checked;
 double RangeGen::total_numbers_to_check = 2.5e11;
 volatile bool RangeGen::allDone = false;
 
 const char* const CHECKPOINT_LOGICAL_NAME = "amicable_checkpoint";
 
 RangeGen RangeGen::RangeGen_instance;
-
-static FORCEINLINE bool is_abundant_q(const number sum, const number sum_q, const number value_to_check)
-{
-	// sum * sum_q can be >= 2^64 when SearchLimit::value is large enough, so use 128-bit arithmetic here
-	number s2[2];
-	s2[0] = _umul128(sum, sum_q, &s2[1]);
-	sub128(s2[0], s2[1], value_to_check, 0, s2, s2 + 1);
-	return (s2[0] > value_to_check) || s2[1];
-}
 
 template<unsigned int largest_prime_power>
 NOINLINE bool RangeGen::Iterate(RangeData& range)
@@ -39,7 +35,9 @@ NOINLINE bool RangeGen::Iterate(RangeData& range)
 	Factor* f = factors + search_stack_depth;
 
 	int start_i, start_j;
-	number q0, q, sum_q;
+	num64 q0;
+	num128 q;
+	num128 sum_q;
 
 #define RECURSE ++search_stack_depth; ++s; ++f; goto recurse_begin
 #define RETURN --search_stack_depth; --s; --f; goto recurse_begin
@@ -56,9 +54,17 @@ recurse_begin:
 		goto recurse_return;
 	}
 
-	start_i = (search_stack_depth == 0) ? 0 : (factors[search_stack_depth - 1].index + 1);
-
-	f->p = (search_stack_depth == 0) ? 2 : GetNthPrime(factors[search_stack_depth - 1].index + 1);
+	if (search_stack_depth > 0)
+	{
+		start_i = factors[search_stack_depth - 1].index + 1;
+		f->p = factors[search_stack_depth - 1].p;
+		++f->p;
+	}
+	else
+	{
+		start_i = 0;
+		f->p = PrimeIterator();
+	}
 
 	// A check to ensure that m is not divisible by 6
 	if (search_stack_depth == 1)
@@ -69,31 +75,32 @@ recurse_begin:
 		if (start_i == 1)
 		{
 			start_i = 2;
-			f->p = 5;
+			++f->p;
 		}
 	}
 
-	for (f->index = start_i; f->p <= SearchLimit::PrimeInversesBound; ++f->index, f->p = GetNthPrime(f->index))
+	for (f->index = start_i; f->p.Get() <= SearchLimit::RangeGenPrimeBound; ++f->p, ++f->index)
 	{
-		number h;
-		s[1].value = _umul128(s->value, f->p, &h);
-		if ((s[1].value >= SearchLimit::value) || h)
+		s[1].value = s->value * f->p.Get();
+		if (s[1].value >= SearchLimit::value)
 		{
 			RETURN;
 		}
-		s[1].sum = s->sum * (f->p + 1);
+		s[1].sum = s->sum * (f->p.Get() + 1);
 
 		f->k = 1;
 
-		f->q_max = number(-1) / f->p;
-
 		PRAGMA_WARNING(suppress : 4146)
-		f->p_inv = -modular_inverse64(f->p);
+		f->p_inv = -modular_inverse64(f->p.Get());
+		f->q_max = num64(-1) / f->p.Get();
+		f->p_inv128 = -modular_inverse128(f->p.Get());
+		f->q_max128 = NUM128_MAX / f->p.Get();
 
 		for (;;)
 		{
 			start_j = f->index + 1;
-			q0 = GetNthPrime(start_j);
+
+			q0 = f->p.GetNext();
 
 			// A check to ensure that m*q is not divisible by 6
 			if (search_stack_depth == 0)
@@ -114,37 +121,18 @@ recurse_begin:
 
 				IF_CONSTEXPR(largest_prime_power > 1)
 				{
-					q = _umul128(q, q0, &h);
-					if (h)
-					{
-						if (f->k == 1)
-						{
-							RETURN;
-						}
-						break;
-					}
+					q *= q0;
 					sum_q += q;
 				}
 
 				IF_CONSTEXPR(largest_prime_power > 2)
 				{
-					q = _umul128(q, q0, &h);
-					if (h)
-					{
-						if (f->k == 1)
-						{
-							RETURN;
-						}
-						break;
-					}
+					q *= q0;
 					sum_q += q;
 				}
 
-				// We don't need to check if sum_q fits in 64 bits because q < SearchLimit::value / s[1].value,
-				// where s[1].value must be >= 20 for s[1].value * q to be amicable number
-
-				const number value_to_check = _umul128(s[1].value, q, &h);
-				if ((value_to_check >= SearchLimit::value) || h)
+				const num128 value_to_check = s[1].value * q;
+				if (value_to_check >= SearchLimit::value)
 				{
 					if (f->k == 1)
 					{
@@ -154,10 +142,10 @@ recurse_begin:
 				}
 
 				// Skip overabundant numbers
-				const bool is_deficient = (s[1].sum - s[1].value < s[1].value);
+				const byte is_deficient = (s[1].sum - s[1].value < s[1].value);
 				if (is_deficient || !OverAbundant<(largest_prime_power & 1) ? 2 : 1>(factors, search_stack_depth, s[1].value, s[1].sum, (largest_prime_power & 1) ? 2 : 1))
 				{
-					if (!is_deficient || is_abundant_q(s[1].sum, sum_q, value_to_check))
+					if (!is_deficient || (s[1].sum * sum_q - value_to_check > value_to_check))
 					{
 						range.value = s[1].value;
 						range.sum = s[1].sum;
@@ -169,7 +157,7 @@ recurse_begin:
 						}
 						for (unsigned int i = static_cast<unsigned int>(search_stack_depth) + 1; i < MaxPrimeFactors; ++i)
 						{
-							range.factors[i].p = 0;
+							memset(&range.factors[i].p, 0, sizeof(range.factors[i].p));
 							range.factors[i].k = 0;
 						}
 						range.last_factor_index = search_stack_depth;
@@ -177,7 +165,7 @@ recurse_begin:
 						return true;
 					}
 
-					if (!whole_branch_deficient<SearchLimit::value>(s[1].value, s[1].sum, f))
+					if (!whole_branch_deficient(SearchLimit::value, s[1].value, s[1].sum, f))
 					{
 						RECURSE;
 					}
@@ -185,24 +173,19 @@ recurse_begin:
 			}
 
 recurse_return:
-			s[1].value = _umul128(s[1].value, f->p, &h);
-			if ((s[1].value >= SearchLimit::value) || h)
+			s[1].value *= f->p.Get();
+			if (s[1].value >= SearchLimit::value)
 			{
 				break;
 			}
-			s[1].sum = s[1].sum * f->p + s->sum;
+			s[1].sum = s[1].sum * f->p.Get() + s->sum;
 			++f->k;
 		}
 
-		// Workaround for shifting from 2 to 3 because NextPrimeShifts[0] is 0
 		if (search_stack_depth == 0)
 		{
-			if (f->p == 2)
-			{
-				f->p = 3;
-			}
-			// Check only 2, 3, 5 as the smallest prime factor because the smallest abundant number coprime to 2*3*5 is ~2*10^25
-			if (f->p >= 5)
+			// Check only 2, 3, 5 as the smallest prime factor because the smallest abundant num64 coprime to 2*3*5 is ~2*10^25
+			if (f->p.Get() >= 5)
 			{
 				break;
 			}
@@ -264,9 +247,9 @@ FORCEINLINE unsigned int ParseFactorization(char* factorization, T callback)
 {
 	unsigned int numFactors = 0;
 	int counter = 0;
-	number prev_p = 0;
-	number p = 0;
-	number p1 = 2;
+	num64 prev_p = 0;
+	num64 p = 0;
+	PrimeIterator p1;
 	int index_p1 = 0;
 	unsigned int k = 0;
 	for (char* ptr = factorization, *prevPtr = factorization; ; ++ptr)
@@ -278,7 +261,7 @@ FORCEINLINE unsigned int ParseFactorization(char* factorization, T callback)
 			++counter;
 			if (counter == 1)
 			{
-				p = static_cast<number>(StrToNumber(prevPtr));
+				p = static_cast<num64>(StrToNumber(prevPtr));
 			}
 			else if (counter == 2)
 			{
@@ -299,21 +282,21 @@ FORCEINLINE unsigned int ParseFactorization(char* factorization, T callback)
 				}
 				prev_p = p;
 
-				if (p1 < p)
+				if (p1.Get() < p)
 				{
-					if (p1 == 2)
+					if (p1.Get() == 2)
 					{
-						p1 = 3;
+						++p1;
 						++index_p1;
 					}
-					while (p1 < p)
+					while (p1.Get() < p)
 					{
+						++p1;
 						++index_p1;
-						p1 = GetNthPrime(index_p1);
 					}
 				}
 
-				if (p1 != p)
+				if (p1.Get() != p)
 				{
 					std::cerr << "Factorization '" << factorization << "' is incorrect: " << p << " is not a prime" << std::endl;
 					abort();
@@ -365,21 +348,28 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 	if (startFrom)
 	{
 		const unsigned int numFactors = ParseFactorization(startFrom,
-			[startFrom](number p, unsigned int k, int p_index, unsigned int factor_index)
+			[startFrom](num64 p, unsigned int k, int p_index, unsigned int factor_index)
 			{
 				Factor& f = factors[factor_index];
-				f.p = p;
+				f.p = PrimeIterator(p);
 				f.k = k;
 				f.index = p_index;
 
-				f.q_max = number(-1) / p;
-
 				PRAGMA_WARNING(suppress : 4146)
 				f.p_inv = -modular_inverse64(p);
+				f.q_max = num64(-1) / p;
+				f.p_inv128 = -modular_inverse128(p);
+				f.q_max128 = NUM128_MAX / p;
 
-				if ((f.p > 2) && (f.p * f.p_inv != 1))
+				if ((f.p.Get() > 2) && (f.p_inv * f.p.Get() != 1))
 				{
-					std::cerr << "Internal error: modular_inverse64 table is incorrect" << std::endl;
+					std::cerr << "Internal error: modular_inverse64 failed" << std::endl;
+					abort();
+				}
+
+				if ((f.p.Get() > 2) && (f.p_inv128 * f.p.Get() != 1))
+				{
+					std::cerr << "Internal error: modular_inverse128 failed" << std::endl;
 					abort();
 				}
 
@@ -387,11 +377,10 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 				StackFrame& next_s = search_stack[factor_index + 1];
 				next_s.value = cur_s.value;
 				next_s.sum = cur_s.sum;
-				for (number i = 0; i < k; ++i)
+				for (num64 i = 0; i < k; ++i)
 				{
-					number h;
-					next_s.value = _umul128(next_s.value, p, &h);
-					if ((next_s.value >= SearchLimit::value) || h)
+					next_s.value *= p;
+					if (next_s.value >= SearchLimit::value)
 					{
 						std::cerr << "Factorization '" << startFrom << "' is incorrect: number is too large" << std::endl;
 						abort();
@@ -410,7 +399,7 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 		range.value = 0;
 
 		int start_j = f->index + 1;
-		number q0 = GetNthPrime(start_j);
+		num64 q0 = GetNthPrime(start_j);
 
 		// A check to ensure that m*q is not divisible by 6
 		if (search_stack_depth == 1)
@@ -425,19 +414,18 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 			}
 		}
 
-		number q = q0;
-		number sum_q = q0 + 1;
+		num64 q = q0;
+		num64 sum_q = q0 + 1;
 
-		number h;
-		const number value_to_check = _umul128(s->value, q, &h);
+		const num128 value_to_check = s->value * q;
 		bool is_initialized = false;
-		if ((value_to_check < SearchLimit::value) && !h)
+		if (value_to_check < SearchLimit::value)
 		{
 			// Skip overabundant numbers
 			const bool is_deficient = (s->sum - s->value < s->value);
-			if (is_deficient || !OverAbundant<2>(factors, static_cast<int>(numFactors) - 1, s->value, s->sum, static_cast<number>((cur_largest_prime_power & 1) ? 2 : 1)))
+			if (is_deficient || !OverAbundant<2>(factors, static_cast<int>(numFactors) - 1, s->value, s->sum, static_cast<num64>((cur_largest_prime_power & 1) ? 2 : 1)))
 			{
-				if (!is_deficient || is_abundant_q(s->sum, sum_q, value_to_check))
+				if (!is_deficient || (s->sum * sum_q - value_to_check > value_to_check))
 				{
 					is_initialized = true;
 					range.value = s->value;
@@ -459,9 +447,9 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 	if (stopAt)
 	{
 		ParseFactorization(stopAt,
-			[outStopAtFactors](number p, unsigned int k, int /*p_index*/, unsigned int factor_index)
+			[outStopAtFactors](num64 p, unsigned int k, int /*p_index*/, unsigned int factor_index)
 			{
-				outStopAtFactors[factor_index].p = p;
+				outStopAtFactors[factor_index].p = PrimeIterator(p);
 				outStopAtFactors[factor_index].k = k;
 			}
 		);
@@ -472,9 +460,9 @@ bool RangeGen::HasReached(const RangeData& range, const Factor* stopAtfactors)
 {
 	for (int i = 0; i < MaxPrimeFactors; ++i)
 	{
-		if (range.factors[i].p != stopAtfactors[i].p)
+		if (range.factors[i].p.Get() != stopAtfactors[i].p.Get())
 		{
-			return (range.factors[i].p > stopAtfactors[i].p);
+			return (range.factors[i].p.Get() > stopAtfactors[i].p.Get());
 		}
 		else if (range.factors[i].k != stopAtfactors[i].k)
 		{

@@ -22,10 +22,10 @@
 
 struct RangeData
 {
-	Factor factors[16];
-	number value;
-	number sum;
-	number start_prime;
+	Factor factors[MaxPrimeFactors];
+	num128 value;
+	num128 sum;
+	num64 start_prime;
 	unsigned int index_start_prime;
 	int last_factor_index;
 };
@@ -40,34 +40,22 @@ public:
 	static unsigned int cur_largest_prime_power;
 	static double total_numbers_to_check;
 
+	enum
+	{
+		LargePrimesSplitSize = 1024,
+	};
+
 private:
 	FORCEINLINE RangeGen() { InitializeCriticalSection(&lock); }
 	FORCEINLINE ~RangeGen() { DeleteCriticalSection(&lock);}
 
 	struct StackFrame
 	{
-		number value, sum;
+		num128 value;
+		num128 sum;
 	};
 
 	template<unsigned int largest_prime_power> static bool Iterate(RangeData& range);
-
-	struct WorkerThreadState
-	{
-		RangeData curRange;
-		unsigned int curLargestPrimePower;
-		number total_numbers_checked;
-	};
-
-	struct WorkerThreadParams
-	{
-		const RangeData* rangeToCheckFirst;
-		const Factor* stopAtFactors;
-		number startPrime;
-		number primeLimit;
-		unsigned int startLargestPrimePower;
-		WorkerThreadState stateToSave;
-		volatile bool finished;
-	};
 
 private:
 	static CRITICAL_SECTION lock;
@@ -75,8 +63,8 @@ private:
 	static CACHE_ALIGNED Factor factors[MaxPrimeFactors];
 	static int search_stack_depth;
 	static int prev_search_stack_depth;
-	static volatile number SharedCounterForSearch;
-	static number total_numbers_checked;
+	static volatile num64 SharedCounterForSearch;
+	static num64 total_numbers_checked;
 	static volatile bool allDone;
 
 	static RangeGen RangeGen_instance;

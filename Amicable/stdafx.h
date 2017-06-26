@@ -33,7 +33,7 @@ PRAGMA_WARNING(disable : 5026)
 PRAGMA_WARNING(disable : 5027)
 
 typedef unsigned char byte;
-typedef unsigned long long int number;
+typedef unsigned long long int num64;
 
 #include <stdio.h>
 #include <iostream>

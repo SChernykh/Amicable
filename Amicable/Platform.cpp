@@ -7,24 +7,36 @@
 
 #pragma section("udiv128", read, execute)
 __declspec(allocate("udiv128"))
-const unsigned char udiv128Code[] =
+static const unsigned char MachineCode[] =
 {
+	// udiv128
 	0x48, 0x89, 0xD0, // mov rax,rdx
 	0x48, 0x89, 0xCA, // mov rdx,rcx
 	0x49, 0xF7, 0xF0, // div r8
 	0x49, 0x89, 0x11, // mov [r9],rdx
-	0xC3              // ret
+	0xC3,             // ret
+	0x90, 0x90, 0x90,
+
+	// udiv128_noremainder
+	0x48, 0x89, 0xC8, // mov rax,rcx
+	0x49, 0xF7, 0xF0, // div r8
+	0xC3,             // ret
+	0x90, 0x90, 0x90,
+	0x90, 0x90, 0x90,
+	0x90, 0x90, 0x90,
+
+	// mulmod64
+	0x48, 0x89, 0xC8, // mov rax,rcx
+	0x48, 0xF7, 0xE2, // mul rdx
+	0x49, 0xF7, 0xF0, // div r8
+	0x48, 0x89, 0xD0, // mov rax,rdx
+	0xC3,             // ret
+	0x90, 0x90, 0x90,
 };
 
-#pragma section("mulmod64", read, execute)
-__declspec(allocate("mulmod64"))
-const unsigned char mulmod64_code[] = {
-		0x48, 0x89, 0xC8, // mov rax,rcx
-		0x48, 0xF7, 0xE2, // mul rdx
-		0x49, 0xF7, 0xF0, // div r8
-		0x48, 0x89, 0xD0, // mov rax,rdx
-		0xC3              // ret
-};
+num64(*udiv128)(num64 numhi, num64 numlo, num64 den, num64* rem) = (num64(*)(num64, num64, num64, num64*))((const unsigned char*)MachineCode);
+num64(*udiv128_noremainder)(num64 numlo, num64 numhi, num64 den) = (num64(*)(num64, num64, num64))(((const unsigned char*)MachineCode) + 16);
+num64(*mulmod64)(num64 a, num64 b, num64 n) = (num64(*)(num64, num64, num64))(((const unsigned char*)MachineCode) + 32);
 
 typedef NTSTATUS (NTAPI *NtQueryTimerResolutionPtr)(OUT PULONG MinimumResolution, OUT PULONG MaximumResolution, OUT PULONG CurrentResolution);
 typedef NTSTATUS (NTAPI *NtSetTimerResolutionPtr)(IN ULONG DesiredResolution, IN BOOLEAN SetResolution, OUT PULONG CurrentResolution);
@@ -52,7 +64,7 @@ static struct HiResTimerInitializer
 } locHiResTimerInitializer;
 PRAGMA_WARNING(default : 4191)
 
-number SetHighestTimerResolution()
+num64 SetHighestTimerResolution()
 {
 	if (HiResTimerAvailable)
 	{
@@ -67,7 +79,7 @@ number SetHighestTimerResolution()
 	}
 }
 
-void SetTimerResoluion(const number res)
+void SetTimerResoluion(const num64 res)
 {
 	if (HiResTimerAvailable)
 	{
@@ -90,8 +102,5 @@ void HiResSleep(const double ms)
 		Sleep(delay ? delay : 1);
 	}
 }
-
-number (*udiv128)(number numhi, number numlo, number den, number* rem) = (number(*)(number, number, number, number*))((const unsigned char*)udiv128Code);
-number (*mulmod64)(number a, number b, number n) = (number (*)(number, number, number))((const unsigned char*) mulmod64_code);
 
 #endif

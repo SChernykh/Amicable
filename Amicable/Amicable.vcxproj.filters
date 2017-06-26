@@ -131,10 +131,10 @@
     <ClInclude Include="OpenCL.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="inverses128.h">
+    <ClInclude Include="kernel.cl.inl">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="kernel.cl.inl">
+    <ClInclude Include="num128.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -196,7 +196,7 @@
     <ClCompile Include="OpenCL.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="inverses128.cpp">
+    <ClCompile Include="num128.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

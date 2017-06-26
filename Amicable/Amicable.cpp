@@ -39,28 +39,11 @@ int main(int argc, char* argv[])
 
 	boinc_fraction_done(0.0);
 
-#if DYNAMIC_SEARCH_LIMIT
-	if (argc < 2)
-	{
-		std::cerr << "You must specify search limit as a first command-line argument" << std::endl;
-		return 0;
-	}
-	SearchLimit::value = static_cast<number>(StrToNumber(argv[1]));
-	if (SearchLimit::value < 1000)
-	{
-		SearchLimit::value = 1000;
-	}
-	SearchLimit::LinearLimit = static_cast<number>(sqrt(SearchLimit::value * 2.0)) + 1;
-	SearchLimit::MainPrimeTableBound = std::max<number>(SearchLimit::LinearLimit, 1000);
-	SearchLimit::PrimeInversesBound = std::max<number>(static_cast<number>(sqrt(SearchLimit::value / 4)), CompileTimePrimes<CompileTimePrimesCount>::value);
-	SearchLimit::SafeLimit = SearchLimit::value / 20;
-#endif
-
 	char* startFrom = nullptr;
 	char* stopAt = nullptr;
 	unsigned int largestPrimePower = 1;
-	number startPrime = 0;
-	number primeLimit = 0;
+	num64 startPrime = 0;
+	num64 primeLimit = 0;
 
 	// Parse command line parameters
 	for (int i = 1; i < argc; ++i)
@@ -132,7 +115,7 @@ int main(int argc, char* argv[])
 
 	// Now sort all numbers found so far
 	rewind(g_outputFile);
-	std::vector<number> found_numbers;
+	std::vector<num128> found_numbers;
 	while (!feof(g_outputFile))
 	{
 		char buf[32];
@@ -140,8 +123,8 @@ int main(int argc, char* argv[])
 		{
 			break;
 		}
-		const number m = StrToNumber(buf);
-		if (m)
+		const num128 m = atoi128(buf);
+		if (m != 0)
 		{
 			found_numbers.push_back(m);
 		}
@@ -155,9 +138,10 @@ int main(int argc, char* argv[])
 
 	// And write remaining sorted numbers back to the output file
 	g_outputFile = boinc_fopen(resolved_name.c_str(), "wb");
-	for (number m : found_numbers)
+	for (num128 m : found_numbers)
 	{
-		fprintf(g_outputFile, "%llu\n", m);
+		char buf[40];
+		fprintf(g_outputFile, "%s\n", itoa128(m, buf, sizeof(buf)));
 	}
 	fclose(g_outputFile);
 

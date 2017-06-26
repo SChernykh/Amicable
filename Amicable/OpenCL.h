@@ -8,15 +8,15 @@ struct RangeData;
 
 struct RangeDataGPU
 {
-	RangeDataGPU(number _M0, number _sumM0, unsigned int _start_prime_index, unsigned int _size) : M0(_M0), sumM0(_sumM0), start_prime_index(_start_prime_index), size(_size) {}
+	RangeDataGPU(num128 _M0, num128 _sumM0, unsigned int _start_prime_index, unsigned int _size) : M0(_M0), sumM0(_sumM0), start_prime_index(_start_prime_index), size(_size) {}
 
-	number M0;
-	number sumM0;
-	number start_prime_index;
-	number size;
+	num128 M0;
+	num128 sumM0;
+	unsigned int start_prime_index;
+	unsigned int size;
 };
 
-static_assert(sizeof(RangeDataGPU) == sizeof(number) * 4, "Invalid RangeDataGPU size");
+static_assert(sizeof(RangeDataGPU) == sizeof(num64) * 5, "Invalid RangeDataGPU size");
 
 struct LookupDataGPU
 {
@@ -35,13 +35,13 @@ public:
 	OpenCL(const char* preferences);
 	~OpenCL();
 
-	bool Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned int largestPrimePower, number startPrime, number primeLimit);
+	bool Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned int largestPrimePower, num64 startPrime, num64 primeLimit);
 
 	bool Test();
 
 	bool AddRange(const RangeData& r);
 
-	FORCEINLINE void operator()(number p)
+	FORCEINLINE void operator()(num64 p)
 	{
 		myLargePrimes[myLargePrimesCount++] = p;
 		if (myLargePrimesCount >= myLargePrimesMaxCount)
@@ -58,11 +58,11 @@ private:
 	bool GetCounter(cl_command_queue queue, cl_mem buf, unsigned int &counter);
 	bool ResetCounter(cl_command_queue queue, cl_mem buf);
 	bool GetAndResetCounter(cl_command_queue queue, cl_mem buf, unsigned int &counter);
-	bool GetAndResetCounter(cl_command_queue queue, cl_mem buf, number &counter);
-	unsigned int GetMaxPhaseSize(number total_size, unsigned int max_size);
+	bool GetAndResetCounter(cl_command_queue queue, cl_mem buf, num64 &counter);
+	unsigned int GetMaxPhaseSize(num64 total_size, unsigned int max_size);
 
 	bool RunRanges(char* startFrom, char* stopAt);
-	bool RunLargePrimes(number startPrime, number primeLimit);
+	bool RunLargePrimes(num64 startPrime, num64 primeLimit);
 
 	void PassLargePrimesToThread();
 	void ProcessLargePrimesThread();
@@ -74,7 +74,7 @@ private:
 
 	bool SaveFoundNumbers();
 	bool SaveProgressForRanges(const RangeData& r);
-	bool SaveProgressForLargePrimes(number firstPrime, number lastPrime, number offset, bool queueEmpty);
+	bool SaveProgressForLargePrimes(num64 firstPrime, num64 lastPrime, num64 offset, bool queueEmpty);
 
 	unsigned int myLargestPrimePower;
 
@@ -94,8 +94,10 @@ private:
 	cl_mem myPrimeReciprocalsBuf;
 	cl_mem myPQ_Buf;
 	cl_mem myPowerOf2SumInverses_Buf;
+	cl_mem myPowersOfP_128SumInverses_offsets_Buf;
 	cl_mem myPowersOfP_128SumInverses_Buf;
 	cl_mem myPrimeInverses_128_Buf;
+	cl_mem mySumEstimates_128_Buf;
 	cl_mem myLargePrimesBuf;
 	cl_mem myRangesTable_Buf;
 	cl_mem myRangesLookupTable_Buf;
@@ -116,12 +118,12 @@ private:
 	unsigned int myPhase2MinNumbersCount;
 	unsigned int myPhase2MaxNumbersCount;
 
-	number myOldTimerResolution;
+	num64 myOldTimerResolution;
 
 	std::vector<RangeDataGPU> myRanges;
 	unsigned int myTotalNumbersInRanges;
-	number myNumbersProcessedTotal;
-	number myAmicableNumbersFound;
+	num64 myNumbersProcessedTotal;
+	num64 myAmicableNumbersFound;
 
 	const char* myPreferences;
 
@@ -129,12 +131,20 @@ private:
 
 	std::streamsize myStdOldPrecision;
 
-	std::vector<std::pair<number, number>> myBufUlong2;
+	struct SFoundPair
+	{
+		num64 M;
+		num64 M_high;
+		num64 N;
+		num64 dummy;
+	};
 
-	number* myLargePrimes;
+	std::vector<SFoundPair> myFoundPairs;
+
+	num64* myLargePrimes;
 	unsigned int myLargePrimesCount;
 	unsigned int myLargePrimesMaxCount;
-	number myLargePrimesStartOffset;
+	num64 myLargePrimesStartOffset;
 
 	Semaphore myLargePrimesReady;
 	Semaphore myLargePrimesReceived;
