@@ -90,11 +90,7 @@ recurse_begin:
 
 		f->k = 1;
 
-		PRAGMA_WARNING(suppress : 4146)
-		f->p_inv = -modular_inverse64(f->p.Get());
-		f->q_max = num64(-1) / f->p.Get();
 		f->p_inv128 = -modular_inverse128(f->p.Get());
-		f->q_max128 = NUM128_MAX / f->p.Get();
 
 		for (;;)
 		{
@@ -355,17 +351,7 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 				f.k = k;
 				f.index = p_index;
 
-				PRAGMA_WARNING(suppress : 4146)
-				f.p_inv = -modular_inverse64(p);
-				f.q_max = num64(-1) / p;
 				f.p_inv128 = -modular_inverse128(p);
-				f.q_max128 = NUM128_MAX / p;
-
-				if ((f.p.Get() > 2) && (f.p_inv * f.p.Get() != 1))
-				{
-					std::cerr << "Internal error: modular_inverse64 failed" << std::endl;
-					abort();
-				}
 
 				if ((f.p.Get() > 2) && (f.p_inv128 * f.p.Get() != 1))
 				{
