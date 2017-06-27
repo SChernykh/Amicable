@@ -78,6 +78,18 @@ static FORCEINLINE num128 modular_inverse128(const num128 a)
 	return ret;
 }
 
+static FORCEINLINE num128 modular_inverse128(const num64 a)
+{
+	const num64 c = ModularInverse_8bit[static_cast<unsigned char>(a) >> 1];
+
+	num128 ret = num128(a) * (c * c) + c * 2;
+	ret *= ret * a + 2;
+	ret *= ret * a + 2;
+	ret *= ret * a + 2;
+
+	return ret;
+}
+
 // returns 2^64 mod n
 static FORCEINLINE num64 compute_modn64(const num64 n)
 {

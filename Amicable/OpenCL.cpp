@@ -1159,6 +1159,11 @@ bool OpenCL::Test()
 
 	const unsigned int total_numbers = static_cast<unsigned int>(pairs.size());
 	LOG(1, "Total numbers: " << total_numbers);
+	if (total_numbers == 0)
+	{
+		LOG(1, "Skipping test");
+		return true;
+	}
 
 	Timer overall_timer;
 
