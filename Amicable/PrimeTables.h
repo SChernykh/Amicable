@@ -65,17 +65,14 @@ struct SReciprocal
 extern CACHE_ALIGNED SReciprocal privPrimeReciprocals[ReciprocalsTableSize128];
 #define PrimeReciprocals ((const SReciprocal* const)(privPrimeReciprocals))
 
-#pragma pack(push, 1)
 struct AmicableCandidate
 {
 	AmicableCandidate() {}
-	AmicableCandidate(num64 _value, num64 _sum, unsigned char _is_over_abundant_mask);
+	AmicableCandidate::AmicableCandidate(num64 _value, num64 _sum) : value(_value), sum(_sum) {}
 
 	num64 value;
-	num64 sum : 56;
-	num64 is_over_abundant_mask : 8;
+	num64 sum;
 };
-#pragma pack(pop)
 
 struct InverseData128
 {
@@ -305,7 +302,7 @@ FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const num1
 		for (unsigned int j = 0; j < f->k; ++j)
 		{
 			const num128 q = sum_for_gcd * f->p_inv128;
-			if (q > f->q_max128)
+			if (q > sum_for_gcd)
 			{
 				IF_CONSTEXPR(sum_coeff_max_factor > 2)
 				{

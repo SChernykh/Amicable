@@ -22,6 +22,9 @@ FILE* g_outputFile = nullptr;
 enum
 {
 	LogLevel = 2,
+
+	// Limit phase 1 to 2^28 numbers
+	Phase1Limit = 1 << 28,
 };
 
 #define DEVICE_TYPE_TO_USE CL_DEVICE_TYPE_GPU
@@ -279,6 +282,12 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 			"\t" << max_work_group_size << " max work group size" << std::endl <<
 			"\t" << extensions << std::endl
 		);
+
+		if (MaxMemAllocSize < (1 << 28))
+		{
+			LOG_ERROR("CL_DEVICE_MAX_MEM_ALLOC_SIZE is less than 256 MB, this GPU/driver is not fit to run this program");
+			return false;
+		}
 
 		if (myPreferences)
 		{
@@ -922,8 +931,7 @@ bool OpenCL::ProcessLargePrimes()
 				const num64 global_offset_before = global_offset;
 				const unsigned int max_size_phase1 = GetMaxPhaseSize(TotalNumbersToCheck - global_offset, myPhase1MaxKernelSize);
 
-				// Limit phase 1 to 2^27 numbers
-				num64 N = global_offset + (1 << 27);
+				num64 N = global_offset + Phase1Limit;
 				if (N > TotalNumbersToCheck)
 				{
 					N = TotalNumbersToCheck;
@@ -1475,7 +1483,7 @@ bool OpenCL::AddRange(const RangeData& r)
 		myTotalNumbersInRanges += range_size;
 		myNumbersProcessedTotal += range_size;
 
-		if ((myTotalNumbersInRanges >= (1 << 29)) || (myRanges.size() >= myMaxRangesCount))
+		if ((myTotalNumbersInRanges >= Phase1Limit) || (myRanges.size() >= myMaxRangesCount))
 		{
 			if (!ProcessNumbers())
 			{

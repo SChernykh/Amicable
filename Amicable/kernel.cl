@@ -1203,19 +1203,10 @@ ulong GetNthPrime(uint n,
 #if NUM_DATA_CHUNKS > 4
 	, __global uint2* primes4
 #endif
-#if NUM_DATA_CHUNKS > 5
-	, __global uint2* primes5
-#endif
-#if NUM_DATA_CHUNKS > 6
-	, __global uint2* primes6
-#endif
-#if NUM_DATA_CHUNKS > 7
-	, __global uint2* primes7
-#endif
 )
 {
 #if NUM_DATA_CHUNKS == 1
-	uint2 data = primes0[n >> 2];
+	const uint2 data = primes0[n >> 2];
 #else
 	const uint global_offset = n >> 2;
 	__global const uint2* chunk;
@@ -1234,19 +1225,10 @@ ulong GetNthPrime(uint n,
 #if NUM_DATA_CHUNKS > 4
 	case 4: chunk = primes4; break;
 #endif
-#if NUM_DATA_CHUNKS > 5
-	case 5: chunk = primes5; break;
-#endif
-#if NUM_DATA_CHUNKS > 6
-	case 6: chunk = primes6; break;
-#endif
-#if NUM_DATA_CHUNKS > 7
-	case 7: chunk = primes7; break;
-#endif
 	}
 
 	const uint chunk_offset = global_offset & ((1 << (CHUNK_SIZE_SHIFT - 3)) - 1);
-	uint2 data = chunk[chunk_offset];
+	const uint2 data = chunk[chunk_offset];
 #endif
 
 	ulong base = data.y & 31;
@@ -1291,15 +1273,6 @@ void SearchMultipleRanges(
 #endif
 #if NUM_DATA_CHUNKS > 4
 	, __global uint2* primes4
-#endif
-#if NUM_DATA_CHUNKS > 5
-	, __global uint2* primes5
-#endif
-#if NUM_DATA_CHUNKS > 6
-	, __global uint2* primes6
-#endif
-#if NUM_DATA_CHUNKS > 7
-	, __global uint2* primes7
 #endif
 )
 {
@@ -1347,15 +1320,6 @@ void SearchMultipleRanges(
 #endif
 #if NUM_DATA_CHUNKS > 4
 				, primes4
-#endif
-#if NUM_DATA_CHUNKS > 5
-				, primes5
-#endif
-#if NUM_DATA_CHUNKS > 6
-				, primes6
-#endif
-#if NUM_DATA_CHUNKS > 7
-				, primes7
 #endif
 			);
 			break;
@@ -1420,27 +1384,36 @@ void SearchLargePrimes(
 	__global uint* amicable_numbers_count,
 	__global ulong4* amicable_numbers_data,
 
-	__global uint2* amicableCandidates0
+	__global ulong2* amicableCandidates0
 #if NUM_DATA_CHUNKS > 1
-	, __global uint2* amicableCandidates1
+	, __global ulong2* amicableCandidates1
 #endif
 #if NUM_DATA_CHUNKS > 2
-	, __global uint2* amicableCandidates2
+	, __global ulong2* amicableCandidates2
 #endif
 #if NUM_DATA_CHUNKS > 3
-	, __global uint2* amicableCandidates3
+	, __global ulong2* amicableCandidates3
 #endif
 #if NUM_DATA_CHUNKS > 4
-	, __global uint2* amicableCandidates4
+	, __global ulong2* amicableCandidates4
 #endif
 #if NUM_DATA_CHUNKS > 5
-	, __global uint2* amicableCandidates5
+	, __global ulong2* amicableCandidates5
 #endif
 #if NUM_DATA_CHUNKS > 6
-	, __global uint2* amicableCandidates6
+	, __global ulong2* amicableCandidates6
 #endif
 #if NUM_DATA_CHUNKS > 7
-	, __global uint2* amicableCandidates7
+	, __global ulong2* amicableCandidates7
+#endif
+#if NUM_DATA_CHUNKS > 8
+	, __global ulong2* amicableCandidates8
+#endif
+#if NUM_DATA_CHUNKS > 9
+	, __global ulong2* amicableCandidates9
+#endif
+#if NUM_DATA_CHUNKS > 10
+	, __global ulong2* amicableCandidates10
 #endif
 )
 {
@@ -1470,8 +1443,11 @@ void SearchLargePrimes(
 		largePrimeIndex = globalIndex - (amicableCandidateIndex << largePrimesCountIncrementAndShift);
 	}
 
-	__global const uint2* chunk;
-	switch (amicableCandidateIndex >> (CHUNK_SIZE_SHIFT - 3))
+#if NUM_DATA_CHUNKS == 1
+	const ulong2 value = amicableCandidates0[amicableCandidateIndex];
+#else
+	__global const ulong2* chunk;
+	switch (amicableCandidateIndex >> (CHUNK_SIZE_SHIFT - 4))
 	{
 	default: chunk = amicableCandidates0; break;
 #if NUM_DATA_CHUNKS > 1
@@ -1495,19 +1471,21 @@ void SearchLargePrimes(
 #if NUM_DATA_CHUNKS > 7
 	case 7: chunk = amicableCandidates7; break;
 #endif
+#if NUM_DATA_CHUNKS > 8
+	case 8: chunk = amicableCandidates8; break;
+#endif
+#if NUM_DATA_CHUNKS > 9
+	case 9: chunk = amicableCandidates9; break;
+#endif
+#if NUM_DATA_CHUNKS > 10
+	case 10: chunk = amicableCandidates10; break;
+#endif
 	}
+	const uint chunk_offset = amicableCandidateIndex & ((1 << (CHUNK_SIZE_SHIFT - 4)) - 1);
+	const ulong2 value = chunk[chunk_offset];
+#endif
 
-	const uint chunk_offset = amicableCandidateIndex & ((1 << (CHUNK_SIZE_SHIFT - 3)) - 1);
-	const uint2 curCandidate = chunk[chunk_offset];
-
-	const ulong M0 = curCandidate.x;
-	const ulong sumM0 = (M0 << 1) + curCandidate.y;
 	const ulong p = largePrimes[largePrimeIndex];
-
-	if (mul_hi(M0, p) != 0)
-	{
-		return;
-	}
 
 	CheckPairPhase1(
 		smallPrimes,
@@ -1518,7 +1496,7 @@ void SearchLargePrimes(
 		PowersOfP_128SumInverses,
 		PrimeInverses_128,
 		SumEstimates_128,
-		M0 * p, mul_hi(M0, p), sumM0 * (p + 1), mul_hi(sumM0, p + 1),
+		value.x * p, mul_hi(value.x, p), value.y * (p + 1), mul_hi(value.y, p + 1),
 		global_offset,
 		phase1_offset_to_resume_after_overflow,
 		phase2_numbers_count,

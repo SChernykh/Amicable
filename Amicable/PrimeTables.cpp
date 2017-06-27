@@ -192,13 +192,6 @@ NOINLINE num64 GetMaxSumRatio(const PrimeIterator& p, const num128 limit)
 	}
 }
 
-AmicableCandidate::AmicableCandidate(num64 _value, num64 _sum, unsigned char _is_over_abundant_mask)
-	: value(_value)
-	, sum(_sum - _value * 2)
-	, is_over_abundant_mask(_is_over_abundant_mask)
-{
-}
-
 static num64 g_MaxPrime;
 static num64 g_LargestCandidate;
 
@@ -206,16 +199,7 @@ NOINLINE void SearchCandidates(Factor* factors, const num64 value, const num64 s
 {
 	if (sum - value >= value)
 	{
-		unsigned char is_over_abundant_mask = 0;
-		is_over_abundant_mask |= OverAbundant<5>(factors, depth - 1, value, sum, 2 * 5) << 1;
-		is_over_abundant_mask |= OverAbundant<7>(factors, depth - 1, value, sum, 2 * 7) << 2;
-		is_over_abundant_mask |= OverAbundant<11>(factors, depth - 1, value, sum, 2 * 11) << 4;
-		is_over_abundant_mask |= (((is_over_abundant_mask & 0x06) || OverAbundant<7>(factors, depth - 1, value, sum, 2 * 5 * 7)) ? byte(1) : byte(0)) << 3;
-		is_over_abundant_mask |= (((is_over_abundant_mask & 0x12) || OverAbundant<11>(factors, depth - 1, value, sum, 2 * 5 * 11)) ? byte(1) : byte(0)) << 5;
-		is_over_abundant_mask |= (((is_over_abundant_mask & 0x14) || OverAbundant<11>(factors, depth - 1, value, sum, 2 * 7 * 11)) ? byte(1) : byte(0)) << 6;
-		is_over_abundant_mask |= (((is_over_abundant_mask & 0x7E) || OverAbundant<11>(factors, depth - 1, value, sum, 2 * 5 * 7 * 11)) ? byte(1) : byte(0)) << 7;
-
-		privCandidatesData.emplace_back(value, sum, is_over_abundant_mask);
+		privCandidatesData.emplace_back(value, sum);
 	}
 
 	int start_i = (depth == 0) ? 0 : (factors[depth - 1].index + 1);
@@ -257,11 +241,7 @@ NOINLINE void SearchCandidates(Factor* factors, const num64 value, const num64 s
 		num64 next_sum = sum * (f.p.Get() + 1);
 
 		f.k = 1;
-		PRAGMA_WARNING(suppress : 4146)
-		f.p_inv = -modular_inverse64(f.p.Get());
-		f.q_max = num64(-1) / f.p.Get();
 		f.p_inv128 = -modular_inverse128(f.p.Get());
-		f.q_max128 = NUM128_MAX / f.p.Get();
 
 		for (;;)
 		{
@@ -293,7 +273,7 @@ NOINLINE void SearchCandidates(Factor* factors, const num64 value, const num64 s
 
 NOINLINE void GenerateCandidates()
 {
-	privCandidatesData.reserve(std::min<num64>(1591361426, g_LargestCandidate / 30));
+	privCandidatesData.reserve(std::min<num64>(178832709, g_LargestCandidate / 30));
 
 	Factor factors[MaxPrimeFactors];
 	SearchCandidates(factors, 1, 1, 0);

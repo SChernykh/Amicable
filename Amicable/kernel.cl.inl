@@ -1205,19 +1205,10 @@ static const char* kernel_cl = "#pragma OPENCL EXTENSION cl_khr_global_int32_bas
 "#if NUM_DATA_CHUNKS > 4\n"\
 "	, __global uint2* primes4\n"\
 "#endif\n"\
-"#if NUM_DATA_CHUNKS > 5\n"\
-"	, __global uint2* primes5\n"\
-"#endif\n"\
-"#if NUM_DATA_CHUNKS > 6\n"\
-"	, __global uint2* primes6\n"\
-"#endif\n"\
-"#if NUM_DATA_CHUNKS > 7\n"\
-"	, __global uint2* primes7\n"\
-"#endif\n"\
 ")\n"\
 "{\n"\
 "#if NUM_DATA_CHUNKS == 1\n"\
-"	uint2 data = primes0[n >> 2];\n"\
+"	const uint2 data = primes0[n >> 2];\n"\
 "#else\n"\
 "	const uint global_offset = n >> 2;\n"\
 "	__global const uint2* chunk;\n"\
@@ -1236,19 +1227,10 @@ static const char* kernel_cl = "#pragma OPENCL EXTENSION cl_khr_global_int32_bas
 "#if NUM_DATA_CHUNKS > 4\n"\
 "	case 4: chunk = primes4; break;\n"\
 "#endif\n"\
-"#if NUM_DATA_CHUNKS > 5\n"\
-"	case 5: chunk = primes5; break;\n"\
-"#endif\n"\
-"#if NUM_DATA_CHUNKS > 6\n"\
-"	case 6: chunk = primes6; break;\n"\
-"#endif\n"\
-"#if NUM_DATA_CHUNKS > 7\n"\
-"	case 7: chunk = primes7; break;\n"\
-"#endif\n"\
 "	}\n"\
 "\n"\
 "	const uint chunk_offset = global_offset & ((1 << (CHUNK_SIZE_SHIFT - 3)) - 1);\n"\
-"	uint2 data = chunk[chunk_offset];\n"\
+"	const uint2 data = chunk[chunk_offset];\n"\
 "#endif\n"\
 "\n"\
 "	ulong base = data.y & 31;\n"\
@@ -1293,15 +1275,6 @@ static const char* kernel_cl = "#pragma OPENCL EXTENSION cl_khr_global_int32_bas
 "#endif\n"\
 "#if NUM_DATA_CHUNKS > 4\n"\
 "	, __global uint2* primes4\n"\
-"#endif\n"\
-"#if NUM_DATA_CHUNKS > 5\n"\
-"	, __global uint2* primes5\n"\
-"#endif\n"\
-"#if NUM_DATA_CHUNKS > 6\n"\
-"	, __global uint2* primes6\n"\
-"#endif\n"\
-"#if NUM_DATA_CHUNKS > 7\n"\
-"	, __global uint2* primes7\n"\
 "#endif\n"\
 ")\n"\
 "{\n"\
@@ -1349,15 +1322,6 @@ static const char* kernel_cl = "#pragma OPENCL EXTENSION cl_khr_global_int32_bas
 "#endif\n"\
 "#if NUM_DATA_CHUNKS > 4\n"\
 "				, primes4\n"\
-"#endif\n"\
-"#if NUM_DATA_CHUNKS > 5\n"\
-"				, primes5\n"\
-"#endif\n"\
-"#if NUM_DATA_CHUNKS > 6\n"\
-"				, primes6\n"\
-"#endif\n"\
-"#if NUM_DATA_CHUNKS > 7\n"\
-"				, primes7\n"\
 "#endif\n"\
 "			);\n"\
 "			break;\n"\
@@ -1422,27 +1386,36 @@ static const char* kernel_cl = "#pragma OPENCL EXTENSION cl_khr_global_int32_bas
 "	__global uint* amicable_numbers_count,\n"\
 "	__global ulong4* amicable_numbers_data,\n"\
 "\n"\
-"	__global uint2* amicableCandidates0\n"\
+"	__global ulong2* amicableCandidates0\n"\
 "#if NUM_DATA_CHUNKS > 1\n"\
-"	, __global uint2* amicableCandidates1\n"\
+"	, __global ulong2* amicableCandidates1\n"\
 "#endif\n"\
 "#if NUM_DATA_CHUNKS > 2\n"\
-"	, __global uint2* amicableCandidates2\n"\
+"	, __global ulong2* amicableCandidates2\n"\
 "#endif\n"\
 "#if NUM_DATA_CHUNKS > 3\n"\
-"	, __global uint2* amicableCandidates3\n"\
+"	, __global ulong2* amicableCandidates3\n"\
 "#endif\n"\
 "#if NUM_DATA_CHUNKS > 4\n"\
-"	, __global uint2* amicableCandidates4\n"\
+"	, __global ulong2* amicableCandidates4\n"\
 "#endif\n"\
 "#if NUM_DATA_CHUNKS > 5\n"\
-"	, __global uint2* amicableCandidates5\n"\
+"	, __global ulong2* amicableCandidates5\n"\
 "#endif\n"\
 "#if NUM_DATA_CHUNKS > 6\n"\
-"	, __global uint2* amicableCandidates6\n"\
+"	, __global ulong2* amicableCandidates6\n"\
 "#endif\n"\
 "#if NUM_DATA_CHUNKS > 7\n"\
-"	, __global uint2* amicableCandidates7\n"\
+"	, __global ulong2* amicableCandidates7\n"\
+"#endif\n"\
+"#if NUM_DATA_CHUNKS > 8\n"\
+"	, __global ulong2* amicableCandidates8\n"\
+"#endif\n"\
+"#if NUM_DATA_CHUNKS > 9\n"\
+"	, __global ulong2* amicableCandidates9\n"\
+"#endif\n"\
+"#if NUM_DATA_CHUNKS > 10\n"\
+"	, __global ulong2* amicableCandidates10\n"\
 "#endif\n"\
 ")\n"\
 "{\n"\
@@ -1472,8 +1445,11 @@ static const char* kernel_cl = "#pragma OPENCL EXTENSION cl_khr_global_int32_bas
 "		largePrimeIndex = globalIndex - (amicableCandidateIndex << largePrimesCountIncrementAndShift);\n"\
 "	}\n"\
 "\n"\
-"	__global const uint2* chunk;\n"\
-"	switch (amicableCandidateIndex >> (CHUNK_SIZE_SHIFT - 3))\n"\
+"#if NUM_DATA_CHUNKS == 1\n"\
+"	const ulong2 value = amicableCandidates0[amicableCandidateIndex];\n"\
+"#else\n"\
+"	__global const ulong2* chunk;\n"\
+"	switch (amicableCandidateIndex >> (CHUNK_SIZE_SHIFT - 4))\n"\
 "	{\n"\
 "	default: chunk = amicableCandidates0; break;\n"\
 "#if NUM_DATA_CHUNKS > 1\n"\
@@ -1497,19 +1473,21 @@ static const char* kernel_cl = "#pragma OPENCL EXTENSION cl_khr_global_int32_bas
 "#if NUM_DATA_CHUNKS > 7\n"\
 "	case 7: chunk = amicableCandidates7; break;\n"\
 "#endif\n"\
+"#if NUM_DATA_CHUNKS > 8\n"\
+"	case 8: chunk = amicableCandidates8; break;\n"\
+"#endif\n"\
+"#if NUM_DATA_CHUNKS > 9\n"\
+"	case 9: chunk = amicableCandidates9; break;\n"\
+"#endif\n"\
+"#if NUM_DATA_CHUNKS > 10\n"\
+"	case 10: chunk = amicableCandidates10; break;\n"\
+"#endif\n"\
 "	}\n"\
+"	const uint chunk_offset = amicableCandidateIndex & ((1 << (CHUNK_SIZE_SHIFT - 4)) - 1);\n"\
+"	const ulong2 value = chunk[chunk_offset];\n"\
+"#endif\n"\
 "\n"\
-"	const uint chunk_offset = amicableCandidateIndex & ((1 << (CHUNK_SIZE_SHIFT - 3)) - 1);\n"\
-"	const uint2 curCandidate = chunk[chunk_offset];\n"\
-"\n"\
-"	const ulong M0 = curCandidate.x;\n"\
-"	const ulong sumM0 = (M0 << 1) + curCandidate.y;\n"\
 "	const ulong p = largePrimes[largePrimeIndex];\n"\
-"\n"\
-"	if (mul_hi(M0, p) != 0)\n"\
-"	{\n"\
-"		return;\n"\
-"	}\n"\
 "\n"\
 "	CheckPairPhase1(\n"\
 "		smallPrimes,\n"\
@@ -1520,7 +1498,7 @@ static const char* kernel_cl = "#pragma OPENCL EXTENSION cl_khr_global_int32_bas
 "		PowersOfP_128SumInverses,\n"\
 "		PrimeInverses_128,\n"\
 "		SumEstimates_128,\n"\
-"		M0 * p, mul_hi(M0, p), sumM0 * (p + 1), mul_hi(sumM0, p + 1),\n"\
+"		value.x * p, mul_hi(value.x, p), value.y * (p + 1), mul_hi(value.y, p + 1),\n"\
 "		global_offset,\n"\
 "		phase1_offset_to_resume_after_overflow,\n"\
 "		phase2_numbers_count,\n"\
@@ -1558,4 +1536,4 @@ static const char* kernel_cl = "#pragma OPENCL EXTENSION cl_khr_global_int32_bas
 "}\n"\
 "";
 
-static const unsigned int kernel_cl_crc32 = 0x3cfd8117;
+static const unsigned int kernel_cl_crc32 = 0x67e854fc;
