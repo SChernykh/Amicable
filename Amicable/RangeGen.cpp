@@ -90,7 +90,11 @@ recurse_begin:
 
 		f->k = 1;
 
-		f->p_inv128 = -modular_inverse128(f->p.Get());
+		const int index_inv128 = f->index - 1;
+		if (index_inv128 >= 0)
+		{
+			f->p_inv128 = (index_inv128 < ReciprocalsTableSize128) ? PrimeInverses128[index_inv128] : -modular_inverse128(f->p.Get());
+		}
 
 		for (;;)
 		{
