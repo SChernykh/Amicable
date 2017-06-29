@@ -10,6 +10,9 @@
 static THREAD_LOCAL bool locIsWorkerThread = false;
 static THREAD_LOCAL jmp_buf locWorkerThreadJumpBuffer;
 
+static RangeData locRange1;
+static RangeData locRange2;
+
 static NOINLINE void ProfileGuidedOptimization_Instrument_WorkerThread(num64 data)
 {
 	locIsWorkerThread = true;
@@ -27,31 +30,17 @@ static NOINLINE void ProfileGuidedOptimization_Instrument_WorkerThread(num64 dat
 	TRY
 	{
 		RangeData r;
-		r.factors[0].p = PrimeIterator();
-		r.factors[0].k = 8;
-		r.factors[0].index = 0;
-		r.factors[1].p = PrimeIterator(CompileTimePrimes<CompileTimePrimesCount>::value);
-		r.factors[1].k = 1;
-		r.factors[1].index = CompileTimePrimesCount;
-		r.factors[1].p_inv128 = -modular_inverse128(CompileTimePrimes<CompileTimePrimesCount>::value);
-		r.value = 256 * CompileTimePrimes<CompileTimePrimesCount>::value;
-		r.sum = 511 * (CompileTimePrimes<CompileTimePrimesCount>::value + 1);
-		r.start_prime = CompileTimePrimes<CompileTimePrimesCount + 1>::value;
-		r.index_start_prime = CompileTimePrimesCount + 1;
-		r.last_factor_index = 1;
+		num64 k = 0;
+		num64 sharedCounterValue = 0;
 
 		switch (data)
 		{
 		case 0:
-			SearchRange(r);
+			SearchRange(locRange1);
 			break;
 
 		case 1:
-			r.start_prime = 7;
-			r.index_start_prime = 3;
-			r.value = 20;
-			r.sum = 42;
-			SearchRangeSquared(r);
+			SearchRange(locRange2);
 			break;
 
 		case 2:
@@ -59,30 +48,30 @@ static NOINLINE void ProfileGuidedOptimization_Instrument_WorkerThread(num64 dat
 			r.index_start_prime = 3;
 			r.value = 20;
 			r.sum = 42;
-			SearchRangeCubed(r);
+			SearchRangeSquared(r);
 			break;
 
 		case 3:
-			{
-				num64 k = 0;
-				num64 sharedCounterValue = 0;
-				SearchLargePrimes(&k, SearchLimit::MainPrimeTableBound + 1, SearchLimit::SafeLimit, sharedCounterValue);
-			}
+			r.start_prime = 7;
+			r.index_start_prime = 3;
+			r.value = 20;
+			r.sum = 42;
+			SearchRangeCubed(r);
 			break;
 
 		case 4:
-			{
-				num64 k = 0;
-				num64 sharedCounterValue = 0;
-				SearchLargePrimes(&k, SearchLimit::SafeLimit / 50, SearchLimit::SafeLimit, sharedCounterValue);
-			}
+			SearchLargePrimes(&k, SearchLimit::MainPrimeTableBound + 1, SearchLimit::SafeLimit, sharedCounterValue);
 			break;
 
 		case 5:
-			for (unsigned int k = 1; k <= 3; ++k)
+			SearchLargePrimes(&k, SearchLimit::SafeLimit / 50, SearchLimit::SafeLimit, sharedCounterValue);
+			break;
+
+		case 6:
+			for (unsigned int lpr = 1; lpr <= 3; ++lpr)
 			{
 				RangeData tmp = {};
-				RangeGen::Init(nullptr, nullptr, nullptr, nullptr, k);
+				RangeGen::Init(nullptr, nullptr, nullptr, nullptr, lpr);
 				for (int i = 0; i < 25000; ++i)
 				{
 					if (!RangeGen::Iterate(tmp))
@@ -92,6 +81,7 @@ static NOINLINE void ProfileGuidedOptimization_Instrument_WorkerThread(num64 dat
 				}
 			}
 			break;
+
 		}
 	}
 	EXCEPT(EXCEPTION_EXECUTE_HANDLER)
@@ -117,9 +107,22 @@ NOINLINE void ProfileGuidedOptimization_Instrument()
 
 	g_PrintNumbers = false;
 
+	Factor stopAtFactors[MaxPrimeFactors + 1] = {};
+
+	char startFrom[32];
+	char stopAt[32];
+
+	strcpy_s(startFrom, "2^8*509");
+	strcpy_s(stopAt, "2^8*521");
+	RangeGen::Init(startFrom, stopAt, &locRange1, stopAtFactors, 1);
+
+	strcpy_s(startFrom, "2*5*7*11*389*31799");
+	strcpy_s(stopAt, "2*5*7*11*389*31873");
+	RangeGen::Init(startFrom, stopAt, &locRange2, stopAtFactors, 1);
+
 	RangeGen::Init(nullptr, nullptr, nullptr, nullptr, 1);
 
-	const num64 NumWorkerThreads = 6;
+	const num64 NumWorkerThreads = 7;
 
 	std::vector<std::thread> threads;
 	threads.reserve(NumWorkerThreads);
