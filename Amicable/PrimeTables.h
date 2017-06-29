@@ -297,10 +297,7 @@ struct Factor
 	PrimeIterator p;
 	unsigned int k;
 	int index;
-	num64 p_inv;
-	num64 q_max;
 	num128 p_inv128;
-	num128 q_max128;
 };
 
 template<num64 sum_coeff_max_factor>
@@ -358,11 +355,11 @@ FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const num1
 		for (unsigned int j = 0; j < f->k; ++j)
 		{
 			const num128 q = sum_for_gcd * f->p_inv128;
-			if (q > f->q_max128)
+			if (q > sum_for_gcd)
 			{
 				IF_CONSTEXPR(sum_coeff_max_factor > 2)
 				{
-					if ((f->p.Get() <= sum_coeff_max_factor) && (sum_coeff * f->p_inv <= f->q_max))
+					if ((f->p.Get() <= sum_coeff_max_factor) && (sum_coeff * PrimeInverses[f->index].first <= PrimeInverses[f->index].second))
 					{
 						g *= f->p.Get();
 						sum_g = sum_g * f->p.Get() + prev_sum_g;

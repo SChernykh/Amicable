@@ -87,11 +87,11 @@ recurse_begin:
 
 		f->k = 1;
 
-		PRAGMA_WARNING(suppress : 4146)
-		f->p_inv = -modular_inverse64(f->p.Get());
-		f->q_max = num64(-1) / f->p.Get();
-		f->p_inv128 = -modular_inverse128(f->p.Get());
-		f->q_max128 = NUM128_MAX / f->p.Get();
+		const int index_inv128 = f->index - 1;
+		if (index_inv128 >= 0)
+		{
+			f->p_inv128 = (index_inv128 < ReciprocalsTableSize128) ? PrimeInverses128[index_inv128] : -modular_inverse128(f->p.Get());
+		}
 
 		for (;;)
 		{
@@ -351,15 +351,11 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 				f.k = k;
 				f.index = p_index;
 
-				PRAGMA_WARNING(suppress : 4146)
-				f.p_inv = -modular_inverse64(p);
-				f.q_max = num64(-1) / p;
 				f.p_inv128 = -modular_inverse128(p);
-				f.q_max128 = NUM128_MAX / p;
 
-				if ((f.p.Get() > 2) && (f.p.Get() * f.p_inv != 1))
+				if ((f.p.Get() > 2) && (f.p_inv128 * f.p.Get() != 1))
 				{
-					std::cerr << "Internal error: modular_inverse64 table is incorrect" << std::endl;
+					std::cerr << "Internal error: modular_inverse128 failed" << std::endl;
 					abort();
 				}
 

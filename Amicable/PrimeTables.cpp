@@ -249,11 +249,12 @@ NOINLINE void SearchCandidates(Factor* factors, const num64 value, const num64 s
 		num64 next_sum = sum * (f.p.Get() + 1);
 
 		f.k = 1;
-		PRAGMA_WARNING(suppress : 4146)
-		f.p_inv = -modular_inverse64(f.p.Get());
-		f.q_max = num64(-1) / f.p.Get();
-		f.p_inv128 = -modular_inverse128(f.p.Get());
-		f.q_max128 = NUM128_MAX / f.p.Get();
+
+		const int index_inv128 = f.index - 1;
+		if (index_inv128 >= 0)
+		{
+			f.p_inv128 = (index_inv128 < ReciprocalsTableSize128) ? PrimeInverses128[index_inv128] : -modular_inverse128(f.p.Get());
+		}
 
 		for (;;)
 		{

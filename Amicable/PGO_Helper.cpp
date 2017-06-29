@@ -33,10 +33,7 @@ static NOINLINE void ProfileGuidedOptimization_Instrument_WorkerThread(num64 dat
 		r.factors[1].p = PrimeIterator(CompileTimePrimes<CompileTimePrimesCount>::value);
 		r.factors[1].k = 1;
 		r.factors[1].index = CompileTimePrimesCount;
-		r.factors[1].p_inv = MultiplicativeInverse<CompileTimePrimes<CompileTimePrimesCount>::value>::value;
-		r.factors[1].q_max = num64(-1) / CompileTimePrimes<CompileTimePrimesCount>::value;
 		r.factors[1].p_inv128 = -modular_inverse128(CompileTimePrimes<CompileTimePrimesCount>::value);
-		r.factors[1].q_max128 = NUM128_MAX / CompileTimePrimes<CompileTimePrimesCount>::value;
 		r.value = 256 * CompileTimePrimes<CompileTimePrimesCount>::value;
 		r.sum = 511 * (CompileTimePrimes<CompileTimePrimesCount>::value + 1);
 		r.start_prime = CompileTimePrimes<CompileTimePrimesCount + 1>::value;
