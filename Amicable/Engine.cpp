@@ -1038,8 +1038,8 @@ NOINLINE void SearchLargePrimes(volatile num64* SharedCounterForSearch, const nu
 
 	while (sharedCounterValue < RangeGen::LargePrimesSplitSize)
 	{
-		const num64 curRangeBegin = StartPrime + (PrimeLimit - StartPrime + 1) * sharedCounterValue / RangeGen::LargePrimesSplitSize;
-		const num64 curRangeEnd = StartPrime + (PrimeLimit - StartPrime + 1) * (sharedCounterValue + 1) / RangeGen::LargePrimesSplitSize - 1;
+		const num64 curRangeBegin = LowWord((num128(PrimeLimit - StartPrime + 1) * sharedCounterValue) >> RangeGen::LargePrimesSplitShift) + StartPrime;
+		const num64 curRangeEnd = LowWord((num128(PrimeLimit - StartPrime + 1) * (sharedCounterValue + 1)) >> RangeGen::LargePrimesSplitShift) + StartPrime - 1;
 
 		if (curRangeBegin <= curRangeEnd)
 		{
@@ -1050,18 +1050,15 @@ NOINLINE void SearchLargePrimes(volatile num64* SharedCounterForSearch, const nu
 			primesieve::PrimeFinderLargePrimes finder(s, preSieve);
 			finder.Init(curRangeBegin);
 
-			unsigned int p = 3;
-			const byte* shift = NextPrimeShifts + 1;
-			while (p <= preSieve.getLimit())
+			PrimeIterator p(3);
+			while (p.Get() <= preSieve.getLimit())
 			{
-				p += static_cast<unsigned int>(*shift * ShiftMultiplier);
-				++shift;
+				++p;
 			}
-			while (p <= finder.getSqrtStop())
+			while (p.Get() <= finder.getSqrtStop())
 			{
-				finder.addSievingPrime(p);
-				p += static_cast<unsigned int>(*shift * ShiftMultiplier);
-				++shift;
+				finder.addSievingPrime(static_cast<primesieve::uint_t>(p.Get()));
+				++p;
 			}
 
 			finder.sieve();

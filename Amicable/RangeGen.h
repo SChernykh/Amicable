@@ -41,7 +41,8 @@ public:
 
 	enum
 	{
-		LargePrimesSplitSize = 1024,
+		LargePrimesSplitShift = 10,
+		LargePrimesSplitSize = 1 << LargePrimesSplitShift,
 	};
 
 private:
