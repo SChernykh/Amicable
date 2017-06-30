@@ -6,6 +6,7 @@ extern FILE* g_outputFile;
 
 struct RangeData;
 
+#pragma pack(push, 1)
 struct RangeDataGPU
 {
 	RangeDataGPU(num128 _M0, num128 _sumM0, unsigned int _start_prime_index, unsigned int _size) : M0(_M0), sumM0(_sumM0), start_prime_index(_start_prime_index), size(_size) {}
@@ -15,6 +16,7 @@ struct RangeDataGPU
 	unsigned int start_prime_index;
 	unsigned int size;
 };
+#pragma pack(pop)
 
 static_assert(sizeof(RangeDataGPU) == sizeof(num64) * 5, "Invalid RangeDataGPU size");
 

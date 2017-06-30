@@ -68,7 +68,7 @@ extern CACHE_ALIGNED SReciprocal privPrimeReciprocals[ReciprocalsTableSize128];
 struct AmicableCandidate
 {
 	AmicableCandidate() {}
-	AmicableCandidate::AmicableCandidate(num64 _value, num64 _sum) : value(_value), sum(_sum) {}
+	AmicableCandidate(num64 _value, num64 _sum) : value(_value), sum(_sum) {}
 
 	num64 value;
 	num64 sum;

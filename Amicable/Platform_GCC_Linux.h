@@ -165,6 +165,8 @@ FORCEINLINE bool SetLowPriority()
 
 #pragma GCC system_header
 
+typedef unsigned __int128 num128;
+
 FORCEINLINE num64 _umul128(num64 a, num64 b, num64* h)
 {
 	const unsigned __int128 result = static_cast<unsigned __int128>(a) * b;

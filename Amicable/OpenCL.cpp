@@ -430,7 +430,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	{
 		std::vector<unsigned int> smallPrimes;
 		smallPrimes.reserve(ReciprocalsTableSize128);
-		for (int i = 0; i < ReciprocalsTableSize128; ++i)
+		for (unsigned int i = 0; i < ReciprocalsTableSize128; ++i)
 		{
 			smallPrimes.emplace_back(static_cast<unsigned int>(GetNthPrime(i)));
 		}
@@ -503,7 +503,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	{
 		std::vector<unsigned int> offsets;
 		offsets.reserve(ReciprocalsTableSize128);
-		for (int i = 0; i < ReciprocalsTableSize128; ++i)
+		for (unsigned int i = 0; i < ReciprocalsTableSize128; ++i)
 		{
 			offsets.emplace_back(static_cast<unsigned int>(PowersOfP_128DivisibilityData[i] - PowersOfP_128DivisibilityData_base));
 		}
