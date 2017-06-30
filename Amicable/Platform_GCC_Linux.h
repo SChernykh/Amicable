@@ -83,6 +83,7 @@ FORCEINLINE int LeaveCriticalSection(CRITICAL_SECTION* lock)
 #define _InterlockedIncrement(X) (__sync_fetch_and_add(X, 1) + 1)
 
 #define sscanf_s sscanf
+#define strcpy_s strcpy
 
 #define TRY
 #define EXCEPT(X)
