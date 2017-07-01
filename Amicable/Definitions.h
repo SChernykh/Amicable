@@ -5,7 +5,7 @@
 enum
 {
 	ShiftMultiplier = 2,
-	MaxPrimeFactors = 16,
+	MaxPrimeFactors = 18,
 };
 
 struct SearchLimit
