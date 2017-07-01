@@ -21,7 +21,7 @@ FILE* g_outputFile = nullptr;
 
 enum
 {
-	LogLevel = 2,
+	LogLevel = 0,
 
 	// Limit phase 1 to 2^28 numbers
 	Phase1Limit = 1 << 28,
