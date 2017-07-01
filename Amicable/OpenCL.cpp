@@ -645,7 +645,9 @@ bool OpenCL::RunRanges(char* startFrom, char* stopAt)
 {
 	RangeData r;
 	memset(&r, 0, sizeof(r));
-	Factor stopAtFactors[MaxPrimeFactors + 1] = {};
+
+	Factor stopAtFactors[MaxPrimeFactors + 1];
+	memset(stopAtFactors, 0, sizeof(stopAtFactors));
 
 	// Few numbers, hard case for CPU
 	// /from 2*5*7*11*23*41*2083 /to 2*5*7*11*23*41*2137 /task_size 851654026
