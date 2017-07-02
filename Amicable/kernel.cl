@@ -235,9 +235,20 @@ void CheckPairPhase1(
 				{
 					const int i1 = i + 1;
 					i = i1 - (i1 & 15);
+#ifdef DISABLE_GOTO
+					break;
+#else
 					goto small_numbers;
+#endif
 				}
 			}
+
+#ifdef DISABLE_GOTO
+			if (!targetSumHigh)
+			{
+				break;
+			}
+#endif
 
 			ulong2 max_sum;
 			const ulong max_sum_ratio = SumEstimates_128[cur_index >> 4];
@@ -262,23 +273,30 @@ void CheckPairPhase1(
 			}
 		}
 
-		const uint phase2_number_index = atom_inc(phase2_numbers_count);
-		if (phase2_number_index < PHASE2_MAX_COUNT)
+#ifdef DISABLE_GOTO
+		if (targetSumHigh)
+#endif
 		{
-			const ulong i_to_save = i - (i & 15);
-			phase2_numbers_data[phase2_number_index].x = M;
-			phase2_numbers_data[phase2_number_index].y = N;
-			phase2_numbers_data[phase2_number_index].z = targetSum;
-			phase2_numbers_data[phase2_number_index].w = i_to_save | (M_high << 22) | (N_high << 36) | (targetSumHigh << 50);
+			const uint phase2_number_index = atom_inc(phase2_numbers_count);
+			if (phase2_number_index < PHASE2_MAX_COUNT)
+			{
+				const ulong i_to_save = i - (i & 15);
+				phase2_numbers_data[phase2_number_index].x = M;
+				phase2_numbers_data[phase2_number_index].y = N;
+				phase2_numbers_data[phase2_number_index].z = targetSum;
+				phase2_numbers_data[phase2_number_index].w = i_to_save | (M_high << 22) | (N_high << 36) | (targetSumHigh << 50);
+			}
+			else if (phase2_number_index == PHASE2_MAX_COUNT)
+			{
+				*phase1_offset_to_resume_after_overflow = global_offset;
+			}
+			return;
 		}
-		else if (phase2_number_index == PHASE2_MAX_COUNT)
-		{
-			*phase1_offset_to_resume_after_overflow = global_offset;
-		}
-		return;
 	}
 
+#ifndef DISABLE_GOTO
 	small_numbers:
+#endif
 
 	if (i < 16)
 	{

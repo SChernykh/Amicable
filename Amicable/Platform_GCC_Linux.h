@@ -15,6 +15,7 @@
 #define THREAD_LOCAL thread_local
 
 #define sprintf_s sprintf
+#define strcat_s strcat
 
 #define PAUSE __builtin_ia32_pause
 

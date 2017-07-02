@@ -237,9 +237,20 @@ static const char* kernel_cl = "#pragma OPENCL EXTENSION cl_khr_global_int32_bas
 "				{\n"\
 "					const int i1 = i + 1;\n"\
 "					i = i1 - (i1 & 15);\n"\
+"#ifdef DISABLE_GOTO\n"\
+"					break;\n"\
+"#else\n"\
 "					goto small_numbers;\n"\
+"#endif\n"\
 "				}\n"\
 "			}\n"\
+"\n"\
+"#ifdef DISABLE_GOTO\n"\
+"			if (!targetSumHigh)\n"\
+"			{\n"\
+"				break;\n"\
+"			}\n"\
+"#endif\n"\
 "\n"\
 "			ulong2 max_sum;\n"\
 "			const ulong max_sum_ratio = SumEstimates_128[cur_index >> 4];\n"\
@@ -264,23 +275,30 @@ static const char* kernel_cl = "#pragma OPENCL EXTENSION cl_khr_global_int32_bas
 "			}\n"\
 "		}\n"\
 "\n"\
-"		const uint phase2_number_index = atom_inc(phase2_numbers_count);\n"\
-"		if (phase2_number_index < PHASE2_MAX_COUNT)\n"\
+"#ifdef DISABLE_GOTO\n"\
+"		if (targetSumHigh)\n"\
+"#endif\n"\
 "		{\n"\
-"			const ulong i_to_save = i - (i & 15);\n"\
-"			phase2_numbers_data[phase2_number_index].x = M;\n"\
-"			phase2_numbers_data[phase2_number_index].y = N;\n"\
-"			phase2_numbers_data[phase2_number_index].z = targetSum;\n"\
-"			phase2_numbers_data[phase2_number_index].w = i_to_save | (M_high << 22) | (N_high << 36) | (targetSumHigh << 50);\n"\
+"			const uint phase2_number_index = atom_inc(phase2_numbers_count);\n"\
+"			if (phase2_number_index < PHASE2_MAX_COUNT)\n"\
+"			{\n"\
+"				const ulong i_to_save = i - (i & 15);\n"\
+"				phase2_numbers_data[phase2_number_index].x = M;\n"\
+"				phase2_numbers_data[phase2_number_index].y = N;\n"\
+"				phase2_numbers_data[phase2_number_index].z = targetSum;\n"\
+"				phase2_numbers_data[phase2_number_index].w = i_to_save | (M_high << 22) | (N_high << 36) | (targetSumHigh << 50);\n"\
+"			}\n"\
+"			else if (phase2_number_index == PHASE2_MAX_COUNT)\n"\
+"			{\n"\
+"				*phase1_offset_to_resume_after_overflow = global_offset;\n"\
+"			}\n"\
+"			return;\n"\
 "		}\n"\
-"		else if (phase2_number_index == PHASE2_MAX_COUNT)\n"\
-"		{\n"\
-"			*phase1_offset_to_resume_after_overflow = global_offset;\n"\
-"		}\n"\
-"		return;\n"\
 "	}\n"\
 "\n"\
+"#ifndef DISABLE_GOTO\n"\
 "	small_numbers:\n"\
+"#endif\n"\
 "\n"\
 "	if (i < 16)\n"\
 "	{\n"\
@@ -1536,4 +1554,4 @@ static const char* kernel_cl = "#pragma OPENCL EXTENSION cl_khr_global_int32_bas
 "}\n"\
 "";
 
-static const unsigned int kernel_cl_crc32 = 0x67e854fc;
+static const unsigned int kernel_cl_crc32 = 0xbed41c9c;

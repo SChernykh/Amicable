@@ -379,8 +379,34 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 			64 - SumEstimates128Shift
 		);
 		cl_int build_result = clBuildProgram(myProgram, 0, nullptr, kernel_options, nullptr, nullptr);
+		if (build_result != CL_SUCCESS)
+		{
+			LOG_ERROR("clBuildProgram returned error " << build_result);
+			LOG_ERROR("Build options: " << kernel_options);
 
-		CL_CHECKED_CALL(clGetProgramBuildInfo, myProgram, device, CL_PROGRAM_BUILD_LOG, sizeof(cBuildLog), cBuildLog, nullptr);
+			const cl_int get_info_result = clGetProgramBuildInfo(myProgram, device, CL_PROGRAM_BUILD_LOG, sizeof(cBuildLog), cBuildLog, nullptr);
+			if (get_info_result == CL_SUCCESS)
+			{
+				LOG_ERROR("Build log:\n" << cBuildLog);
+			}
+			else
+			{
+				LOG_ERROR("Failed to get build log, clGetProgramBuildInfo returned error " << get_info_result);
+			}
+
+			LOG_ERROR("Trying to disable 'goto' and build again");
+
+			strcat_s(kernel_options, " -D DISABLE_GOTO");
+			build_result = clBuildProgram(myProgram, 0, nullptr, kernel_options, nullptr, nullptr);
+		}
+
+		const cl_int get_info_result2 = clGetProgramBuildInfo(myProgram, device, CL_PROGRAM_BUILD_LOG, sizeof(cBuildLog), cBuildLog, nullptr);
+		if (get_info_result2 != CL_SUCCESS)
+		{
+			LOG_ERROR("Failed to get build log, clGetProgramBuildInfo returned error " << get_info_result2);
+			cBuildLog[0] = '\0';
+		}
+
 		LOG(2, cBuildLog);
 
 		if (build_result != CL_SUCCESS)
