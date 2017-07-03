@@ -447,7 +447,10 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 NOINLINE void RangeGen::Run(num64 numThreads, char* startFrom, char* stopAt, unsigned int largestPrimePower, num64 startPrime, num64 primeLimit)
 {
 	RangeData startFromRange;
-	Factor stopAtFactors[MaxPrimeFactors + 1] = {};
+	memset(&startFromRange, 0, sizeof(startFromRange));
+
+	Factor stopAtFactors[MaxPrimeFactors + 1];
+	memset(stopAtFactors, 0, sizeof(stopAtFactors));
 
 	char checkpoint_buf[256];
 	std::string checkpoint_name;
