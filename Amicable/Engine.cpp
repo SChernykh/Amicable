@@ -964,7 +964,12 @@ NOINLINE num64 SearchRangeCubed(const RangeData& r)
 		{
 			break;
 		}
-		CheckPair128NoInline(value, sum_m * (q3 + q2 + q.Get() + 1));
+		const num128 sum = sum_m * (q3 + q2 + q.Get() + 1);
+		if (value >= sum - value)
+		{
+			break;
+		}
+		CheckPair128NoInline(value, sum);
 		++q;
 		++result;
 	}
