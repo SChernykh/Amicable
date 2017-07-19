@@ -908,7 +908,13 @@ NOINLINE num64 SearchRange(const RangeData& r)
 		++q;
 		if ((CandidatesDataMask[Mod385(prev_q + 1)] & is_over_abundant_mask) == 0)
 		{
-			CheckPair128NoInline(m * prev_q, sum_m * (prev_q + 1));
+			num128 n1 = m * prev_q;
+			num128 targetSum = sum_m * (prev_q + 1);
+			num128 n2;
+			if (InitialCheck128(n1, targetSum, n2))
+			{
+				CheckPairInternal(n1, LowWord(targetSum), LowWord(targetSum), LowWord(n2), 1);
+			}
 		}
 	}
 
