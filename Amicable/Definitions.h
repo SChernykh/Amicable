@@ -4,7 +4,6 @@
 
 enum
 {
-	ShiftMultiplier = 2,
 	MaxPrimeFactors = 18,
 };
 

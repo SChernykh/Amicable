@@ -23,7 +23,6 @@ CACHE_ALIGNED num64 privSumEstimates128[ReciprocalsTableSize128 / 16];
 
 CACHE_ALIGNED const unsigned char ModularInverse_8bit[128] = { 255,85,51,73,199,93,59,17,15,229,195,89,215,237,203,33,31,117,83,105,231,125,91,49,47,5,227,121,247,13,235,65,63,149,115,137,7,157,123,81,79,37,3,153,23,45,11,97,95,181,147,169,39,189,155,113,111,69,35,185,55,77,43,129,127,213,179,201,71,221,187,145,143,101,67,217,87,109,75,161,159,245,211,233,103,253,219,177,175,133,99,249,119,141,107,193,191,21,243,9,135,29,251,209,207,165,131,25,151,173,139,225,223,53,19,41,167,61,27,241,239,197,163,57,183,205,171,1 };
 
-
 byte* MainPrimeTable = (byte*) AllocateSystemMemory(MainPrimeTableSize, false);
 
 byte bitOffset[PrimeTableParameters::Modulo];
@@ -38,7 +37,7 @@ struct MainPrimeTableInitializer
 		if ((nPrimes > 0) && (nPrimes < ReciprocalsTableSize))
 		{
 			privPrimeReciprocals[nPrimes].Init(p);
-			privNextPrimeShifts[nPrimes - 1] = static_cast<byte>((p - prev_p) / ShiftMultiplier);
+			privNextPrimeShifts[nPrimes - 1] = static_cast<byte>(p - prev_p);
 		}
 
 		prev_p = p;

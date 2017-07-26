@@ -489,7 +489,7 @@ FORCEINLINE void CheckPairInternal(const num128 n1, const num64 targetSum, num64
 			n2_sqrt4 = Root4(n2);
 		}
 
-		p += static_cast<unsigned int>(NextPrimeShifts[numPrimesCheckedSoFar] * ShiftMultiplier);
+		p += static_cast<unsigned int>(NextPrimeShifts[numPrimesCheckedSoFar]);
 
 		++numPrimesCheckedSoFar;
 		if (((numPrimesCheckedSoFar & 7) == 0) && (MaximumSumOfDivisorsN(n2, numPrimesCheckedSoFar, indexForMaximumSumOfDivisorsN) < n2TargetSum))
@@ -582,7 +582,7 @@ FORCEINLINE void CheckPairInternal(const num128 n1, const num64 targetSum, num64
 					return;
 			}
 
-			p += static_cast<unsigned int>(NextPrimeShifts[numPrimesCheckedSoFar] * ShiftMultiplier);
+			p += static_cast<unsigned int>(NextPrimeShifts[numPrimesCheckedSoFar]);
 			++numPrimesCheckedSoFar;
 		}
 	}
