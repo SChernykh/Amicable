@@ -53,7 +53,13 @@ FORCEINLINE num64 _rotr64(num64 value, int shift)
 #include <semaphore.h>
 
 #define CRITICAL_SECTION pthread_mutex_t
+
+#ifdef PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP
 #define CRITICAL_SECTION_INITIALIZER PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP
+#else
+#define CRITICAL_SECTION_INITIALIZER PTHREAD_RECURSIVE_MUTEX_INITIALIZER
+#endif
+
 #define InitializeCriticalSection(X) ((void)(X))
 #define DeleteCriticalSection(X) ((void)(X))
 

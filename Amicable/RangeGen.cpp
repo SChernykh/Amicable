@@ -24,8 +24,6 @@ num64 RangeGen::total_numbers_checked;
 double RangeGen::total_numbers_to_check = 2.5e11;
 volatile bool RangeGen::allDone = false;
 
-const char* const CHECKPOINT_LOGICAL_NAME = "amicable_checkpoint";
-
 RangeGen RangeGen::RangeGen_instance;
 
 template<unsigned int largest_prime_power>
