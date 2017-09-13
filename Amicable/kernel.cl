@@ -14,7 +14,7 @@
 
 // A: smaller member of an amicable pair
 // B: if it's not zero, it must be prime in order for A to be amicable number
-void NumberFound(__global uint* amicable_numbers_count, __global ulong4* amicable_numbers_data, ulong A, ulong A_high, ulong B)
+static void NumberFound(__global uint* amicable_numbers_count, __global ulong4* amicable_numbers_data, ulong A, ulong A_high, ulong B)
 {
 	const uint index = atom_inc(amicable_numbers_count);
 	amicable_numbers_data[index].x = A;
@@ -27,7 +27,7 @@ void NumberFound(__global uint* amicable_numbers_count, __global ulong4* amicabl
 // So we have to use integer arithmetic to calculate square roots
 
 // Returns number x such that x^2 <= n < (x+1)^2
-uint IntegerSquareRoot(const ulong n)
+static uint IntegerSquareRoot(const ulong n)
 {
 	uint result = 1;
 	result <<= ((63 - clz(n)) >> 1);
@@ -44,7 +44,7 @@ uint IntegerSquareRoot(const ulong n)
 }
 
 // Returns number x such that x^2 <= n < (x+1)^2
-ulong IntegerSquareRoot128(const ulong2 n)
+static ulong IntegerSquareRoot128(const ulong2 n)
 {
 	ulong result = 1;
 	const ulong highest_bit_index = n.y ? (127 - clz(n.y)) : (63 - clz(n.x));
@@ -64,7 +64,7 @@ ulong IntegerSquareRoot128(const ulong2 n)
 }
 
 // Returns number x such that x^3 <= n < (x+1)^3
-ulong IntegerCubeRoot128(const ulong2 n)
+static ulong IntegerCubeRoot128(const ulong2 n)
 {
 	ulong result = 1;
 	const uint highest_bit_index = n.y ? (127 - clz(n.y)) : (63 - clz(n.x));
@@ -83,7 +83,7 @@ ulong IntegerCubeRoot128(const ulong2 n)
 	return result;
 }
 
-void CheckPairPhase1(
+static void CheckPairPhase1(
 	__global const uint* smallPrimes,
 	__global const ulong2* primeInverses,
 	__global const ulong2* PQ,
@@ -1207,7 +1207,7 @@ void SaveCounter(__global uint* phase2_numbers_count)
 
 // primes is an array of pointers to chunks of data
 // each chunk is 128 MB in size (2^24 uint2 elements) or bigger
-ulong GetNthPrime(uint n,
+static ulong GetNthPrime(uint n,
 	__global uint2* primes0
 #if NUM_DATA_CHUNKS > 1
 	, __global uint2* primes1

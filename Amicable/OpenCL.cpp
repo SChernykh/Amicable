@@ -564,10 +564,10 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	CL_CHECKED_CALL_WITH_RESULT(myPhase2_numbers_count_buf, clCreateBuffer, myGPUContext, CL_MEM_READ_WRITE, sizeof(unsigned int) * 2, 0);
 	CL_CHECKED_CALL_WITH_RESULT(myPhase3_numbers_count_buf, clCreateBuffer, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64), 0);
 	CL_CHECKED_CALL_WITH_RESULT(myAmicable_numbers_count_buf, clCreateBuffer, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64), 0);
-	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase1_offset_to_resume_buf, CL_TRUE, 0, sizeof(num64), &ourZeroBuf, 0, nullptr, nullptr);
-	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase2_numbers_count_buf, CL_TRUE, 0, sizeof(unsigned int) * 2, &ourZeroBuf, 0, nullptr, nullptr);
-	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase3_numbers_count_buf, CL_TRUE, 0, sizeof(num64), &ourZeroBuf, 0, nullptr, nullptr);
-	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myAmicable_numbers_count_buf, CL_TRUE, 0, sizeof(num64), &ourZeroBuf, 0, nullptr, nullptr);
+	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase1_offset_to_resume_buf, CL_TRUE, 0, sizeof(num64), ourZeroBuf, 0, nullptr, nullptr);
+	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase2_numbers_count_buf, CL_TRUE, 0, sizeof(unsigned int) * 2, ourZeroBuf, 0, nullptr, nullptr);
+	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase3_numbers_count_buf, CL_TRUE, 0, sizeof(num64), ourZeroBuf, 0, nullptr, nullptr);
+	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myAmicable_numbers_count_buf, CL_TRUE, 0, sizeof(num64), ourZeroBuf, 0, nullptr, nullptr);
 
 	CL_CHECKED_CALL_WITH_RESULT(myPhase2_numbers_buf, clCreateBuffer, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64) * 4 * myPhase2MaxNumbersCount, 0);
 	CL_CHECKED_CALL_WITH_RESULT(myPhase3_numbers_buf, clCreateBuffer, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64) * 4 * myPhase2MaxNumbersCount, 0);
@@ -954,7 +954,7 @@ bool OpenCL::ProcessLargePrimes()
 			{
 				Timer t;
 
-				CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase1_offset_to_resume_buf, CL_TRUE, 0, sizeof(num64), &ourZeroBuf, 0, nullptr, nullptr);
+				CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase1_offset_to_resume_buf, CL_TRUE, 0, sizeof(num64), ourZeroBuf, 0, nullptr, nullptr);
 
 				const num64 global_offset_before = global_offset;
 				const unsigned int max_size_phase1 = GetMaxPhaseSize(TotalNumbersToCheck - global_offset, myPhase1MaxKernelSize);
@@ -1107,21 +1107,21 @@ bool OpenCL::GetCounter(cl_command_queue queue, cl_mem buf, unsigned int &counte
 
 bool OpenCL::ResetCounter(cl_command_queue queue, cl_mem buf)
 {
-	CL_CHECKED_CALL(clEnqueueWriteBuffer, queue, buf, CL_TRUE, 0, sizeof(num64), &ourZeroBuf, 0, nullptr, nullptr);
+	CL_CHECKED_CALL(clEnqueueWriteBuffer, queue, buf, CL_TRUE, 0, sizeof(num64), ourZeroBuf, 0, nullptr, nullptr);
 	return true;
 }
 
 bool OpenCL::GetAndResetCounter(cl_command_queue queue, cl_mem buf, unsigned int &counter)
 {
 	CL_CHECKED_CALL(clEnqueueReadBuffer, queue, buf, CL_TRUE, 0, sizeof(counter), &counter, 0, nullptr, nullptr);
-	CL_CHECKED_CALL(clEnqueueWriteBuffer, queue, buf, CL_TRUE, 0, sizeof(counter), &ourZeroBuf, 0, nullptr, nullptr);
+	CL_CHECKED_CALL(clEnqueueWriteBuffer, queue, buf, CL_TRUE, 0, sizeof(counter), ourZeroBuf, 0, nullptr, nullptr);
 	return true;
 }
 
 bool OpenCL::GetAndResetCounter(cl_command_queue queue, cl_mem buf, num64 &counter)
 {
 	CL_CHECKED_CALL(clEnqueueReadBuffer, queue, buf, CL_TRUE, 0, sizeof(counter), &counter, 0, nullptr, nullptr);
-	CL_CHECKED_CALL(clEnqueueWriteBuffer, queue, buf, CL_TRUE, 0, sizeof(counter), &ourZeroBuf, 0, nullptr, nullptr);
+	CL_CHECKED_CALL(clEnqueueWriteBuffer, queue, buf, CL_TRUE, 0, sizeof(counter), ourZeroBuf, 0, nullptr, nullptr);
 	return true;
 }
 
@@ -1241,7 +1241,7 @@ bool OpenCL::Test()
 	{
 		Timer t;
 
-		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase2_numbers_buf, CL_TRUE, filtered_numbers_count * sizeof(num64) * 4, myWorkGroupSize * sizeof(num64) * 4, &ourZeroBuf, 0, nullptr, nullptr);
+		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase2_numbers_buf, CL_TRUE, filtered_numbers_count * sizeof(num64) * 4, myWorkGroupSize * sizeof(num64) * 4, ourZeroBuf, 0, nullptr, nullptr);
 		CL_CHECKED_CALL(setKernelArguments, myCheckPairPhase2,
 			mySmallPrimesBuf,
 			myPhase2_numbers_buf,
@@ -1285,7 +1285,7 @@ bool OpenCL::Test()
 	{
 		Timer t1;
 
-		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, phase3_buffers[phase3_iteration & 1], CL_TRUE, filtered_numbers3_count * sizeof(num64) * 4, phase3_workGroupSize * sizeof(num64) * 4, &ourZeroBuf, 0, nullptr, nullptr);
+		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, phase3_buffers[phase3_iteration & 1], CL_TRUE, filtered_numbers3_count * sizeof(num64) * 4, phase3_workGroupSize * sizeof(num64) * 4, ourZeroBuf, 0, nullptr, nullptr);
 
 		const unsigned int max_size_phase3 = GetMaxPhaseSize(filtered_numbers3_count, 1 << 18);
 		size_t globalSizePhase3;
@@ -1575,7 +1575,7 @@ bool OpenCL::ProcessNumbers()
 		{
 			Timer t;
 
-			CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase1_offset_to_resume_buf, CL_TRUE, 0, sizeof(num64), &ourZeroBuf, 0, nullptr, nullptr);
+			CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase1_offset_to_resume_buf, CL_TRUE, 0, sizeof(num64), ourZeroBuf, 0, nullptr, nullptr);
 
 			CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myRangesTable_Buf, CL_TRUE, 0, myRanges.size() * sizeof(RangeDataGPU), myRanges.data(), 0, nullptr, nullptr);
 			CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myRangesLookupTable_Buf, CL_TRUE, 0, myLookupTable.size() * sizeof(LookupDataGPU), myLookupTable.data(), 0, nullptr, nullptr);
@@ -1658,7 +1658,7 @@ bool OpenCL::ProcessNumbersPhases2_3(unsigned int numbers_in_phase2)
 
 		if (numbers_in_phase2 < myPhase2MaxNumbersCount)
 		{
-			CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase2_numbers_buf, CL_TRUE, numbers_in_phase2 * sizeof(num64) * 4, std::min(static_cast<unsigned int>(myWorkGroupSize), myPhase2MaxNumbersCount - numbers_in_phase2) * sizeof(num64) * 4, &ourZeroBuf, 0, nullptr, nullptr);
+			CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase2_numbers_buf, CL_TRUE, numbers_in_phase2 * sizeof(num64) * 4, std::min(static_cast<unsigned int>(myWorkGroupSize), myPhase2MaxNumbersCount - numbers_in_phase2) * sizeof(num64) * 4, ourZeroBuf, 0, nullptr, nullptr);
 		}
 
 		const unsigned int max_size_phase2 = GetMaxPhaseSize(numbers_in_phase2, myPhase1MaxKernelSize / 4);
@@ -1704,7 +1704,7 @@ bool OpenCL::ProcessNumbersPhases2_3(unsigned int numbers_in_phase2)
 
 			if (phase3_numbers_buf_count2 < myPhase2MaxNumbersCount)
 			{
-				CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, phase3_buffers[phase3_iteration & 1], CL_TRUE, phase3_numbers_buf_count2 * sizeof(num64) * 4, std::min(static_cast<unsigned int>(phase3_workGroupSize), myPhase2MaxNumbersCount - phase3_numbers_buf_count2) * sizeof(num64) * 4, &ourZeroBuf, 0, nullptr, nullptr);
+				CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, phase3_buffers[phase3_iteration & 1], CL_TRUE, phase3_numbers_buf_count2 * sizeof(num64) * 4, std::min(static_cast<unsigned int>(phase3_workGroupSize), myPhase2MaxNumbersCount - phase3_numbers_buf_count2) * sizeof(num64) * 4, ourZeroBuf, 0, nullptr, nullptr);
 			}
 
 			const unsigned int max_size_phase3 = GetMaxPhaseSize(phase3_numbers_buf_count2, myPhase1MaxKernelSize / 16);

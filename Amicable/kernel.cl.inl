@@ -16,7 +16,7 @@ static const char* kernel_cl = "#pragma OPENCL EXTENSION cl_khr_global_int32_bas
 "\n"\
 "// A: smaller member of an amicable pair\n"\
 "// B: if it's not zero, it must be prime in order for A to be amicable number\n"\
-"void NumberFound(__global uint* amicable_numbers_count, __global ulong4* amicable_numbers_data, ulong A, ulong A_high, ulong B)\n"\
+"static void NumberFound(__global uint* amicable_numbers_count, __global ulong4* amicable_numbers_data, ulong A, ulong A_high, ulong B)\n"\
 "{\n"\
 "	const uint index = atom_inc(amicable_numbers_count);\n"\
 "	amicable_numbers_data[index].x = A;\n"\
@@ -29,7 +29,7 @@ static const char* kernel_cl = "#pragma OPENCL EXTENSION cl_khr_global_int32_bas
 "// So we have to use integer arithmetic to calculate square roots\n"\
 "\n"\
 "// Returns number x such that x^2 <= n < (x+1)^2\n"\
-"uint IntegerSquareRoot(const ulong n)\n"\
+"static uint IntegerSquareRoot(const ulong n)\n"\
 "{\n"\
 "	uint result = 1;\n"\
 "	result <<= ((63 - clz(n)) >> 1);\n"\
@@ -46,7 +46,7 @@ static const char* kernel_cl = "#pragma OPENCL EXTENSION cl_khr_global_int32_bas
 "}\n"\
 "\n"\
 "// Returns number x such that x^2 <= n < (x+1)^2\n"\
-"ulong IntegerSquareRoot128(const ulong2 n)\n"\
+"static ulong IntegerSquareRoot128(const ulong2 n)\n"\
 "{\n"\
 "	ulong result = 1;\n"\
 "	const ulong highest_bit_index = n.y ? (127 - clz(n.y)) : (63 - clz(n.x));\n"\
@@ -66,7 +66,7 @@ static const char* kernel_cl = "#pragma OPENCL EXTENSION cl_khr_global_int32_bas
 "}\n"\
 "\n"\
 "// Returns number x such that x^3 <= n < (x+1)^3\n"\
-"ulong IntegerCubeRoot128(const ulong2 n)\n"\
+"static ulong IntegerCubeRoot128(const ulong2 n)\n"\
 "{\n"\
 "	ulong result = 1;\n"\
 "	const uint highest_bit_index = n.y ? (127 - clz(n.y)) : (63 - clz(n.x));\n"\
@@ -85,7 +85,7 @@ static const char* kernel_cl = "#pragma OPENCL EXTENSION cl_khr_global_int32_bas
 "	return result;\n"\
 "}\n"\
 "\n"\
-"void CheckPairPhase1(\n"\
+"static void CheckPairPhase1(\n"\
 "	__global const uint* smallPrimes,\n"\
 "	__global const ulong2* primeInverses,\n"\
 "	__global const ulong2* PQ,\n"\
@@ -1209,7 +1209,7 @@ static const char* kernel_cl = "#pragma OPENCL EXTENSION cl_khr_global_int32_bas
 "\n"\
 "// primes is an array of pointers to chunks of data\n"\
 "// each chunk is 128 MB in size (2^24 uint2 elements) or bigger\n"\
-"ulong GetNthPrime(uint n,\n"\
+"static ulong GetNthPrime(uint n,\n"\
 "	__global uint2* primes0\n"\
 "#if NUM_DATA_CHUNKS > 1\n"\
 "	, __global uint2* primes1\n"\
@@ -1554,4 +1554,4 @@ static const char* kernel_cl = "#pragma OPENCL EXTENSION cl_khr_global_int32_bas
 "}\n"\
 "";
 
-static const unsigned int kernel_cl_crc32 = 0xbed41c9c;
+static const unsigned int kernel_cl_crc32 = 0x346f0422;
