@@ -151,7 +151,11 @@ private:
 	Semaphore myLargePrimesReady;
 	Semaphore myLargePrimesReceived;
 
-	static const unsigned char ourZeroBuf[16384];
+	enum
+	{
+		ourZeroBufSize = 65536,
+	};
+	static unsigned char* ourZeroBuf;
 };
 
 #if ((defined __cpp_variadic_templates) && (__cpp_variadic_templates >= 200704))

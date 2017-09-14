@@ -34,7 +34,7 @@ enum
 #define CL_CHECKED_CALL(FUNC, ...) { const cl_int ciErrNum = FUNC(__VA_ARGS__); if (ciErrNum != CL_SUCCESS) { LOG_ERROR(#FUNC" returned error " << ciErrNum); return false; } }
 #define CL_CHECKED_CALL_WITH_RESULT(result, FUNC, ...) { cl_int ciErrNum; result = FUNC(__VA_ARGS__, &ciErrNum); if (ciErrNum != CL_SUCCESS) { LOG_ERROR(#FUNC" returned error " << ciErrNum); return false; } }
 
-const unsigned char OpenCL::ourZeroBuf[16384] = {};
+unsigned char* OpenCL::ourZeroBuf = nullptr;
 
 OpenCL::OpenCL(const char* preferences)
 	: myLargestPrimePower(1)
@@ -564,6 +564,10 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	CL_CHECKED_CALL_WITH_RESULT(myPhase2_numbers_count_buf, clCreateBuffer, myGPUContext, CL_MEM_READ_WRITE, sizeof(unsigned int) * 2, 0);
 	CL_CHECKED_CALL_WITH_RESULT(myPhase3_numbers_count_buf, clCreateBuffer, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64), 0);
 	CL_CHECKED_CALL_WITH_RESULT(myAmicable_numbers_count_buf, clCreateBuffer, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64), 0);
+
+	ourZeroBuf = new unsigned char[ourZeroBufSize];
+	memset(ourZeroBuf, 0, ourZeroBufSize);
+
 	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase1_offset_to_resume_buf, CL_TRUE, 0, sizeof(num64), ourZeroBuf, 0, nullptr, nullptr);
 	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase2_numbers_count_buf, CL_TRUE, 0, sizeof(unsigned int) * 2, ourZeroBuf, 0, nullptr, nullptr);
 	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase3_numbers_count_buf, CL_TRUE, 0, sizeof(num64), ourZeroBuf, 0, nullptr, nullptr);
