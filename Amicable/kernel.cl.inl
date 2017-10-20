@@ -2,6 +2,10 @@
 
 static const char* kernel_cl = "#pragma OPENCL EXTENSION cl_khr_global_int32_base_atomics : enable\n"\
 "\n"\
+"#ifdef cl_clang_storage_class_specifiers\n"\
+"#pragma OPENCL EXTENSION cl_clang_storage_class_specifiers : enable\n"\
+"#endif\n"\
+"\n"\
 "#define PHASE1_DEPTH 256\n"\
 "\n"\
 "//-----------------------------------------------------------------------------------------------------------------------------------------------------------\n"\
@@ -1554,4 +1558,4 @@ static const char* kernel_cl = "#pragma OPENCL EXTENSION cl_khr_global_int32_bas
 "}\n"\
 "";
 
-static const unsigned int kernel_cl_crc32 = 0x346f0422;
+static const unsigned int kernel_cl_crc32 = 0xb2dfcdac;
