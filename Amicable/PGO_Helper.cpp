@@ -112,12 +112,12 @@ NOINLINE void ProfileGuidedOptimization_Instrument()
 	char startFrom[32];
 	char stopAt[32];
 
-	strcpy_s(startFrom, "2^8*509");
-	strcpy_s(stopAt, "2^8*521");
+	strcpy_s(startFrom, "2^2*11*19*37*487*29023");
+	strcpy_s(stopAt, "2^2*11*19*37*499*6323");
 	RangeGen::Init(startFrom, stopAt, &locRange1, stopAtFactors, 1);
 
-	strcpy_s(startFrom, "2*5*7*11*389*31799");
-	strcpy_s(stopAt, "2*5*7*11*389*31873");
+	strcpy_s(startFrom, "2^3*11*67*71*73*1097");
+	strcpy_s(stopAt, "2^3*11*67*71*83*251*587");
 	RangeGen::Init(startFrom, stopAt, &locRange2, stopAtFactors, 1);
 
 	RangeGen::Init(nullptr, nullptr, nullptr, nullptr, 1);
