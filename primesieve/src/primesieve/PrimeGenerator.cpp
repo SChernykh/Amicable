@@ -23,7 +23,6 @@
 #include <stdint.h>
 #include <algorithm>
 #include <iostream>
-#include <sstream>
 
 using namespace std;
 
@@ -83,8 +82,6 @@ void PrimeGenerator::generatePrimes(const byte_t* sieve, uint64_t sieveSize)
 {
   if (ps_.isStore())
     storePrimes(ps_.getStore(), sieve, sieveSize);
-  if (ps_.isPrint())
-    print(sieve, sieveSize);
   if (ps_.isStatus())
     ps_.updateStatus(sieveSize * NUMBERS_PER_BYTE);
 }
@@ -100,53 +97,6 @@ void PrimeGenerator::storePrimes(Store& store, const byte_t* sieve, uint64_t sie
       store(nextPrime(&bits, low));
 
     low += NUMBERS_PER_BYTE * 8;
-  }
-}
-
-/// Print primes and prime k-tuplets to cout.
-/// primes <= 5 are handled in processSmallPrimes().
-///
-void PrimeGenerator::print(const byte_t* sieve, uint64_t sieveSize) const
-{
-  if (ps_.isFlag(ps_.PRINT_PRIMES))
-  {
-    uint64_t low = getSegmentLow();
-
-    for (uint64_t i = 0; i < sieveSize; i += 8)
-    {
-      uint64_t bits = littleendian_cast<uint64_t>(&sieve[i]); 
-      while (bits)
-        cout << nextPrime(&bits, low) << '\n';
-
-      low += NUMBERS_PER_BYTE * 8;
-    }
-  }
-
-  // print prime k-tuplets
-  if (ps_.isFlag(ps_.PRINT_TWINS, ps_.PRINT_SEXTUPLETS))
-  {
-    uint_t i = 1; // i = 1 twins, i = 2 triplets, ...
-    uint64_t low = getSegmentLow();
-
-    for (; !ps_.isPrint(static_cast<int>(i)); i++);
-    for (uint64_t j = 0; j < sieveSize; j++, low += NUMBERS_PER_BYTE)
-    {
-      for (const uint64_t* bitmask = bitmasks_[i]; *bitmask <= sieve[j]; bitmask++)
-      {
-        if ((sieve[j] & *bitmask) == *bitmask)
-        {
-          ostringstream kTuplet;
-          kTuplet << "(";
-          uint64_t bits = *bitmask;
-          while (bits != 0)
-          {
-            kTuplet << nextPrime(&bits, low);
-            kTuplet << ((bits != 0) ? ", " : ")\n");
-          }
-          cout << kTuplet.str();
-        }
-      }
-    }
   }
 }
 

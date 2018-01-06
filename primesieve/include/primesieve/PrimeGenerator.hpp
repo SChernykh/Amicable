@@ -40,9 +40,7 @@ private:
   PrimeSieve::counts_t& counts_;
   void init_kCounts();
   virtual void generatePrimes(const byte_t*, uint64_t);
-  void print(const byte_t*, uint64_t) const;
   void storePrimes(Store&, const byte_t*, uint64_t) const;
-  static void printPrime(uint64_t);
 };
 
 template<typename T>

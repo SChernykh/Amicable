@@ -24,6 +24,12 @@ PRAGMA_WARNING(push, 1)
 PRAGMA_WARNING(disable : 4265)
 PRAGMA_WARNING(disable : 4365)
 PRAGMA_WARNING(disable : 4571)
+PRAGMA_WARNING(disable : 4625)
+PRAGMA_WARNING(disable : 4626)
+PRAGMA_WARNING(disable : 4774)
+PRAGMA_WARNING(disable : 5026)
+PRAGMA_WARNING(disable : 5027)
+PRAGMA_WARNING(disable : 5039)
 
 typedef unsigned char byte;
 typedef unsigned long long int number;
@@ -35,16 +41,8 @@ typedef unsigned long long int number;
 #include <vector>
 #include <thread>
 
-PRAGMA_WARNING(pop)
-
 #include "Platform.h"
 #include "Definitions.h"
-
-PRAGMA_WARNING(push, 1)
-PRAGMA_WARNING(disable : 4625)
-PRAGMA_WARNING(disable : 4626)
-PRAGMA_WARNING(disable : 5026)
-PRAGMA_WARNING(disable : 5027)
 
 #include <primesieve/config.hpp>
 #include <primesieve/PreSieve.hpp>

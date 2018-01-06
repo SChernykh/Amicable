@@ -99,7 +99,7 @@ static NOINLINE void ProfileGuidedOptimization_Instrument_WorkerThread(number da
 	longjmp(locWorkerThreadJumpBuffer, 1);
 }
 
-void sigsegv_handler(int)
+void sigsegv_handler(int) noexcept
 {
 	if (locIsWorkerThread)
 	{
