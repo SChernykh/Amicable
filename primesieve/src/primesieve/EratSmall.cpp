@@ -25,6 +25,8 @@
 #include <cassert>
 #include <vector>
 
+_Pragma("GCC diagnostic ignored \"-Wstrict-overflow\"")
+
 using namespace std;
 
 namespace primesieve {

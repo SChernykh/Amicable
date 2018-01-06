@@ -19,6 +19,7 @@
 #include <string>
 
 #include <primesieve/SievingPrimes.hpp>
+#include <primesieve/PrimeGenerator.hpp>
 
 namespace primesieve {
 
@@ -146,8 +147,7 @@ public:
   uint64_t countQuintuplets(uint64_t, uint64_t);
   uint64_t countSextuplets(uint64_t, uint64_t);
   // Count getters
-  typedef std::vector<uint64_t> counts_t;
-  counts_t& getCounts();
+  std::vector<uint64_t>& getCounts();
   uint64_t getPrimeCount() const;
   uint64_t getTwinCount() const;
   uint64_t getTripletCount() const;
@@ -162,7 +162,7 @@ protected:
   /// Sieve primes <= stop_
   uint64_t stop_;
   /// Prime number and prime k-tuplet counts
-  counts_t counts_;
+  std::vector<uint64_t> counts_;
   /// Time elapsed of sieve()
   double seconds_;
   uint64_t getDistance() const;

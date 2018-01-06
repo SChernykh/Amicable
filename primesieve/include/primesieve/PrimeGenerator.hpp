@@ -12,13 +12,13 @@
 
 #include "config.hpp"
 #include "SieveOfEratosthenes.hpp"
-#include "PrimeSieve.hpp"
 
 #include <stdint.h>
 #include <vector>
 
 namespace primesieve {
 
+class PrimeSieve;
 class PreSieve;
 class Store;
 
@@ -37,7 +37,7 @@ private:
   std::vector<byte_t> kCounts_[6];
   /// Reference to the associated PrimeSieve object
   PrimeSieve& ps_;
-  PrimeSieve::counts_t& counts_;
+  std::vector<uint64_t>& counts_;
   void init_kCounts();
   virtual void generatePrimes(const byte_t*, uint64_t);
   void storePrimes(Store&, const byte_t*, uint64_t) const;

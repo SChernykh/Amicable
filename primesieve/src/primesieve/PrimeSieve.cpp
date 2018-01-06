@@ -161,7 +161,7 @@ Store& PrimeSieve::getStore()
   return *store_;
 }
 
-PrimeSieve::counts_t& PrimeSieve::getCounts()
+std::vector<uint64_t>& PrimeSieve::getCounts()
 {
   return counts_;
 }
