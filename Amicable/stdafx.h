@@ -40,13 +40,18 @@ PRAGMA_WARNING(pop)
 #include "Platform.h"
 #include "Definitions.h"
 
+PRAGMA_WARNING(push, 1)
+PRAGMA_WARNING(disable : 4625)
+PRAGMA_WARNING(disable : 4626)
+PRAGMA_WARNING(disable : 5026)
+PRAGMA_WARNING(disable : 5027)
+
 #include <primesieve/config.hpp>
-#include <primesieve/callback_t.hpp>
 #include <primesieve/PreSieve.hpp>
 #include <primesieve/primesieve_error.hpp>
-#include <primesieve/Callback.hpp>
 #include <primesieve/littleendian_cast.hpp>
-#include <primesieve/PrimeFinder.hpp>
 #include <primesieve/PrimeGenerator.hpp>
 #include <primesieve/pmath.hpp>
 #include <primesieve/PrimeSieve.hpp>
+
+PRAGMA_WARNING(pop)

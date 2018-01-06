@@ -4,7 +4,7 @@
  *         number generation. In case an error occurs errno is set to
  *         EDOM and PRIMESIEVE_ERROR is returned.
  * 
- * Copyright (C) 2016 Kim Walisch, <kim.walisch@gmail.com>
+ * Copyright (C) 2017 Kim Walisch, <kim.walisch@gmail.com>
  * 
  * This file is distributed under the BSD License.
  */
@@ -12,10 +12,11 @@
 #ifndef PRIMESIEVE_H
 #define PRIMESIEVE_H
 
-#define PRIMESIEVE_VERSION "5.7.3"
-#define PRIMESIEVE_VERSION_MAJOR 5
-#define PRIMESIEVE_VERSION_MINOR 7
-#define PRIMESIEVE_VERSION_PATCH 3
+#define PRIMESIEVE_VERSION "6.3"
+#define PRIMESIEVE_VERSION_MAJOR 6
+#define PRIMESIEVE_VERSION_MINOR 3
+
+#include <primesieve/iterator.h>
 
 #include <stdint.h>
 #include <stddef.h>
@@ -74,22 +75,63 @@ void* primesieve_generate_primes(uint64_t start, uint64_t stop, size_t* size, in
  */
 void* primesieve_generate_n_primes(uint64_t n, uint64_t start, int type);
 
-/** Count the primes within the interval [start, stop] */
+/**
+ * Find the nth prime.
+ * By default all CPU cores are used, use
+ * primesieve_set_num_threads(int threads) to change the
+ * number of threads.
+ * @param n  if n = 0 finds the 1st prime >= start, <br/>
+ *           if n > 0 finds the nth prime > start, <br/>
+ *           if n < 0 finds the nth prime < start (backwards).
+ */
+uint64_t primesieve_nth_prime(int64_t n, uint64_t start);
+
+/**
+ * Count the primes within the interval [start, stop]. 
+ * By default all CPU cores are used, use
+ * primesieve_set_num_threads(int threads) to change the
+ * number of threads.
+ */
 uint64_t primesieve_count_primes(uint64_t start, uint64_t stop);
 
-/** Count the twin primes within the interval [start, stop] */
+/**
+ * Count the twin primes within the interval [start, stop]. 
+ * By default all CPU cores are used, use
+ * primesieve_set_num_threads(int threads) to change the
+ * number of threads.
+ */
 uint64_t primesieve_count_twins(uint64_t start, uint64_t stop);
 
-/** Count the prime triplets within the interval [start, stop] */
+/**
+ * Count the prime triplets within the interval [start, stop]. 
+ * By default all CPU cores are used, use
+ * primesieve_set_num_threads(int threads) to change the
+ * number of threads.
+ */
 uint64_t primesieve_count_triplets(uint64_t start, uint64_t stop);
 
-/** Count the prime quadruplets within the interval [start, stop] */
+/**
+ * Count the prime quadruplets within the interval [start, stop]. 
+ * By default all CPU cores are used, use
+ * primesieve_set_num_threads(int threads) to change the
+ * number of threads.
+ */
 uint64_t primesieve_count_quadruplets(uint64_t start, uint64_t stop);
 
-/** Count the prime quintuplets within the interval [start, stop] */
+/**
+ * Count the prime quintuplets within the interval [start, stop]. 
+ * By default all CPU cores are used, use
+ * primesieve_set_num_threads(int threads) to change the
+ * number of threads.
+ */
 uint64_t primesieve_count_quintuplets(uint64_t start, uint64_t stop);
 
-/** Count the prime sextuplets within the interval [start, stop] */
+/**
+ * Count the prime sextuplets within the interval [start, stop]. 
+ * By default all CPU cores are used, use
+ * primesieve_set_num_threads(int threads) to change the
+ * number of threads.
+ */
 uint64_t primesieve_count_sextuplets(uint64_t start, uint64_t stop);
 
 /**
@@ -129,29 +171,32 @@ void primesieve_print_quintuplets(uint64_t start, uint64_t stop);
 void primesieve_print_sextuplets(uint64_t start, uint64_t stop);
 
 /**
- * Call back the primes within the interval [start, stop].
- * @param callback  A callback function.
- */
-void primesieve_callback_primes(uint64_t start, uint64_t stop, void (*callback)(uint64_t prime));
-
-/** Get the current set sieve size in kilobytes */
-int primesieve_get_sieve_size();
-/**
  * Returns the largest valid stop number for primesieve.
  * @return 2^64-1 (UINT64_MAX).
  */
 uint64_t primesieve_get_max_stop();
 
+/** Get the current set sieve size in kilobytes */
+int primesieve_get_sieve_size();
+
+/** Get the current set number of threads */
+int primesieve_get_num_threads();
+
 /**
  * Set the sieve size in kilobytes.
- * The best sieving performance is achieved with a sieve size of
- * your CPU's L1 data cache size (per core). For sieving >= 10^17 a
- * sieve size of your CPU's L2 cache size sometimes performs
- * better.
+ * The best sieving performance is achieved with a sieve size
+ * of your CPU's L1 or L2 cache size (per core).
  * @param sieve_size Sieve size in kilobytes.
- * @pre   sieve_size >= 1 && <= 2048.
+ * @pre   sieve_size >= 8 && <= 4096.
  */
 void primesieve_set_sieve_size(int sieve_size);
+
+/**
+ * Set the number of threads for use in
+ * primesieve_count_*() and primesieve_nth_prime().
+ * By default all CPU cores are used.
+ */
+void primesieve_set_num_threads(int num_threads);
 
 /**
  * Deallocate a primes array created using the
@@ -160,7 +205,7 @@ void primesieve_set_sieve_size(int sieve_size);
  */
 void primesieve_free(void* primes);
 
-/** Get the primesieve version number, in the form “i.j.k” */
+/** Get the primesieve version number, in the form “i.j” */
 const char* primesieve_version();
 
 #ifdef __cplusplus

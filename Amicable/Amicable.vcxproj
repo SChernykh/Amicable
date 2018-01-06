@@ -93,9 +93,6 @@
     <ClInclude Include="..\primesieve\include\primesieve.h" />
     <ClInclude Include="..\primesieve\include\primesieve.hpp" />
     <ClInclude Include="..\primesieve\include\primesieve\bits.hpp" />
-    <ClInclude Include="..\primesieve\include\primesieve\Callback.hpp" />
-    <ClInclude Include="..\primesieve\include\primesieve\callback_t.hpp" />
-    <ClInclude Include="..\primesieve\include\primesieve\cancel_callback.hpp" />
     <ClInclude Include="..\primesieve\include\primesieve\config.hpp" />
     <ClInclude Include="..\primesieve\include\primesieve\EratBig.hpp" />
     <ClInclude Include="..\primesieve\include\primesieve\EratMedium.hpp" />
@@ -104,16 +101,10 @@
     <ClInclude Include="..\primesieve\include\primesieve\malloc_vector.hpp" />
     <ClInclude Include="..\primesieve\include\primesieve\pmath.hpp" />
     <ClInclude Include="..\primesieve\include\primesieve\PreSieve.hpp" />
-    <ClInclude Include="..\primesieve\include\primesieve\PrimeFinder.hpp" />
     <ClInclude Include="..\primesieve\include\primesieve\PrimeGenerator.hpp" />
     <ClInclude Include="..\primesieve\include\primesieve\PrimeSieve.hpp" />
     <ClInclude Include="..\primesieve\include\primesieve\primesieve_error.hpp" />
-    <ClInclude Include="..\primesieve\include\primesieve\PushBackPrimes.hpp" />
-    <ClInclude Include="..\primesieve\include\primesieve\SieveOfEratosthenes-inline.hpp" />
     <ClInclude Include="..\primesieve\include\primesieve\SieveOfEratosthenes.hpp" />
-    <ClInclude Include="..\primesieve\include\primesieve\toString.hpp" />
-    <ClInclude Include="..\primesieve\include\primesieve\WheelFactorization.hpp" />
-    <ClInclude Include="..\primesieve\include\primesieve_warnings.h" />
     <ClInclude Include="CompileTimeFunctions.h" />
     <ClInclude Include="Definitions.h" />
     <ClInclude Include="Engine.h" />
@@ -129,18 +120,16 @@
     <ClInclude Include="Platform.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\primesieve\src\primesieve\CpuInfo.cpp" />
     <ClCompile Include="..\primesieve\src\primesieve\EratBig.cpp" />
     <ClCompile Include="..\primesieve\src\primesieve\EratMedium.cpp" />
     <ClCompile Include="..\primesieve\src\primesieve\EratSmall.cpp" />
-    <ClCompile Include="..\primesieve\src\primesieve\popcount.cpp" />
     <ClCompile Include="..\primesieve\src\primesieve\PreSieve.cpp" />
-    <ClCompile Include="..\primesieve\src\primesieve\PrimeFinder.cpp" />
     <ClCompile Include="..\primesieve\src\primesieve\PrimeGenerator.cpp" />
-    <ClCompile Include="..\primesieve\src\primesieve\primesieve-api-c.cpp" />
-    <ClCompile Include="..\primesieve\src\primesieve\primesieve-api.cpp" />
     <ClCompile Include="..\primesieve\src\primesieve\PrimeSieve.cpp" />
     <ClCompile Include="..\primesieve\src\primesieve\SieveOfEratosthenes.cpp" />
-    <ClCompile Include="..\primesieve\src\primesieve\WheelFactorization.cpp" />
+    <ClCompile Include="..\primesieve\src\primesieve\SievingPrimes.cpp" />
+    <ClCompile Include="..\primesieve\src\primesieve\Wheel.cpp" />
     <ClCompile Include="Amicable.cpp">
       <AssemblerOutput Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">All</AssemblerOutput>
       <AssemblerOutput Condition="'$(Configuration)|$(Platform)'=='Release|x64'">All</AssemblerOutput>

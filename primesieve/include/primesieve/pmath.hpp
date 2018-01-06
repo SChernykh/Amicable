@@ -1,8 +1,8 @@
 ///
 /// @file   pmath.hpp
-/// @brief  Auxiliary math functions needed in primesieve.
+/// @brief  Auxiliary math functions for primesieve.
 ///
-/// Copyright (C) 2016 Kim Walisch, <kim.walisch@gmail.com>
+/// Copyright (C) 2017 Kim Walisch, <kim.walisch@gmail.com>
 ///
 /// This file is distributed under the BSD License. See the COPYING
 /// file in the top level directory.
@@ -11,53 +11,49 @@
 #ifndef PMATH_HPP
 #define PMATH_HPP
 
+#include <stdint.h>
+#include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <limits>
+#include <type_traits>
 
 namespace primesieve {
 
 template <typename X, typename Y>
 inline X ceilDiv(X x, Y y)
 {
-  return static_cast<X>((x + y - 1) / y);
+  return (X) ((x + y - 1) / y);
 }
 
 template <typename T>
 inline T numberOfBits(T)
 {
-  return static_cast<T>(sizeof(T) * 8);
+  return (T) (sizeof(T) * 8);
 }
 
 template <typename T>
-inline T isquare(T x)
+inline bool isPow2(T x)
 {
-  return x * x;
+  return x != 0 && (x & (x - 1)) == 0;
 }
 
-/// Check if an integer is a power of 2
 template <typename T>
-inline bool isPowerOf2(T x)
-{
-  return (x != 0 && (x & (x - 1)) == 0);
-}
-
-/// Round down to the next power of 2
-template <typename T>
-inline T floorPowerOf2(T x)
+inline T floorPow2(T x)
 {
   for (T i = 1; i < numberOfBits(x); i += i)
     x |= (x >> i);
   return x - (x >> 1);
 }
 
-/// Fast and protable integer log2 function
 template <typename T>
 inline T ilog2(T x)
 {
-  const T bits = numberOfBits(x);
-  const T one = 1;
+  T bits = numberOfBits(x);
+  T one = 1;
   T log2 = 0;
-  for (T i = bits / 2; i != 0; i /= 2)
+
+  for (T i = bits / 2; i > 0; i /= 2)
   {
     if (x >= (one << i))
     {
@@ -65,24 +61,24 @@ inline T ilog2(T x)
       log2 += i;
     }
   }
+
   return log2;
 }
 
 /// Integer square root, Newton's method
+/// @see book "Hacker's Delight"
+///
 template <typename T>
 inline T isqrt(T x)
 {
   if (x <= 1)
     return x;
 
-  const T bits = numberOfBits(x);
-  const T one = 1;
+  T bits = numberOfBits(x);
+  T nlz = (bits - 1) - ilog2(x - 1);
+  T s = bits / 2 - nlz / 2;
+  T one = 1;
 
-  // s = bits / 2 - nlz(x - 1) / 2
-  // nlz(x) = bits - 1 - ilog2(x)
-  T s = bits / 2 - (bits - 1) / 2 + ilog2(x - 1) / 2;
-
-  // first guess: least power of 2 >= sqrt(x)
   T g0 = one << s;
   T g1 = (g0 + (x >> s)) >> 1;
 
@@ -91,40 +87,71 @@ inline T isqrt(T x)
     g0 = g1;
     g1 = (g0 + (x / g0)) >> 1;
   }
+
   return g0;
 }
 
-template <typename T1, typename T2, typename T3>
-inline T2 inBetween(T1 min, T2 x, T3 max)
+/// Returns 2^64-1 if x + y >= 2^64-1
+inline uint64_t checkedAdd(uint64_t x, uint64_t y)
 {
-  if (x < (T2) min) return (T2) min;
-  if (x > (T2) max) return (T2) max;
+  const uint64_t max = std::numeric_limits<uint64_t>::max();
 
-  return x;
-}
-
-/// Returns a+b or 2^64-1 if the result overflows
-inline uint64_t add_overflow_safe(uint64_t x, uint64_t y)
-{
-  if (x >= std::numeric_limits<uint64_t>::max() - y)
-    return std::numeric_limits<uint64_t>::max();
+  if (x >= max - y)
+    return max;
 
   return x + y;
 }
 
-/// Returns a-b or 0 if the result underflows
-inline uint64_t sub_underflow_safe(uint64_t x, uint64_t y)
+/// Returns 0 if x - y <= 0
+inline uint64_t checkedSub(uint64_t x, uint64_t y)
 {
   return (x > y) ? x - y : 0;
 }
 
-/// Get an approximation of the maximum prime gap near n
-inline uint64_t max_prime_gap(uint64_t n)
+template <typename A, typename B, typename C>
+inline B inBetween(A min, B x, C max)
 {
-  double x = static_cast<double>(n);
+  using T = typename std::common_type<A, B, C>::type;
+
+  if ((T) x < (T) min)
+    return (B) min;
+  if ((T) x > (T) max)
+    return (B) max;
+
+  return x;
+}
+
+/// prime_count_approx(x) >= pi(x)
+inline std::size_t prime_count_approx(uint64_t start, uint64_t stop)
+{
+  if (start > stop)
+    return 0;
+  if (stop <= 10)
+    return 4;
+
+  // pi(x) <= x / (log(x) - 1.1) + 5, for x >= 4
+  double x = (double) stop;
+  double logx = std::log(x);
+  double div = logx - 1.1;
+  double pix = (stop - start) / div + 5;
+
+  return (std::size_t) pix;
+}
+
+inline std::size_t prime_count_approx(uint64_t stop)
+{
+  return prime_count_approx(0, stop);
+}
+
+/// Approximation of the maximum prime gap near n
+template <typename T>
+inline T max_prime_gap(T n)
+{
+  double x = (double) n;
+  x = std::max(1.0, x);
   double logx = std::log(x);
   double prime_gap = logx * logx;
-  return static_cast<uint64_t>(prime_gap);
+  return (T) prime_gap;
 }
 
 } // namespace

@@ -1,8 +1,8 @@
 ///
-/// @file   WheelFactorization.cpp
+/// @file   Wheel.cpp
 /// @brief  Precomputed arrays for wheel factorization.
 ///
-/// Copyright (C) 2013 Kim Walisch, <kim.walisch@gmail.com>
+/// Copyright (C) 2017 Kim Walisch, <kim.walisch@gmail.com>
 ///
 /// This file is distributed under the BSD License. See the COPYING
 /// file in the top level directory.
@@ -10,19 +10,21 @@
 
 #include <stdafx.h>
 
-#include <primesieve/WheelFactorization.hpp>
+#include <primesieve/Wheel.hpp>
 #include <primesieve/bits.hpp>
 
 namespace primesieve {
 
-const WheelInit wheel30Init[30] = {
+const WheelInit wheel30Init[30] =
+{
   {1,  0}, {0,  0}, {5,  1}, {4,  1}, {3,  1}, {2,  1}, {1,  1}, {0,  1},
   {3,  2}, {2,  2}, {1,  2}, {0,  2}, {1,  3}, {0,  3}, {3,  4}, {2,  4},
   {1,  4}, {0,  4}, {1,  5}, {0,  5}, {3,  6}, {2,  6}, {1,  6}, {0,  6},
   {5,  7}, {4,  7}, {3,  7}, {2,  7}, {1,  7}, {0,  7}
 };
 
-const WheelInit wheel210Init[210] = {
+const WheelInit wheel210Init[210] =
+{
   {1,  0}, {0,  0}, {9,  1}, {8,  1}, {7,  1}, {6,  1}, {5,  1}, {4,  1},
   {3,  1}, {2,  1}, {1,  1}, {0,  1}, {1,  2}, {0,  2}, {3,  3}, {2,  3},
   {1,  3}, {0,  3}, {1,  4}, {0,  4}, {3,  5}, {2,  5}, {1,  5}, {0,  5},
@@ -52,7 +54,8 @@ const WheelInit wheel210Init[210] = {
   {1, 47}, {0, 47}
 };
 
-const WheelElement wheel30[8*8] = {
+const WheelElement wheel30[8*8] =
+{
   { BIT0, 6, 1, 1 }, { BIT4, 4, 1, 1 }, { BIT3, 2, 0, 1 }, { BIT7, 4, 1,  1 },
   { BIT6, 2, 1, 1 }, { BIT2, 4, 1, 1 }, { BIT1, 6, 1, 1 }, { BIT5, 2, 1, -7 },
   { BIT1, 6, 2, 1 }, { BIT3, 4, 1, 1 }, { BIT7, 2, 1, 1 }, { BIT5, 4, 2,  1 },
@@ -71,7 +74,8 @@ const WheelElement wheel30[8*8] = {
   { BIT3, 2, 0, 1 }, { BIT4, 4, 0, 1 }, { BIT5, 6, 0, 1 }, { BIT6, 2, 0, -7 }
 };
 
-const WheelElement wheel210[48*8] = {
+const WheelElement wheel210[48*8] =
+{
   { BIT0, 10, 2, 1 }, { BIT3, 2, 0, 1 }, { BIT7,  4, 1, 1 }, { BIT6, 2, 1, 1 },
   { BIT2,  4, 1, 1 }, { BIT1, 6, 1, 1 }, { BIT5,  2, 1, 1 }, { BIT0, 6, 1, 1 },
   { BIT4,  4, 1, 1 }, { BIT3, 2, 0, 1 }, { BIT7,  4, 1, 1 }, { BIT6, 6, 2, 1 },
@@ -170,4 +174,4 @@ const WheelElement wheel210[48*8] = {
   { BIT2,  4, 0, 1 }, { BIT3, 2, 0, 1 }, { BIT4, 10, 0, 1 }, { BIT6, 2, 0, -47 }
 };
 
-} // namespace primesieve
+} // namespace

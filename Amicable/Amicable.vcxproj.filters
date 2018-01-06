@@ -44,15 +44,6 @@
     <ClInclude Include="..\primesieve\include\primesieve\bits.hpp">
       <Filter>3rdparty\primesieve\headers\primesieve</Filter>
     </ClInclude>
-    <ClInclude Include="..\primesieve\include\primesieve\Callback.hpp">
-      <Filter>3rdparty\primesieve\headers\primesieve</Filter>
-    </ClInclude>
-    <ClInclude Include="..\primesieve\include\primesieve\callback_t.hpp">
-      <Filter>3rdparty\primesieve\headers\primesieve</Filter>
-    </ClInclude>
-    <ClInclude Include="..\primesieve\include\primesieve\cancel_callback.hpp">
-      <Filter>3rdparty\primesieve\headers\primesieve</Filter>
-    </ClInclude>
     <ClInclude Include="..\primesieve\include\primesieve\config.hpp">
       <Filter>3rdparty\primesieve\headers\primesieve</Filter>
     </ClInclude>
@@ -77,9 +68,6 @@
     <ClInclude Include="..\primesieve\include\primesieve\PreSieve.hpp">
       <Filter>3rdparty\primesieve\headers\primesieve</Filter>
     </ClInclude>
-    <ClInclude Include="..\primesieve\include\primesieve\PrimeFinder.hpp">
-      <Filter>3rdparty\primesieve\headers\primesieve</Filter>
-    </ClInclude>
     <ClInclude Include="..\primesieve\include\primesieve\PrimeGenerator.hpp">
       <Filter>3rdparty\primesieve\headers\primesieve</Filter>
     </ClInclude>
@@ -89,19 +77,7 @@
     <ClInclude Include="..\primesieve\include\primesieve\primesieve_error.hpp">
       <Filter>3rdparty\primesieve\headers\primesieve</Filter>
     </ClInclude>
-    <ClInclude Include="..\primesieve\include\primesieve\PushBackPrimes.hpp">
-      <Filter>3rdparty\primesieve\headers\primesieve</Filter>
-    </ClInclude>
-    <ClInclude Include="..\primesieve\include\primesieve\SieveOfEratosthenes-inline.hpp">
-      <Filter>3rdparty\primesieve\headers\primesieve</Filter>
-    </ClInclude>
     <ClInclude Include="..\primesieve\include\primesieve\SieveOfEratosthenes.hpp">
-      <Filter>3rdparty\primesieve\headers\primesieve</Filter>
-    </ClInclude>
-    <ClInclude Include="..\primesieve\include\primesieve\toString.hpp">
-      <Filter>3rdparty\primesieve\headers\primesieve</Filter>
-    </ClInclude>
-    <ClInclude Include="..\primesieve\include\primesieve\WheelFactorization.hpp">
       <Filter>3rdparty\primesieve\headers\primesieve</Filter>
     </ClInclude>
     <ClInclude Include="..\primesieve\include\primesieve.hpp">
@@ -118,9 +94,6 @@
     </ClInclude>
     <ClInclude Include="Tests.h">
       <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="..\primesieve\include\primesieve_warnings.h">
-      <Filter>3rdparty\primesieve\headers</Filter>
     </ClInclude>
     <ClInclude Include="Platform.h">
       <Filter>Header Files</Filter>
@@ -160,31 +133,16 @@
     <ClCompile Include="..\primesieve\src\primesieve\EratSmall.cpp">
       <Filter>3rdparty\primesieve\source</Filter>
     </ClCompile>
-    <ClCompile Include="..\primesieve\src\primesieve\popcount.cpp">
-      <Filter>3rdparty\primesieve\source</Filter>
-    </ClCompile>
     <ClCompile Include="..\primesieve\src\primesieve\PreSieve.cpp">
       <Filter>3rdparty\primesieve\source</Filter>
     </ClCompile>
-    <ClCompile Include="..\primesieve\src\primesieve\PrimeFinder.cpp">
-      <Filter>3rdparty\primesieve\source</Filter>
-    </ClCompile>
     <ClCompile Include="..\primesieve\src\primesieve\PrimeGenerator.cpp">
-      <Filter>3rdparty\primesieve\source</Filter>
-    </ClCompile>
-    <ClCompile Include="..\primesieve\src\primesieve\primesieve-api-c.cpp">
-      <Filter>3rdparty\primesieve\source</Filter>
-    </ClCompile>
-    <ClCompile Include="..\primesieve\src\primesieve\primesieve-api.cpp">
       <Filter>3rdparty\primesieve\source</Filter>
     </ClCompile>
     <ClCompile Include="..\primesieve\src\primesieve\PrimeSieve.cpp">
       <Filter>3rdparty\primesieve\source</Filter>
     </ClCompile>
     <ClCompile Include="..\primesieve\src\primesieve\SieveOfEratosthenes.cpp">
-      <Filter>3rdparty\primesieve\source</Filter>
-    </ClCompile>
-    <ClCompile Include="..\primesieve\src\primesieve\WheelFactorization.cpp">
       <Filter>3rdparty\primesieve\source</Filter>
     </ClCompile>
     <ClCompile Include="RangeGen.cpp">
@@ -201,6 +159,15 @@
     </ClCompile>
     <ClCompile Include="Definitions.cpp">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\primesieve\src\primesieve\CpuInfo.cpp">
+      <Filter>3rdparty\primesieve\source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\primesieve\src\primesieve\SievingPrimes.cpp">
+      <Filter>3rdparty\primesieve\source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\primesieve\src\primesieve\Wheel.cpp">
+      <Filter>3rdparty\primesieve\source</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

@@ -3,6 +3,8 @@
 #include "Engine.h"
 #include "RangeGen.h"
 
+#include <primesieve/SievingPrimes.hpp>
+
 // "a" has at most two factors (a = p1 * p2 or a = p^2 or a is prime)
 // We know that p1 >= p and p2 <= q
 //
@@ -981,14 +983,12 @@ NOINLINE void SearchRangeCubed(const RangeData& r)
 	}
 }
 
-#include <primesieve/SieveOfEratosthenes-inline.hpp>
-
 namespace primesieve
 {
-	class PrimeFinderLargePrimes final : public PrimeFinder
+	class PrimeGeneratorLargePrimes final : public PrimeGenerator
 	{
 	public:
-		PrimeFinderLargePrimes(PrimeSieve& ps, const PreSieve& preSieve) : PrimeFinder(ps, preSieve) {}
+		PrimeGeneratorLargePrimes(PrimeSieve& ps, const PreSieve& preSieve) : PrimeGenerator(ps, preSieve) {}
 
 		FORCEINLINE void Init(const number rangeBegin)
 		{
@@ -1001,7 +1001,7 @@ namespace primesieve
 			last_candidate = CandidatesData.data() + (it - CandidatesData.begin()) - 1;
 		}
 
-		NOINLINE virtual void segmentFinished(const byte_t* sieve, uint_t sieveSize)
+		NOINLINE virtual void generatePrimes(const byte_t* sieve, uint64_t sieveSize) override
 		{
 			uint64_t base = getSegmentLow();
 			for (uint_t i = 0; i < sieveSize; i += 8, base += NUMBERS_PER_BYTE * 8)
@@ -1009,7 +1009,7 @@ namespace primesieve
 				uint64_t bits = littleendian_cast<uint64_t>(&sieve[i]); 
 				while (bits != 0)
 				{
-					const number curPrime = getNextPrime(&bits, base);
+					const number curPrime = nextPrime(&bits, base);
 
 					const unsigned int mask = CandidatesDataMask[Mod385(curPrime + 1)];
 					while (last_candidate >= CandidatesData.data())
@@ -1037,7 +1037,7 @@ namespace primesieve
 	private:
 		const AmicableCandidate* last_candidate;
 
-		DISALLOW_COPY_AND_ASSIGN(PrimeFinderLargePrimes);
+		DISALLOW_COPY_AND_ASSIGN(PrimeGeneratorLargePrimes);
 	};
 }
 
@@ -1082,23 +1082,23 @@ NOINLINE void SearchLargePrimes(volatile number* SharedCounterForSearch, const n
 		s.setStop(curRangeEnd);
 
 		primesieve::PreSieve preSieve(curRangeBegin, curRangeEnd);
-		primesieve::PrimeFinderLargePrimes finder(s, preSieve);
-		finder.Init(curRangeBegin);
+		primesieve::PrimeGeneratorLargePrimes primeGen(s, preSieve);
+		primeGen.Init(curRangeBegin);
 
 		unsigned int p = 3;
 		const byte* shift = NextPrimeShifts + 2;
-		while (p <= preSieve.getLimit())
+		while (p <= preSieve.getMaxPrime())
 		{
 			p += *shift * ShiftMultiplier;
 			shift += 2;
 		}
-		while (p <= finder.getSqrtStop())
+		while (p <= primeGen.getSqrtStop())
 		{
-			finder.addSievingPrime(p);
+			primeGen.addSievingPrime(p);
 			p += *shift * ShiftMultiplier;
 			shift += 2;
 		}
 
-		finder.sieve();
+		primeGen.sieve();
 	} while (curRangeEnd < PrimeLimit);
 }

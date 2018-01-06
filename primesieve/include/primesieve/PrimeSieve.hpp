@@ -1,9 +1,10 @@
 ///
 /// @file   PrimeSieve.hpp
-/// @brief  The PrimeSieve class provides an easy API for prime
-///         sieving (single-threaded).
+/// @brief  The PrimeSieve class is a high level class that
+///         manages prime sieving using the PreSieve, SievingPrimes
+///         and PrimeGenerator classes.
 ///
-/// Copyright (C) 2016 Kim Walisch, <kim.walisch@gmail.com>
+/// Copyright (C) 2017 Kim Walisch, <kim.walisch@gmail.com>
 ///
 /// This file is distributed under the BSD License. See the COPYING
 /// file in the top level directory.
@@ -12,30 +13,30 @@
 #ifndef PRIMESIEVE_CLASS_HPP
 #define PRIMESIEVE_CLASS_HPP
 
-#include "Callback.hpp"
-#include "littleendian_cast.hpp"
-#include "PreSieve.hpp"
-#include "PrimeFinder.hpp"
-#include "PrimeGenerator.hpp"
-
 #include <stdint.h>
-#include <string>
 #include <vector>
+#include <array>
+#include <string>
+
+#include <primesieve/SievingPrimes.hpp>
 
 namespace primesieve {
 
-/// PrimeSieve is a highly optimized C++ implementation of the
-/// segmented sieve of Eratosthenes that generates primes and prime
-/// k-tuplets (twin primes, prime triplets, ...) in order up to 2^64
-/// maximum. The README file describes the algorithms used in more
-/// detail and doc/EXAMPLES contains source code examples.
-///
+class Store;
+
+struct SmallPrime
+{
+	uint64_t first;
+	uint64_t last;
+	int index;
+	std::string str;
+};
+
+extern const std::array<SmallPrime, 8> smallPrimes;
+
 class PrimeSieve
 {
-  friend class PrimeFinder;
 public:
-  /// Public flags for use with setFlags(int)
-  /// @pre flag < (1 << 20)
   enum
   {
     COUNT_PRIMES      = 1 << 0,
@@ -54,15 +55,15 @@ public:
     CALCULATE_STATUS  = 1 << 13
   };
   PrimeSieve();
-  PrimeSieve(PrimeSieve&, int);
+  PrimeSieve(PrimeSieve*);
   virtual ~PrimeSieve();
   // Getters
   uint64_t getStart() const;
   uint64_t getStop() const;
   int getSieveSize() const;
-  int getFlags() const;
   double getStatus() const;
   double getSeconds() const;
+  Store& getStore();
   // Setters
   void setStart(uint64_t);
   void setStop(uint64_t);
@@ -70,12 +71,14 @@ public:
   void setFlags(int);
   void addFlags(int);
   // Bool is*
-  bool isFlag(int) const;
-  bool isCallback() const;
   bool isCount() const;
   bool isCount(int) const;
   bool isPrint() const;
   bool isPrint(int) const;
+  bool isFlag(int) const;
+  bool isFlag(int, int) const;
+  bool isStatus() const;
+  bool isStore() const;
   // Sieve
   virtual void sieve();
 
@@ -92,15 +95,15 @@ public:
 	  // small primes and k-tuplets (first prime <= 5)
 	  if (start_ <= 5)
 	  {
-		  for (int i = 0; i < 8; i++)
+		  for (auto& p : smallPrimes)
 		  {
-			  if (smallPrimes_[i].firstPrime >= start_ && smallPrimes_[i].lastPrime <= stop_)
+			  if (p.index != 0)
 			  {
-				  // callback prime numbers
-				  if (smallPrimes_[i].index == 0)
-				  {
-					  callback(smallPrimes_[i].firstPrime);
-				  }
+				  break;
+			  }
+			  if (p.first >= start_ && p.last <= stop_)
+			  {
+				  callback(p.first);
 			  }
 		  }
 	  }
@@ -108,26 +111,26 @@ public:
 	  if (stop_ >= 7)
 	  {
 		  PreSieve preSieve(start_, stop_);
-		  PrimeFinderTemplated<T> finder(*this, preSieve, static_cast<T&&>(callback));
+		  PrimeGeneratorTemplated<T> primeGen(*this, preSieve, static_cast<T&&>(callback));
 
-		  if (finder.getSqrtStop() > preSieve.getLimit())
+		  if (primeGen.getSqrtStop() > preSieve.getMaxPrime())
 		  {
 			  // generate the sieving primes <= sqrt(stop)
-			  PrimeGenerator pg(finder, preSieve);
-			  pg.generateSievingPrimes();
+			  SievingPrimes sp(primeGen, preSieve);
+			  sp.generate();
 		  }
 
 		  // sieve the primes within [start, stop]
-		  finder.sieve();
+		  primeGen.sieve();
 	  }
   }
 
   void sieve(uint64_t, uint64_t);
   void sieve(uint64_t, uint64_t, int);
-  // Callback
-  void callbackPrimes(uint64_t, uint64_t, void (*)(uint64_t));
-  void callbackPrimes(uint64_t, uint64_t, Callback<uint64_t>*);
-  void callbackPrimes_c(uint64_t, uint64_t, void (*)(uint64_t));
+  void storePrimes(uint64_t, uint64_t, Store*);
+  // nth prime
+  uint64_t nthPrime(uint64_t);
+  uint64_t nthPrime(int64_t, uint64_t);
   // Print
   void printPrimes(uint64_t, uint64_t);
   void printTwins(uint64_t, uint64_t);
@@ -143,73 +146,44 @@ public:
   uint64_t countQuintuplets(uint64_t, uint64_t);
   uint64_t countSextuplets(uint64_t, uint64_t);
   // Count getters
+  typedef std::vector<uint64_t> counts_t;
+  counts_t& getCounts();
   uint64_t getPrimeCount() const;
   uint64_t getTwinCount() const;
   uint64_t getTripletCount() const;
   uint64_t getQuadrupletCount() const;
   uint64_t getQuintupletCount() const;
   uint64_t getSextupletCount() const;
-  uint64_t getCount(int) const;
+  uint64_t getCount(size_t) const;
+  virtual bool updateStatus(uint64_t, bool tryLock = true);
 protected:
   /// Sieve primes >= start_
   uint64_t start_;
   /// Sieve primes <= stop_
   uint64_t stop_;
   /// Prime number and prime k-tuplet counts
-  std::vector<uint64_t> counts_;
+  counts_t counts_;
   /// Time elapsed of sieve()
   double seconds_;
   uint64_t getDistance() const;
   void reset();
-  virtual double getWallTime() const;
-  virtual void setLock();
-  virtual void unsetLock();
-  virtual bool updateStatus(uint64_t, bool waitForLock = false);
 private:
-  struct SmallPrime
-  {
-    uint32_t firstPrime;
-    uint32_t lastPrime;
-    int index;
-    std::string str;
-  };
-  static const SmallPrime smallPrimes_[8];
   /// Sum of all processed segments
   uint64_t processed_;
-  /// Sum of processed segments that hasn't been updated yet
+  /// Sum of processed segments to update
   uint64_t toUpdate_;
   /// Status of sieve() in percent
   double percent_;
   /// Sieve size in kilobytes
   int sieveSize_;
-  /// Flags (settings) for PrimeSieve e.g. COUNT_PRIMES, PRINT_TWINS, ...
+  /// Setter methods set flags e.g. COUNT_PRIMES
   int flags_;
-  /// ParallelPrimeSieve thread number
-  int threadNum_;
-  /// Pointer to the parent ParallelPrimeSieve object
+  /// parent ParallelPrimeSieve object
   PrimeSieve* parent_;
-  /// Callbacks for use with *callbackPrimes()
-  void (*callback_)(uint64_t);
-  Callback<uint64_t>* cb_;
+  Store* store_;
   static void printStatus(double, double);
-  bool isFlag(int, int) const;
-  bool isValidFlags(int) const;
-  bool isStatus() const;
-  bool isParallelPrimeSieveChild() const;
-  void doSmallPrime(const SmallPrime&);
-  enum
-  {
-      INIT_STATUS = 0,
-    FINISH_STATUS = 10
-  };
-  /// Private flags
-  /// @pre flag >= (1 << 20)
-  enum
-  {
-    CALLBACK_PRIMES     = 1 << 20,
-    CALLBACK_PRIMES_OBJ = 1 << 21,
-    CALLBACK_PRIMES_C   = 1 << 22
-  };
+  bool isParallelPrimeSieve() const;
+  void processSmallPrimes();
 };
 
 } // namespace
