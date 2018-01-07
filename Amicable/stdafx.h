@@ -50,12 +50,9 @@ typedef unsigned long long int num64;
 #include "Definitions.h"
 
 #include <primesieve/config.hpp>
-#include <primesieve/callback_t.hpp>
 #include <primesieve/PreSieve.hpp>
 #include <primesieve/primesieve_error.hpp>
-#include <primesieve/Callback.hpp>
 #include <primesieve/littleendian_cast.hpp>
-#include <primesieve/PrimeFinder.hpp>
 #include <primesieve/PrimeGenerator.hpp>
 #include <primesieve/pmath.hpp>
 #include <primesieve/PrimeSieve.hpp>

@@ -1,3 +1,109 @@
+Changes in version 6.4, 25/11/2017
+==================================
+
+ * CMakeLists.txt: Fix libatomic detection.
+
+Changes in version 6.3, 12/11/2017
+==================================
+
+This is a minor new release, the API and ABI are
+backwards compatible.
+
+ * test/ilog2.cpp: Fix Linux i386 bug.
+ * test/floorPower2.cpp: Fix Linux i386 bug.
+ * CMakeLists.txt: Link against libatomic if needed.
+ * CMakeLists.txt: Add Debian Multiarch support.
+
+Changes in version 6.2, 12/10/2017
+==================================
+
+This is a minor new release which fixes 2 bugs and improves
+the primesieve GUI app. The API and ABI are backwards
+compatible.
+
+ * pmath.hpp: Fix integer overflow.
+ * EratMedium.cpp: Fix vector out of bounds bugs.
+ * primesieve GUI app: Silence GCC 7 warnings.
+ * PrimeSieveGUI.cpp: Add option to sieve using
+   (CPU cores / 2) threads.
+
+Changes in version 6.1, 12/08/2017
+==================================
+
+primesieve-6.1 features run-time CPU cache size detection and
+an L2 cache size optimization contributed by Huang YuanBing
+which speeds up sieving by up to 20% on recent CPUs (>= 2012).
+By default primesieve now uses a sieve size that fits into the
+CPU's L1 cache for small sieving primes and a sieve size that
+fits into the CPU's L2 cache for medium and big sieving
+primes.
+
+The API and ABI are backwards compatible.
+
+1. CpuInfo.cpp: Runtime CPU cache size detection.
+2. api.cpp: sieve size = L2 cache size.
+3. EratSmall.cpp: L1 cache size optimization.
+4. EratMedium.cpp: Reduce allocations.
+5. Silence GCC 7 warnings.
+6. Fix GCC 7 performance regression.
+
+Changes in version 6.0, 01/05/2017
+==================================
+
+primesieve-6.0 is a major new release with many changes. The API and
+ABI are not backwards compatible, see the "API changes" sections
+further down for more information.
+
+1. Use CMake build system instead of Autotools.
+2. Use C++11 instead of C++98.
+3. Use C++11 threads instead of OpenMP.
+4. C/C++ API is now parallel by default.
+5. Add many C/C++ libprimesieve tests (./test).
+6. Improved error messages.
+
+C++ API changes
+---------------
+
+The C++ API is now parallel by default i.e. the
+primesieve::count_*() and primesieve::nth_prime() functions use all
+CPU cores. Hence the old primesieve::parallel_*() functions have been
+removed.
+
+Removed from C++ API:
+
+uint64_t parallel_count_primes(uint64_t start, uint64_t stop);
+uint64_t parallel_count_twins(uint64_t start, uint64_t stop);
+uint64_t parallel_count_triplets(uint64_t start, uint64_t stop);
+uint64_t parallel_count_quadruplets(uint64_t start, uint64_t stop);
+uint64_t parallel_count_quintuplets(uint64_t start, uint64_t stop);
+uint64_t parallel_count_sextuplets(uint64_t start, uint64_t stop);
+uint64_t parallel_nth_prime(int64_t n, uint64_t start = 0);
+
+void callback_primes(uint64_t start, uint64_t stop, void (*callback)(uint64_t prime));
+void callback_primes(uint64_t start, uint64_t stop, primesieve::Callback<uint64_t>* callback);
+bool primesieve_test();
+
+C API changes
+-------------
+
+The C API is now parallel by default i.e. the
+primesieve_count_*() and primesieve_nth_prime() functions use all
+CPU cores. Hence the old primesieve_parallel_*() functions have been
+removed.
+
+Removed from C API:
+
+uint64_t primesieve_parallel_count_primes(uint64_t start, uint64_t stop);
+uint64_t primesieve_parallel_count_twins(uint64_t start, uint64_t stop);
+uint64_t primesieve_parallel_count_triplets(uint64_t start, uint64_t stop);
+uint64_t primesieve_parallel_count_quadruplets(uint64_t start, uint64_t stop);
+uint64_t primesieve_parallel_count_quintuplets(uint64_t start, uint64_t stop);
+uint64_t primesieve_parallel_count_sextuplets(uint64_t start, uint64_t stop);
+uint64_t primesieve_parallel_nth_prime(int64_t n, uint64_t start);
+
+void primesieve_callback_primes(uint64_t start, uint64_t stop, void (*callback)(uint64_t prime));
+int primesieve_test();
+
 Changes in version 5.7.3, 19/11/2016
 ====================================
 
@@ -431,7 +537,7 @@ Changes in version 3.7, 31/05/2012
  2. Reduced header file dependencies, libprimesieve now only depends on
     PrimeSieve.h or ParallelPrimeSieve.h (and PrimeSieve.h).
  3. Updated Makefiles.
- 4. New template imath.h functions: isqrt(), ilog2(), isPowerOf2(), ...
+ 4. New template imath.h functions: isqrt(), ilog2(), isPow2(), ...
     isqrt() has been rewritten using Newton's algorithm in order to
     avoid rounding errors of (int)sqrt((double)n) if n > 10^15.
  5. New internal SieveOfEratosthenes::getNextPrime(...) member function.
