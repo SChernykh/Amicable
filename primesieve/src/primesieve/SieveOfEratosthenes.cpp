@@ -113,7 +113,7 @@ SieveOfEratosthenes::SieveOfEratosthenes(uint64_t start,
 
 void SieveOfEratosthenes::allocate()
 {
-  deleteSieve_.reset(new byte_t[sieveSize_]);
+  deleteSieve_.reset(new byte_t[sieveSize_ + sizeof(uint64_t)]);
   sieve_ = deleteSieve_.get();
 
   uint64_t l1Size = EratSmall::getL1Size(sieveSize_);

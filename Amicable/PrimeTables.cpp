@@ -2,7 +2,6 @@
 #include "PrimeTables.h"
 #include <algorithm>
 #include "sprp64.h"
-#include "primesieve.hpp"
 
 CACHE_ALIGNED SReciprocal privPrimeReciprocals[ReciprocalsTableSize];
 CACHE_ALIGNED byte* privNextPrimeShifts = (byte*) AllocateSystemMemory(ReciprocalsTableSize, false);
@@ -25,37 +24,123 @@ CACHE_ALIGNED const unsigned char ModularInverse_8bit[128] = { 255,85,51,73,199,
 
 byte* MainPrimeTable = (byte*) AllocateSystemMemory(MainPrimeTableSize, false);
 
+// Use it only for debugging
+//#define VALIDATE_MAIN_PRIME_TABLE
+
+#ifdef VALIDATE_MAIN_PRIME_TABLE
+byte* MainPrimeTable2 = (byte*) AllocateSystemMemory(MainPrimeTableSize, false);
+#endif
+
 byte bitOffset[PrimeTableParameters::Modulo];
 num64 bitMask[PrimeTableParameters::Modulo];
 
-struct MainPrimeTableInitializer
+namespace primesieve
 {
-	MainPrimeTableInitializer() : nPrimes(0), prev_p(0) {}
-
-	FORCEINLINE void operator()(num64 p)
+	class MainPrimeTableInitializer final : public PrimeGenerator
 	{
-		if ((nPrimes > 0) && (nPrimes < ReciprocalsTableSize))
+	public:
+		MainPrimeTableInitializer(PrimeSieve& ps, const PreSieve& preSieve)
+			: PrimeGenerator(ps, preSieve)
+			, m_outputData(MainPrimeTable)
+			, m_leftOverLength(0)
+		{}
+
+		NOINLINE virtual void generatePrimes(const byte_t* sieve, uint64_t sieveSize) override
 		{
-			privPrimeReciprocals[nPrimes].Init(p);
-			privNextPrimeShifts[nPrimes - 1] = static_cast<byte>(p - prev_p);
+			// primesieve stores 30 numbers in each byte: 7 bytes per 210 numbers
+			//
+			// Offsets from base (numbers divisible by 7 are highlighted):
+			//
+			// Byte 0: 1*7, 11, 13, 17, 19, 23, 29, 31
+			// Byte 1: 37, 41, 43, 47, 7*7, 53, 59, 61
+			// Byte 2: 67, 71, 73, 7*11, 79, 83, 89, 7*13
+			// Byte 3: 97, 101, 103, 107, 109, 113, 7*17, 121
+			// Byte 4: 127, 131, 7*19, 137, 139, 143, 149, 151
+			// Byte 5: 157, 7*23, 163, 167, 169, 173, 179, 181
+			// Byte 6: 187, 191, 193, 197, 199, 7*29, 209, 211
+
+			// MainPrimeTable uses 6 bytes per 210 numbers
+			// Extract relevant bits from each of primesieve's 7 bytes and pack them into 6 bytes
+			// Bits skipped: 0, 12, 19, 23, 30, 34, 41, 53
+
+			uint64_t i = 0;
+
+			if (m_leftOverLength > 0)
+			{
+				memcpy(m_leftOver + m_leftOverLength, sieve, 7 - m_leftOverLength);
+
+				const uint64_t inputData = *reinterpret_cast<const uint64_t*>(m_leftOver);
+
+				// Take bits 1-11,13-18,20-22,24-29,31-33,35-40,42-52,54-55
+				// They will map to bits 1-48 in m_outputData
+				// Bit 48 bit spills to the 7th byte of m_outputData
+				// It will be bit 0 on the next iteration, so we have to save it
+				*reinterpret_cast<uint64_t*>(m_outputData) = (uint64_t(m_outputData[0]) & 1) |
+					((inputData >> 0) & (((uint64_t(1) << 11) - 1) <<  1)) | // 11 bits in positions 1-11
+					((inputData >> 1) & (((uint64_t(1) <<  6) - 1) << 12)) | //  6 bits in positions 13-18
+					((inputData >> 2) & (((uint64_t(1) <<  3) - 1) << 18)) | //  3 bits in positions 20-22
+					((inputData >> 3) & (((uint64_t(1) <<  6) - 1) << 21)) | //  6 bits in positions 24-29
+					((inputData >> 4) & (((uint64_t(1) <<  3) - 1) << 27)) | //  3 bits in positions 31-33
+					((inputData >> 5) & (((uint64_t(1) <<  6) - 1) << 30)) | //  6 bits in positions 35-40
+					((inputData >> 6) & (((uint64_t(1) << 11) - 1) << 36)) | // 11 bits in positions 42-52
+					((inputData >> 7) & (((uint64_t(1) <<  2) - 1) << 47));  //  2 bits in positions 54-55
+
+				i = 7 - m_leftOverLength;
+				m_outputData += 6;
+			}
+
+			const uint64_t n = sieveSize - 6;
+			for (; i < n; i += 7, m_outputData += 6)
+			{
+				const uint64_t inputData = *reinterpret_cast<const uint64_t*>(sieve + i);
+
+				// Take bits 1-11,13-18,20-22,24-29,31-33,35-40,42-52,54-55
+				// They will map to bits 1-48 in m_outputData
+				// Bit 48 bit spills to the 7th byte of m_outputData
+				// It will be bit 0 on the next iteration, so we have to save it
+				*reinterpret_cast<uint64_t*>(m_outputData) = (uint64_t(m_outputData[0]) & 1) |
+					((inputData >> 0) & (((uint64_t(1) << 11) - 1) <<  1)) | // 11 bits in positions 1-11
+					((inputData >> 1) & (((uint64_t(1) <<  6) - 1) << 12)) | //  6 bits in positions 13-18
+					((inputData >> 2) & (((uint64_t(1) <<  3) - 1) << 18)) | //  3 bits in positions 20-22
+					((inputData >> 3) & (((uint64_t(1) <<  6) - 1) << 21)) | //  6 bits in positions 24-29
+					((inputData >> 4) & (((uint64_t(1) <<  3) - 1) << 27)) | //  3 bits in positions 31-33
+					((inputData >> 5) & (((uint64_t(1) <<  6) - 1) << 30)) | //  6 bits in positions 35-40
+					((inputData >> 6) & (((uint64_t(1) << 11) - 1) << 36)) | // 11 bits in positions 42-52
+					((inputData >> 7) & (((uint64_t(1) <<  2) - 1) << 47));  //  2 bits in positions 54-55
+			}
+
+			m_leftOverLength = sieveSize - i;
+			if (m_leftOverLength > 0)
+			{
+				memcpy(m_leftOver, sieve + i, m_leftOverLength);
+			}
 		}
 
-		prev_p = p;
-		++nPrimes;
+	private:
+		byte* m_outputData;
+		byte m_leftOver[8];
+		uint64_t m_leftOverLength;
 
+		DISALLOW_COPY_AND_ASSIGN(MainPrimeTableInitializer);
+	};
+}
+
+#ifdef VALIDATE_MAIN_PRIME_TABLE
+struct MainPrimeTableInitializer
+{
+	FORCEINLINE void operator()(num64 p)
+	{
 		if (p >= 11)
 		{
 			const num64 bit = bitOffset[p % PrimeTableParameters::Modulo];
 			const num64 k = (p / PrimeTableParameters::Modulo) * PrimeTableParameters::NumOffsets + bit;
-			MainPrimeTable[k / ByteParams::Bits] |= (1 << (k % ByteParams::Bits));
+			MainPrimeTable2[k / ByteParams::Bits] |= (1 << (k % ByteParams::Bits));
 		}
 	}
-
-	num64 nPrimes;
-	num64 prev_p;
 };
+#endif
 
-static NOINLINE num64 CalculateMainPrimeTable()
+static NOINLINE void CalculateMainPrimeTable()
 {
 	const num64 upperBound = ((SearchLimit::MainPrimeTableBound / PrimeTableParameters::Modulo) + 16) * PrimeTableParameters::Modulo;
 	const size_t arraySize = static_cast<size_t>((upperBound + PrimeTableParameters::Modulo) / PrimeTableParameters::Modulo * (PrimeTableParameters::NumOffsets / ByteParams::Bits));
@@ -66,11 +151,36 @@ static NOINLINE num64 CalculateMainPrimeTable()
 	}
 	MainPrimeTable[0] = 1;
 
+	primesieve::PrimeSieve s;
+	s.setStart(0);
+	s.setStop(upperBound);
+
+	primesieve::PreSieve preSieve(0, upperBound);
+	primesieve::MainPrimeTableInitializer primeGen(s, preSieve);
+
+	if (primeGen.getSqrtStop() > preSieve.getMaxPrime())
+	{
+		primesieve::SievingPrimes sp(primeGen, preSieve);
+		sp.generate();
+	}
+
+	primeGen.sieve();
+
+#ifdef VALIDATE_MAIN_PRIME_TABLE
+	MainPrimeTable2[0] = 1;
+
 	MainPrimeTableInitializer p;
 	primesieve::PrimeSieve sieve;
 	sieve.sieveTemplated(0, upperBound, p);
 
-	return p.nPrimes;
+	for (uint32_t i = 0; i < MainPrimeTableSize; ++i)
+	{
+		if (MainPrimeTable[i] != MainPrimeTable2[i])
+		{
+			__debugbreak();
+		}
+	}
+#endif
 }
 
 bool IsPrime(num64 n)
@@ -316,10 +426,15 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 
 	CalculateMainPrimeTable();
 
+	num64 prev_p = 2;
 	PrimeIterator it(3);
 	for (num64 index = 1; index < ARRAYSIZE(privPrimeInverses3); ++it, ++index)
 	{
 		const num64 p = it.Get();
+		privPrimeReciprocals[index].Init(p);
+		privNextPrimeShifts[index - 1] = static_cast<byte>(p - prev_p);
+		prev_p = p;
+
 		const num64 p_max = num64(-1) / p;
 
 		PRAGMA_WARNING(suppress : 4146)
