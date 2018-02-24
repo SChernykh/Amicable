@@ -13,6 +13,7 @@ const SumEstimateData* privSumEstimates[SumEstimatesSize];
 CACHE_ALIGNED num64 privSumEstimatesBeginP[SumEstimatesSize];
 CACHE_ALIGNED num64 privSumEstimatesBeginQ[SumEstimatesSize];
 std::vector<AmicableCandidate> privCandidatesData;
+std::pair<int, int> privCandidatesDataHighBitOffsets;
 CACHE_ALIGNED unsigned char privCandidatesDataMask[5 * 7 * 11];
 CACHE_ALIGNED std::pair<num64, num64> privPrimeInverses[ReciprocalsTableSize128];
 
@@ -241,13 +242,15 @@ NOINLINE void SearchCandidates(Factor* factors, const num64 value, const num64 s
 		num64 next_sum = sum * (f.p.Get() + 1);
 
 		f.k = 1;
-		f.p_inv128 = -modular_inverse128(f.p.Get());
+
+		PRAGMA_WARNING(suppress : 4146)
+		f.p_inv = (static_cast<unsigned int>(f.index) < ReciprocalsTableSize128) ? PrimeInverses[f.index].first : -modular_inverse64(f.p.Get());
 
 		for (;;)
 		{
 			if (next_sum - next_value >= next_value)
 			{
-				if (OverAbundant<2>(factors, depth, next_value, next_sum, 2))
+				if (OverAbundant64<2>(factors, depth, next_value, next_sum, 2))
 				{
 					goto next;
 				}
@@ -273,12 +276,39 @@ NOINLINE void SearchCandidates(Factor* factors, const num64 value, const num64 s
 
 NOINLINE void GenerateCandidates()
 {
-	privCandidatesData.reserve(std::min<num64>(178832709, g_LargestCandidate / 30));
+	size_t capacity = std::min<num64>(178832709, g_LargestCandidate / 30);
+	capacity = ((capacity / (4096 / AmicableCandidate::PackedSize)) + 1) * (4096 / AmicableCandidate::PackedSize);
+	privCandidatesData.reserve(capacity);
 
 	Factor factors[MaxPrimeFactors];
 	SearchCandidates(factors, 1, 1, 0);
 
-	std::sort(privCandidatesData.begin(), privCandidatesData.end(), [](const AmicableCandidate& a, const AmicableCandidate& b){ return a.value < b.value; });
+	std::sort(privCandidatesData.begin(), privCandidatesData.end(),
+		[](const AmicableCandidate& a, const AmicableCandidate& b)
+		{
+			if (a.high_bits != b.high_bits)
+			{
+				return a.high_bits < b.high_bits;
+			}
+			return a.value < b.value;
+		}
+	);
+
+	// Pack candidates
+	std::pair<unsigned int, unsigned int>* packedCandidates = reinterpret_cast<std::pair<unsigned int, unsigned int>*>(privCandidatesData.data());
+	int candidatesDataHighBitOffsets[4] = { -1, -1, -1, -1 };
+	for (size_t i = 0; i < privCandidatesData.size(); ++i)
+	{
+		const unsigned char high_bits = privCandidatesData[i].high_bits;
+		if (candidatesDataHighBitOffsets[high_bits] < 0)
+		{
+			candidatesDataHighBitOffsets[high_bits] = static_cast<int>(i);
+		}
+		packedCandidates[i].first = privCandidatesData[i].value;
+		packedCandidates[i].second = privCandidatesData[i].sum;
+	}
+	privCandidatesDataHighBitOffsets.first = (candidatesDataHighBitOffsets[2] >= 0) ? candidatesDataHighBitOffsets[2] : std::numeric_limits<int>::max();
+	privCandidatesDataHighBitOffsets.second = (candidatesDataHighBitOffsets[3] >= 0) ? candidatesDataHighBitOffsets[3] : std::numeric_limits<int>::max();
 }
 
 void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)

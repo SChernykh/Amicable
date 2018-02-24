@@ -60,7 +60,6 @@ struct SReciprocal
 		return highProduct >> shift;
 	}
 };
-#pragma pack(pop)
 
 extern CACHE_ALIGNED SReciprocal privPrimeReciprocals[ReciprocalsTableSize128];
 #define PrimeReciprocals ((const SReciprocal* const)(privPrimeReciprocals))
@@ -68,11 +67,30 @@ extern CACHE_ALIGNED SReciprocal privPrimeReciprocals[ReciprocalsTableSize128];
 struct AmicableCandidate
 {
 	AmicableCandidate() {}
-	AmicableCandidate(num64 _value, num64 _sum) : value(_value), sum(_sum) {}
+	AmicableCandidate(num64 _value, num64 _sum)
+	{
+		const num64 s = _sum - _value * 2;
+		if ((_value >= (num64(1) << 33)) || (s >= (num64(1) << 33)))
+		{
+			std::cerr << "Amicable candidate (" << _value << ',' << _sum << ") is too large" << std::endl;
+			abort();
+		}
+		value = static_cast<unsigned int>(_value);
+		sum = static_cast<unsigned int>(s);
+		high_bits = static_cast<unsigned char>(((_value >> 32) << 1) | (s >> 32));
+	}
 
-	num64 value;
-	num64 sum;
+	enum
+	{
+		// Size when high_bits are stored separately
+		PackedSize = sizeof(unsigned int) * 2,
+	};
+
+	unsigned int value;
+	unsigned int sum;
+	unsigned char high_bits;
 };
+#pragma pack(pop)
 
 struct InverseData128
 {
@@ -95,6 +113,7 @@ extern unsigned int PrimesCompactAllocationSize;
 extern PrimeCompactData* privPrimesCompact;
 extern unsigned int NumPrimes;
 extern std::vector<AmicableCandidate> privCandidatesData;
+extern std::pair<int, int> privCandidatesDataHighBitOffsets;
 extern CACHE_ALIGNED unsigned char privCandidatesDataMask[5 * 7 * 11];
 extern CACHE_ALIGNED std::pair<num64, num64> privPrimeInverses[ReciprocalsTableSize128];
 
@@ -107,6 +126,7 @@ extern CACHE_ALIGNED num64 privSumEstimates128[ReciprocalsTableSize128 / 16];
 
 #define PrimesCompact ((const PrimeCompactData* const)(privPrimesCompact))
 #define CandidatesData ((const std::vector<AmicableCandidate>&)(privCandidatesData))
+#define CandidatesDataHighBitOffsets ((const std::pair<int, int>&)(privCandidatesDataHighBitOffsets))
 #define CandidatesDataMask ((const unsigned char*)(privCandidatesDataMask))
 
 #define PrimeInverses ((const std::pair<num64, num64>*)(privPrimeInverses))
@@ -241,6 +261,7 @@ struct Factor
 	PrimeIterator p;
 	unsigned int k;
 	int index;
+	num64 p_inv;
 	num128 p_inv128;
 };
 
@@ -320,6 +341,71 @@ FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const num1
 	}
 
 	return (sum - value) * (sum_g - g) >= value * g;
+}
+
+template<num64 sum_coeff_max_factor>
+FORCEINLINE byte OverAbundant64(const Factor* f, int last_factor_index, const num64 value, const num64 sum, const num64 sum_coeff)
+{
+	num64 g = 1;
+	num64 sum_g = 1;
+	num64 sum_for_gcd = sum;
+
+	const Factor* last_factor = f + last_factor_index;
+
+	if (f->p.Get() == 2)
+	{
+		DWORD power_of_2;
+		_BitScanForward64(&power_of_2, sum_for_gcd);
+
+		IF_CONSTEXPR(sum_coeff_max_factor > 1)
+		{
+			DWORD power_of_2_sum_coeff;
+			_BitScanForward64(&power_of_2_sum_coeff, sum_coeff);
+			power_of_2 += power_of_2_sum_coeff;
+		}
+
+		const DWORD k = static_cast<DWORD>(f->k);
+		if (power_of_2 > k)
+		{
+			power_of_2 = k;
+		}
+		g <<= power_of_2;
+		sum_g <<= power_of_2;
+		sum_g = sum_g * 2 - 1;
+		++f;
+	}
+
+	while (f <= last_factor)
+	{
+		const num64 prev_sum_g = sum_g;
+		for (unsigned int j = 0; j < f->k; ++j)
+		{
+			const num64 q = sum_for_gcd * f->p_inv;
+			if (q >= sum_for_gcd)
+			{
+				static_assert(sum_coeff_max_factor <= 2, "The following code was commented because it's never used in OpenCL version");
+				//IF_CONSTEXPR(sum_coeff_max_factor > 2)
+				//{
+				//	if ((f->p.Get() <= sum_coeff_max_factor) && (sum_coeff * f->p_inv < sum_coeff))
+				//	{
+				//		g *= f->p.Get();
+				//		sum_g = sum_g * f->p.Get() + prev_sum_g;
+				//	}
+				//}
+				break;
+			}
+			sum_for_gcd = q;
+			g *= f->p.Get();
+			sum_g = sum_g * f->p.Get() + prev_sum_g;
+		}
+		++f;
+	}
+
+	num64 n1[2];
+	num64 n2[2];
+	n1[0] = _umul128(sum_g - g, sum - value, &n1[1]);
+	n2[0] = _umul128(g, value, &n2[1]);
+	return leq128(n2[0], n2[1], n1[0], n1[1]);
 }
 
 FORCEINLINE byte whole_branch_deficient(const num128& Limit, num128 value, num128 sum, const Factor* f)

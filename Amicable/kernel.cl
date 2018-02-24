@@ -336,7 +336,7 @@ static void CheckPairPhase1(
 				// Bit 2: divisibility for i == 13
 				// and so on ...
 				const uint num_leading_zeroes = clz(pattern);
-				pattern -= (1 << (31 - num_leading_zeroes));
+				pattern -= (1U << (31 - num_leading_zeroes));
 				const uint index = num_leading_zeroes - 16;
 
 				const ulong prevSumN = sumN;
@@ -426,7 +426,7 @@ static void CheckPairPhase1(
 					// Bit 2: divisibility for i - 3
 					// and so on ...
 					const uint num_leading_zeroes = clz(pattern);
-					pattern -= (1 << (31 - num_leading_zeroes));
+					pattern -= (1U << (31 - num_leading_zeroes));
 					const uint index = i + num_leading_zeroes - 32;
 
 					const ulong prevSumN = sumN;
@@ -550,8 +550,8 @@ void CheckPairPhase2(
 	int i = cur_number.w & ((1 << 18) - 1);
 	int k = (cur_number.w >> 18) & ((1 << 4) - 1);
 
-	const ulong M_high = (cur_number.w >> 22) & ((1 << 14) - 1);
-	ulong N_high = (cur_number.w >> 36) & ((1 << 14) - 1);
+	const ulong M_high = (cur_number.w >> 22) & ((1U << 14) - 1);
+	ulong N_high = (cur_number.w >> 36) & ((1U << 14) - 1);
 	ulong targetSumHigh = cur_number.w >> 50;
 
 	if (targetSumHigh)
@@ -718,7 +718,7 @@ void CheckPairPhase2(
 					// Bit 2: divisibility for i - 3
 					// and so on ...
 					const uint num_leading_zeroes = clz(pattern);
-					pattern -= (1 << (31 - num_leading_zeroes));
+					pattern -= (1U << (31 - num_leading_zeroes));
 					const uint index = i + num_leading_zeroes - 32;
 
 					const ulong prevSumN = sumN;
@@ -884,8 +884,8 @@ void CheckPairPhase3(
 
 	int i = cur_number.w & ((1 << 22) - 1);
 
-	const ulong M_high = (cur_number.w >> 22) & ((1 << 14) - 1);
-	ulong N_high = (cur_number.w >> 36) & ((1 << 14) - 1);
+	const ulong M_high = (cur_number.w >> 22) & ((1U << 14) - 1);
+	ulong N_high = (cur_number.w >> 36) & ((1U << 14) - 1);
 	ulong targetSumHigh = cur_number.w >> 50;
 
 	if (targetSumHigh)
@@ -1082,7 +1082,7 @@ void CheckPairPhase3(
 				// Bit 2: divisibility for i - 3
 				// and so on ...
 				const uint num_leading_zeroes = clz(pattern);
-				pattern -= (1 << (31 - num_leading_zeroes));
+				pattern -= (1U << (31 - num_leading_zeroes));
 				const uint index = i + num_leading_zeroes - 32;
 
 				const ulong prevSumN = sumN;
@@ -1249,7 +1249,7 @@ static ulong GetNthPrime(uint n,
 #endif
 	}
 
-	const uint chunk_offset = global_offset & ((1 << (CHUNK_SIZE_SHIFT - 3)) - 1);
+	const uint chunk_offset = global_offset & ((1U << (CHUNK_SIZE_SHIFT - 3)) - 1);
 	const uint2 data = chunk[chunk_offset];
 #endif
 
@@ -1400,42 +1400,43 @@ void SearchLargePrimes(
 	const uint largePrimesCountIncrementAndShift,
 	const ulong global_offset,
 	const ulong global_size,
+	const int2 candidatesDataHighBitOffsets,
 	__global ulong* phase1_offset_to_resume_after_overflow,
 	__global uint* phase2_numbers_count,
 	__global ulong4* phase2_numbers_data,
 	__global uint* amicable_numbers_count,
 	__global ulong4* amicable_numbers_data,
 
-	__global ulong2* amicableCandidates0
+	__global uint2* amicableCandidates0
 #if NUM_DATA_CHUNKS > 1
-	, __global ulong2* amicableCandidates1
+	, __global uint2* amicableCandidates1
 #endif
 #if NUM_DATA_CHUNKS > 2
-	, __global ulong2* amicableCandidates2
+	, __global uint2* amicableCandidates2
 #endif
 #if NUM_DATA_CHUNKS > 3
-	, __global ulong2* amicableCandidates3
+	, __global uint2* amicableCandidates3
 #endif
 #if NUM_DATA_CHUNKS > 4
-	, __global ulong2* amicableCandidates4
+	, __global uint2* amicableCandidates4
 #endif
 #if NUM_DATA_CHUNKS > 5
-	, __global ulong2* amicableCandidates5
+	, __global uint2* amicableCandidates5
 #endif
 #if NUM_DATA_CHUNKS > 6
-	, __global ulong2* amicableCandidates6
+	, __global uint2* amicableCandidates6
 #endif
 #if NUM_DATA_CHUNKS > 7
-	, __global ulong2* amicableCandidates7
+	, __global uint2* amicableCandidates7
 #endif
 #if NUM_DATA_CHUNKS > 8
-	, __global ulong2* amicableCandidates8
+	, __global uint2* amicableCandidates8
 #endif
 #if NUM_DATA_CHUNKS > 9
-	, __global ulong2* amicableCandidates9
+	, __global uint2* amicableCandidates9
 #endif
 #if NUM_DATA_CHUNKS > 10
-	, __global ulong2* amicableCandidates10
+	, __global uint2* amicableCandidates10
 #endif
 )
 {
@@ -1466,9 +1467,9 @@ void SearchLargePrimes(
 	}
 
 #if NUM_DATA_CHUNKS == 1
-	const ulong2 value = amicableCandidates0[amicableCandidateIndex];
+	const uint2 value = amicableCandidates0[amicableCandidateIndex];
 #else
-	__global const ulong2* chunk;
+	__global const uint2* chunk;
 	switch (amicableCandidateIndex >> (CHUNK_SIZE_SHIFT - 4))
 	{
 	default: chunk = amicableCandidates0; break;
@@ -1503,9 +1504,16 @@ void SearchLargePrimes(
 	case 10: chunk = amicableCandidates10; break;
 #endif
 	}
-	const uint chunk_offset = amicableCandidateIndex & ((1 << (CHUNK_SIZE_SHIFT - 4)) - 1);
-	const ulong2 value = chunk[chunk_offset];
+	const uint chunk_offset = amicableCandidateIndex & ((1U << (CHUNK_SIZE_SHIFT - 4)) - 1);
+	const uint2 value = chunk[chunk_offset];
 #endif
+
+	ulong value_ulong = value.x;
+	ulong sum_ulong = value.y;
+
+	if (amicableCandidateIndex >= candidatesDataHighBitOffsets.x) value_ulong |= 0x100000000UL;
+	if (amicableCandidateIndex >= candidatesDataHighBitOffsets.y) sum_ulong |= 0x100000000UL;
+	sum_ulong += value_ulong * 2;
 
 	const ulong p = largePrimes[largePrimeIndex];
 
@@ -1518,7 +1526,7 @@ void SearchLargePrimes(
 		PowersOfP_128SumInverses,
 		PrimeInverses_128,
 		SumEstimates_128,
-		value.x * p, mul_hi(value.x, p), value.y * (p + 1), mul_hi(value.y, p + 1),
+		value_ulong * p, mul_hi(value_ulong, p), sum_ulong * (p + 1), mul_hi(sum_ulong, p + 1),
 		global_offset,
 		phase1_offset_to_resume_after_overflow,
 		phase2_numbers_count,

@@ -338,7 +338,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 
 	const bool IsLargePrimes = (startPrime && primeLimit);
 	const unsigned char* MainBufferData = IsLargePrimes ? reinterpret_cast<const unsigned char*>(CandidatesData.data()) : reinterpret_cast<const unsigned char*>(PrimesCompact);
-	const unsigned int MainBufferSize = IsLargePrimes ? static_cast<unsigned int>(CandidatesData.capacity() * sizeof(AmicableCandidate)) : PrimesCompactAllocationSize;
+	const unsigned int MainBufferSize = IsLargePrimes ? static_cast<unsigned int>(CandidatesData.capacity() * AmicableCandidate::PackedSize) : PrimesCompactAllocationSize;
 
 	// Try to create a single continuous buffer for storing prime numbers
 	// Even though its size is bigger than CL_DEVICE_MAX_MEM_ALLOC_SIZE for many devices,
@@ -600,6 +600,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 			0U,
 			0ULL,
 			0ULL,
+			CandidatesDataHighBitOffsets,
 			myPhase1_offset_to_resume_buf,
 			myPhase2_numbers_count_buf,
 			myPhase2_numbers_buf,
@@ -609,7 +610,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 
 		for (num64 i = 0; i < myMainBuffers.size(); ++i)
 		{
-			CL_CHECKED_CALL(clSetKernelArg, mySearchLargePrimes, static_cast<cl_uint>(i + 19), sizeof(cl_mem), &myMainBuffers[i]);
+			CL_CHECKED_CALL(clSetKernelArg, mySearchLargePrimes, static_cast<cl_uint>(i + 20), sizeof(cl_mem), &myMainBuffers[i]);
 		}
 	}
 	else
@@ -928,7 +929,7 @@ bool OpenCL::ProcessLargePrimes()
 			LargePrimesCountIncrementAndShift = index;
 		}
 
-		const num64 LargestCandidate = LowWord(SearchLimit::value / myLargePrimes[0]);
+		const num64 LargestCandidate = LowWord(SearchLimit::value / FirstPrime);
 		auto it = std::lower_bound(CandidatesData.begin(), CandidatesData.end(), LargestCandidate, [](const AmicableCandidate& a, num64 b) { return a.value <= b; });
 		const num64 CandidatesCount = static_cast<num64>(it - CandidatesData.begin());
 
@@ -1206,7 +1207,7 @@ bool OpenCL::Test()
 
 	struct TmpBuf
 	{
-		explicit TmpBuf(cl_context gpuContext) { mem = clCreateBuffer(gpuContext, CL_MEM_READ_WRITE, sizeof(num64) * 4 * 3000000, 0, nullptr); }
+		explicit TmpBuf(cl_context gpuContext) { mem = clCreateBuffer(gpuContext, CL_MEM_READ_WRITE, sizeof(num64) * 4 * 5000000, 0, nullptr); }
 		~TmpBuf() { clReleaseMemObject(mem); }
 
 		operator cl_mem() { return mem; }
