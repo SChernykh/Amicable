@@ -294,10 +294,14 @@ NOINLINE num64 GetMaxSumRatio(const PrimeIterator& p, const num128 limit)
 }
 
 AmicableCandidate::AmicableCandidate(num64 _value, num64 _sum, unsigned char _is_over_abundant_mask)
-	: value(_value)
-	, sum(_sum - _value * 2)
-	, is_over_abundant_mask(_is_over_abundant_mask)
 {
+	value_low = static_cast<unsigned int>(_value);
+	value_high = static_cast<unsigned short>(_value >> 32);
+
+	sum_low = static_cast<unsigned int>(_sum);
+	sum_high = static_cast<unsigned short>(_sum >> 32);
+
+	is_over_abundant_mask = _is_over_abundant_mask;
 }
 
 static num64 g_MaxPrime;
@@ -308,13 +312,16 @@ NOINLINE void SearchCandidates(Factor* factors, const num64 value, const num64 s
 	if (sum - value >= value)
 	{
 		unsigned char is_over_abundant_mask = 0;
-		is_over_abundant_mask |= OverAbundant<5>(factors, depth - 1, value, sum, 2 * 5) << 1;
-		is_over_abundant_mask |= OverAbundant<7>(factors, depth - 1, value, sum, 2 * 7) << 2;
-		is_over_abundant_mask |= OverAbundant<11>(factors, depth - 1, value, sum, 2 * 11) << 4;
-		is_over_abundant_mask |= (((is_over_abundant_mask & 0x06) || OverAbundant<7>(factors, depth - 1, value, sum, 2 * 5 * 7)) ? byte(1) : byte(0)) << 3;
-		is_over_abundant_mask |= (((is_over_abundant_mask & 0x12) || OverAbundant<11>(factors, depth - 1, value, sum, 2 * 5 * 11)) ? byte(1) : byte(0)) << 5;
-		is_over_abundant_mask |= (((is_over_abundant_mask & 0x14) || OverAbundant<11>(factors, depth - 1, value, sum, 2 * 7 * 11)) ? byte(1) : byte(0)) << 6;
-		is_over_abundant_mask |= (((is_over_abundant_mask & 0x7E) || OverAbundant<11>(factors, depth - 1, value, sum, 2 * 5 * 7 * 11)) ? byte(1) : byte(0)) << 7;
+		if (OverAbundant64<11>(factors, depth - 1, value, sum, 2 * 5 * 7 * 11))
+		{
+			is_over_abundant_mask |= byte(1) << 7;
+			is_over_abundant_mask |= OverAbundant64<5>(factors, depth - 1, value, sum, 2 * 5) << 1;
+			is_over_abundant_mask |= OverAbundant64<7>(factors, depth - 1, value, sum, 2 * 7) << 2;
+			is_over_abundant_mask |= OverAbundant64<11>(factors, depth - 1, value, sum, 2 * 11) << 4;
+			is_over_abundant_mask |= (((is_over_abundant_mask & 0x06) || OverAbundant64<7>(factors, depth - 1, value, sum, 2 * 5 * 7)) ? byte(1) : byte(0)) << 3;
+			is_over_abundant_mask |= (((is_over_abundant_mask & 0x12) || OverAbundant64<11>(factors, depth - 1, value, sum, 2 * 5 * 11)) ? byte(1) : byte(0)) << 5;
+			is_over_abundant_mask |= (((is_over_abundant_mask & 0x14) || OverAbundant64<11>(factors, depth - 1, value, sum, 2 * 7 * 11)) ? byte(1) : byte(0)) << 6;
+		}
 
 		privCandidatesData.emplace_back(value, sum, is_over_abundant_mask);
 	}
@@ -359,17 +366,14 @@ NOINLINE void SearchCandidates(Factor* factors, const num64 value, const num64 s
 
 		f.k = 1;
 
-		const int index_inv128 = f.index - 1;
-		if (index_inv128 >= 0)
-		{
-			f.p_inv128 = (static_cast<unsigned int>(index_inv128) < ReciprocalsTableSize128) ? PrimeInverses128[index_inv128] : -modular_inverse128(f.p.Get());
-		}
+		PRAGMA_WARNING(suppress : 4146)
+		f.p_inv = (static_cast<unsigned int>(f.index) < ReciprocalsTableSize) ? PrimeInverses3[f.index] : -modular_inverse64(f.p.Get());
 
 		for (;;)
 		{
 			if (next_sum - next_value >= next_value)
 			{
-				if (OverAbundant<2>(factors, depth, next_value, next_sum, 2))
+				if (OverAbundant64<2>(factors, depth, next_value, next_sum, 2))
 				{
 					goto next;
 				}
@@ -400,7 +404,7 @@ NOINLINE void GenerateCandidates()
 	Factor factors[MaxPrimeFactors];
 	SearchCandidates(factors, 1, 1, 0);
 
-	std::sort(privCandidatesData.begin(), privCandidatesData.end(), [](const AmicableCandidate& a, const AmicableCandidate& b){ return a.value < b.value; });
+	std::sort(privCandidatesData.begin(), privCandidatesData.end());
 }
 
 void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)

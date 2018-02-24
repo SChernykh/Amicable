@@ -128,9 +128,9 @@ NOINLINE bool TestAmicableCandidates()
 			}
 			auto it = std::lower_bound(CandidatesData.begin(), CandidatesData.end(), m, [](const AmicableCandidate& a, num128 b)
 			{
-				return b > a.value;
+				return b > a.GetValue();
 			});
-			if ((it == CandidatesData.end()) || (m != it->value))
+			if ((it == CandidatesData.end()) || (m != it->GetValue()))
 			{
 				std::cerr << "LinearSearchData doesn't include " << m << " as a valid amicable candidate" << std::endl;
 				return false;

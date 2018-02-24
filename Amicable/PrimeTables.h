@@ -71,11 +71,27 @@ struct AmicableCandidate
 	AmicableCandidate() {}
 	AmicableCandidate(num64 _value, num64 _sum, unsigned char _is_over_abundant_mask);
 
-	num64 value;
-	num64 sum : 56;
-	num64 is_over_abundant_mask : 8;
+	FORCEINLINE num64 GetValue() const { return (static_cast<num64>(value_high) << 32) + value_low; }
+	FORCEINLINE num64 GetSum() const { return (static_cast<num64>(sum_high) << 32) + sum_low; }
+
+	FORCEINLINE bool operator<(const AmicableCandidate& r) const
+	{
+		if (value_high != r.value_high)
+		{
+			return value_high < r.value_high;
+		}
+		return value_low < r.value_low;
+	}
+
+	unsigned int value_low;
+	unsigned int sum_low;
+	unsigned short value_high : 4;
+	unsigned short sum_high : 4;
+	unsigned short is_over_abundant_mask : 8;
 };
 #pragma pack(pop)
+
+static_assert(sizeof(AmicableCandidate) == sizeof(unsigned int) * 2 + sizeof(unsigned short), "AmicableCandidate size is incorrect");
 
 struct InverseData128
 {
@@ -297,6 +313,7 @@ struct Factor
 	PrimeIterator p;
 	unsigned int k;
 	int index;
+	num64 p_inv;
 	num128 p_inv128;
 };
 
@@ -375,6 +392,70 @@ FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const num1
 	}
 
 	return (sum - value) * (sum_g - g) >= value * g;
+}
+
+template<num64 sum_coeff_max_factor>
+FORCEINLINE byte OverAbundant64(const Factor* f, int last_factor_index, const num64 value, const num64 sum, const num64 sum_coeff)
+{
+	num64 g = 1;
+	num64 sum_g = 1;
+	num64 sum_for_gcd = sum;
+
+	const Factor* last_factor = f + last_factor_index;
+
+	if (f->p.Get() == 2)
+	{
+		DWORD power_of_2;
+		_BitScanForward64(&power_of_2, sum_for_gcd);
+
+		IF_CONSTEXPR(sum_coeff_max_factor > 1)
+		{
+			DWORD power_of_2_sum_coeff;
+			_BitScanForward64(&power_of_2_sum_coeff, sum_coeff);
+			power_of_2 += power_of_2_sum_coeff;
+		}
+
+		const DWORD k = static_cast<DWORD>(f->k);
+		if (power_of_2 > k)
+		{
+			power_of_2 = k;
+		}
+		g <<= power_of_2;
+		sum_g <<= power_of_2;
+		sum_g = sum_g * 2 - 1;
+		++f;
+	}
+
+	while (f <= last_factor)
+	{
+		const num64 prev_sum_g = sum_g;
+		for (unsigned int j = 0; j < f->k; ++j)
+		{
+			const num64 q = sum_for_gcd * f->p_inv;
+			if (q >= sum_for_gcd)
+			{
+				IF_CONSTEXPR(sum_coeff_max_factor > 2)
+				{
+					if ((f->p.Get() <= sum_coeff_max_factor) && (sum_coeff * f->p_inv < sum_coeff))
+					{
+						g *= f->p.Get();
+						sum_g = sum_g * f->p.Get() + prev_sum_g;
+					}
+				}
+				break;
+			}
+			sum_for_gcd = q;
+			g *= f->p.Get();
+			sum_g = sum_g * f->p.Get() + prev_sum_g;
+		}
+		++f;
+	}
+
+	num64 n1[2];
+	num64 n2[2];
+	n1[0] = _umul128(sum_g - g, sum - value, &n1[1]);
+	n2[0] = _umul128(g, value, &n2[1]);
+	return leq128(n2[0], n2[1], n1[0], n1[1]);
 }
 
 FORCEINLINE byte whole_branch_deficient(const num128& Limit, num128 value, num128 sum, const Factor* f)

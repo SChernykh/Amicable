@@ -996,7 +996,7 @@ namespace primesieve
 			auto it = std::lower_bound(CandidatesData.begin(), CandidatesData.end(), rangeBegin, [](const AmicableCandidate& candidate, num64 k)
 			{
 				num64 m_hi;
-				const num64 m_lo = _umul128(k, candidate.value, &m_hi);
+				const num64 m_lo = _umul128(k, candidate.GetValue(), &m_hi);
 				return (SearchLimit::value > CombineNum128(m_lo, m_hi));
 			});
 			last_candidate = CandidatesData.data() + (it - CandidatesData.begin()) - 1;
@@ -1016,7 +1016,7 @@ namespace primesieve
 					while (last_candidate >= CandidatesData.data())
 					{
 						num64 m_hi;
-						const num64 m_lo = _umul128(curPrime, last_candidate->value, &m_hi);
+						const num64 m_lo = _umul128(curPrime, last_candidate->GetValue(), &m_hi);
 						if (SearchLimit::value > CombineNum128(m_lo, m_hi))
 						{
 							break;
@@ -1028,7 +1028,7 @@ namespace primesieve
 					{
 						if ((candidate->is_over_abundant_mask & mask) == 0)
 						{
-							CheckPair128NoInline(num128(candidate->value) * curPrime, num128(candidate->sum + candidate->value * 2) * (curPrime + 1));
+							CheckPair128NoInline(num128(candidate->GetValue()) * curPrime, num128(candidate->GetSum()) * (curPrime + 1));
 						}
 					}
 				}
