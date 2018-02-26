@@ -412,7 +412,7 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 		if (value_to_check < SearchLimit::value)
 		{
 			// Skip overabundant numbers
-			const bool is_deficient = (s->sum - s->value < s->value);
+			const byte is_deficient = (s->sum - s->value < s->value);
 			if (is_deficient || !OverAbundant<2>(factors, static_cast<int>(numFactors) - 1, s->value, s->sum, static_cast<num64>((cur_largest_prime_power & 1) ? 2 : 1)))
 			{
 				if (!is_deficient || (s->sum * sum_q - value_to_check > value_to_check))
