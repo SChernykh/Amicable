@@ -85,9 +85,9 @@ struct MainPrimeTableInitializer
 	}
 };
 
-static NOINLINE void CalculateMainPrimeTable()
+static NOINLINE void CalculateMainPrimeTable(num64 maxPrime)
 {
-	const num64 upperBound = ((SearchLimit::MainPrimeTableBound / PrimeTableParameters::Modulo) + 10) * PrimeTableParameters::Modulo;
+	const num64 upperBound = ((maxPrime / PrimeTableParameters::Modulo) + 10) * PrimeTableParameters::Modulo;
 	MainPrimeTableInitializer p;
 	primesieve::PrimeSieve sieve;
 	sieve.sieveTemplated(0, upperBound, p);
@@ -323,7 +323,23 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 		bitMask[NumbersCoprimeToModulo[b]] = ~(1ULL << b);
 	}
 
-	const double nPrimesBound = static_cast<double>((SearchLimit::MainPrimeTableBound < 100000) ? 100000 : SearchLimit::MainPrimeTableBound);
+	if ((startPrime && primeLimit) || !stopAt)
+	{
+		g_LargestCandidate = LowWord(SearchLimit::value / std::max<num64>(SearchLimit::LinearLimit, startPrime));
+		g_MaxPrime = g_LargestCandidate / 4;
+	}
+	else
+	{
+		g_MaxPrime = SearchLimit::MainPrimeTableBound;
+	}
+
+	// We need to know primes at least up to the cube root of the limit to calculate reciprocals
+	double nPrimesBound = pow(Num128ToDouble(SearchLimit::value), 1.0 / 3.0) + 1e4;
+	if (nPrimesBound < g_MaxPrime)
+	{
+		nPrimesBound = static_cast<double>(g_MaxPrime);
+	}
+
 	unsigned int numPrimesEstimate = static_cast<unsigned int>(nPrimesBound / (log(nPrimesBound) - 1.1));
 	PrimesCompactAllocationSize = numPrimesEstimate * 2;
 	PrimesCompactAllocationSize = ((PrimesCompactAllocationSize / 4096) + 1) * 4096;
@@ -338,7 +354,7 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 		privCandidatesDataMask[i] = static_cast<byte>(1 << index);
 	}
 
-	CalculateMainPrimeTable();
+	CalculateMainPrimeTable(static_cast<num64>(nPrimesBound));
 
 	num128 curPowerOf2 = 4;
 	for (num64 i = 1; i < 128; ++i, curPowerOf2 += curPowerOf2)
@@ -431,8 +447,6 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 	// It's a great speed-up compared to the recursive search
 	if ((startPrime && primeLimit) || !stopAt)
 	{
-		g_LargestCandidate = LowWord(SearchLimit::value / std::max<num64>(SearchLimit::LinearLimit, startPrime));
-		g_MaxPrime = g_LargestCandidate / 4;
 		GenerateCandidates();
 	}
 
@@ -449,7 +463,7 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 		const num64 result = _umul128(a, b, &h);
 		return h ? num64(-1) : result;
 	};
-	for (num64 i = 0; (i < SumEstimatesSize2) && (p.Get() <= std::max<num64>(SearchLimit::MainPrimeTableBound, CompileTimePrimes<CompileTimePrimesCount>::value)); ++i, ++p)
+	for (num64 i = 0; (i < SumEstimatesSize2) && (p.Get() <= std::max<num64>(g_MaxPrime, CompileTimePrimes<CompileTimePrimesCount>::value)); ++i, ++p)
 	{
 		num64 j = 1;
 		PrimeIterator q(p);
@@ -458,7 +472,7 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 		PQ[0][i].first = p.Get();
 		PQ[0][i].second = GetMaxSumRatio(prevP, MultiplyWithSaturation(p.Get(), q.Get()));
 
-		for (; (j < SumEstimatesSize) && (q.Get() <= std::max<num64>(SearchLimit::MainPrimeTableBound, CompileTimePrimes<CompileTimePrimesCount>::value)); ++j)
+		for (; (j < SumEstimatesSize) && (q.Get() <= std::max<num64>(g_MaxPrime, CompileTimePrimes<CompileTimePrimesCount>::value)); ++j)
 		{
 			num64 highProductP;
 			const num64 mulP = _umul128(PQ[j - 1][i].first, q.Get(), &highProductP);
