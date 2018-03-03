@@ -1511,8 +1511,10 @@ void SearchLargePrimes(
 	ulong value_ulong = value.x;
 	ulong sum_ulong = value.y;
 
-	if (amicableCandidateIndex >= candidatesDataHighBitOffsets.x) value_ulong |= 0x100000000UL;
-	if (amicableCandidateIndex >= candidatesDataHighBitOffsets.y) sum_ulong |= 0x100000000UL;
+	const uint high_bit_offset_value = candidatesDataHighBitOffsets.x;
+	const uint high_bit_offset_sum = candidatesDataHighBitOffsets.y;
+	if (amicableCandidateIndex >= high_bit_offset_value) value_ulong |= 0x100000000UL;
+	if (amicableCandidateIndex >= high_bit_offset_sum) sum_ulong |= 0x100000000UL;
 	sum_ulong += value_ulong * 2;
 
 	const ulong p = largePrimes[largePrimeIndex];

@@ -1513,8 +1513,10 @@ static const char* kernel_cl = "#pragma OPENCL EXTENSION cl_khr_global_int32_bas
 "	ulong value_ulong = value.x;\n"\
 "	ulong sum_ulong = value.y;\n"\
 "\n"\
-"	if (amicableCandidateIndex >= candidatesDataHighBitOffsets.x) value_ulong |= 0x100000000UL;\n"\
-"	if (amicableCandidateIndex >= candidatesDataHighBitOffsets.y) sum_ulong |= 0x100000000UL;\n"\
+"	const uint high_bit_offset_value = candidatesDataHighBitOffsets.x;\n"\
+"	const uint high_bit_offset_sum = candidatesDataHighBitOffsets.y;\n"\
+"	if (amicableCandidateIndex >= high_bit_offset_value) value_ulong |= 0x100000000UL;\n"\
+"	if (amicableCandidateIndex >= high_bit_offset_sum) sum_ulong |= 0x100000000UL;\n"\
 "	sum_ulong += value_ulong * 2;\n"\
 "\n"\
 "	const ulong p = largePrimes[largePrimeIndex];\n"\
@@ -1566,4 +1568,4 @@ static const char* kernel_cl = "#pragma OPENCL EXTENSION cl_khr_global_int32_bas
 "}\n"\
 "";
 
-static const unsigned int kernel_cl_crc32 = 0x8420ea28;
+static const unsigned int kernel_cl_crc32 = 0xc6628703;
