@@ -117,15 +117,17 @@ NOINLINE Semaphore::Semaphore() : mySemaphore(SEM_FAILED)
 	current_utc_time(&ts);
 	const double cur_timestamp = ts.tv_sec + ts.tv_nsec / 1e9;
 
+	int error_code = 0;
 	for (unsigned int counter = 0; mySemaphore == SEM_FAILED; ++counter)
 	{
 		if (counter > 1000)
 		{
-			std::cerr << "Failed to create semaphore \"" << myName << "\", errno " << errno << std::endl;
+			std::cerr << "Failed to create semaphore \"" << myName << "\", errno " << error_code << std::endl;
 			boinc_finish(-1);
 		}
-		sprintf_s(myName, "/amicable_semaphore_%.9f_%u", cur_timestamp, counter);
+		sprintf_s(myName, "/amic_%.6f_%u", cur_timestamp, counter);
 		mySemaphore = sem_open(myName, O_CREAT | O_EXCL, S_IWUSR | S_IRUSR | S_IRGRP | S_IROTH, 0);
+		error_code = errno;
 	}
 }
 
