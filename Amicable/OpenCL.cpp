@@ -861,13 +861,15 @@ NOINLINE void OpenCL::PassLargePrimesToThread()
 {
 	if (!myLargePrimesReady.Signal())
 	{
-		LOG_ERROR("Failed to signal semaphore");
+		const int error_code = errno;
+		LOG_ERROR("Failed to signal semaphore, errno " << error_code);
 		boinc_finish(-1);
 	}
 
 	if (!myLargePrimesReceived.Wait())
 	{
-		LOG_ERROR("Failed to wait for semaphore");
+		const int error_code = errno;
+		LOG_ERROR("Failed to wait for semaphore, errno " << error_code);
 		boinc_finish(-1);
 	}
 
@@ -892,7 +894,8 @@ bool OpenCL::ProcessLargePrimes()
 		{
 			if (!myLargePrimesReceived.Signal())
 			{
-				LOG_ERROR("Failed to signal semaphore");
+				const int error_code = errno;
+				LOG_ERROR("Failed to signal semaphore, errno " << error_code);
 				return false;
 			}
 			return true;
@@ -906,7 +909,8 @@ bool OpenCL::ProcessLargePrimes()
 
 		if (!myLargePrimesReceived.Signal())
 		{
-			LOG_ERROR("Failed to signal semaphore");
+			const int error_code = errno;
+			LOG_ERROR("Failed to signal semaphore, errno " << error_code);
 			return false;
 		}
 
@@ -1034,7 +1038,8 @@ bool OpenCL::ProcessLargePrimes()
 		} while (global_offset < TotalNumbersToCheck);
 	}
 
-	LOG_ERROR("Failed to wait for semaphore");
+	const int error_code = errno;
+	LOG_ERROR("Failed to wait for semaphore, errno " << error_code);
 	return false;
 }
 

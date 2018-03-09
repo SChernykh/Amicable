@@ -126,7 +126,7 @@ NOINLINE Semaphore::Semaphore() : mySemaphore(SEM_FAILED)
 			boinc_finish(-1);
 		}
 		sprintf_s(myName, "/amic_%.6f_%u", cur_timestamp, counter);
-		mySemaphore = sem_open(myName, O_CREAT | O_EXCL, S_IWUSR | S_IRUSR | S_IRGRP | S_IROTH, 0);
+		mySemaphore = sem_open(myName, O_CREAT | O_EXCL, S_IRWXU, 0);
 		error_code = errno;
 	}
 }
