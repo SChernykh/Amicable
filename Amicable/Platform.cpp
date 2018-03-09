@@ -1,6 +1,12 @@
 #include "stdafx.h"
 #include "Platform.h"
 
+PRAGMA_WARNING(push, 1)
+PRAGMA_WARNING(disable : 4091 4917 4625 4626 5026 5027)
+#include <boinc_api.h>
+#include <diagnostics.h>
+PRAGMA_WARNING(pop)
+
 // Platform/compiler-dependent code must be here
 
 #ifdef _MSC_VER // MSVC & Windows
@@ -109,7 +115,7 @@ NOINLINE Semaphore::Semaphore() : mySemaphore(SEM_FAILED)
 {
 	timespec ts;
 	current_utc_time(&ts);
-	const double cur_timestamp = ts->tv_sec + ts->tv_nsec / 1e9;
+	const double cur_timestamp = ts.tv_sec + ts.tv_nsec / 1e9;
 
 	for (unsigned int counter = 0; mySemaphore == SEM_FAILED; ++counter)
 	{
