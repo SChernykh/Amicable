@@ -156,14 +156,15 @@ FORCEINLINE void HiResSleep(const double ms)
 class Semaphore
 {
 public:
-	FORCEINLINE Semaphore() { sem_init(&mySemaphore, 0, 0); }
-	FORCEINLINE ~Semaphore() { sem_destroy(&mySemaphore); }
+	Semaphore();
+	FORCEINLINE ~Semaphore() { sem_close(mySemaphore); sem_unlink(myName); }
 
-	FORCEINLINE bool Signal() { return (sem_post(&mySemaphore) == 0); }
-	FORCEINLINE bool Wait() { return (sem_wait(&mySemaphore) == 0); }
+	FORCEINLINE bool Signal() { return (sem_post(mySemaphore) == 0); }
+	FORCEINLINE bool Wait() { return (sem_wait(mySemaphore) == 0); }
 
 private:
-	sem_t mySemaphore;
+	char myName[NAME_MAX];
+	sem_t* mySemaphore;
 };
 
 FORCEINLINE void* AllocateSystemMemory(num64 size, bool is_executable)

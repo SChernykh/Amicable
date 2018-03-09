@@ -103,4 +103,26 @@ void HiResSleep(const double ms)
 	}
 }
 
+#elif __GNUG__ // Linux, Mac OS
+
+NOINLINE Semaphore::Semaphore() : mySemaphore(SEM_FAILED)
+{
+	timespec ts;
+	current_utc_time(&ts);
+	const double cur_timestamp = ts->tv_sec + ts->tv_nsec / 1e9;
+
+	for (unsigned int counter = 0; mySemaphore == SEM_FAILED; ++counter)
+	{
+		if (counter > 1000)
+		{
+			std::cerr << "Failed to create semaphore \"" << myName << "\", errno " << errno << std::endl;
+			boinc_finish(-1);
+		}
+		sprintf_s(myName, "/amicable_semaphore_%.9f_%u", cur_timestamp, counter);
+		mySemaphore = sem_open(myName, O_CREAT | O_EXCL, S_IWUSR | S_IRUSR | S_IRGRP | S_IROTH, 0);
+	}
+}
+
+#else
+static_assert(false, "This compiler is not supported");
 #endif
