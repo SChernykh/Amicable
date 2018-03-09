@@ -160,7 +160,22 @@ public:
 	FORCEINLINE ~Semaphore() { sem_close(mySemaphore); sem_unlink(myName); }
 
 	FORCEINLINE bool Signal() { return (sem_post(mySemaphore) == 0); }
-	FORCEINLINE bool Wait() { return (sem_wait(mySemaphore) == 0); }
+
+	FORCEINLINE bool Wait()
+	{
+		while (sem_wait(mySemaphore))
+		{
+			if (errno == EINTR)
+			{
+				errno = 0;
+			}
+			else
+			{
+				return false;
+			}
+		}
+		return true;
+	}
 
 private:
 	char myName[NAME_MAX];
