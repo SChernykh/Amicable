@@ -934,8 +934,32 @@ bool OpenCL::ProcessLargePrimes()
 		}
 
 		const num64 LargestCandidate = LowWord(SearchLimit::value / FirstPrime);
-		auto it = std::lower_bound(CandidatesData.begin(), CandidatesData.end(), LargestCandidate, [](const AmicableCandidate& a, num64 b) { return a.value <= b; });
-		const num64 CandidatesCount = static_cast<num64>(it - CandidatesData.begin());
+		num64 CandidatesCount;
+		{
+			const std::pair<unsigned int, unsigned int>* packedCandidates = reinterpret_cast<const std::pair<unsigned int, unsigned int>*>(CandidatesData.data());
+			int a = 0;
+			int b = static_cast<int>(CandidatesData.size());
+			while (a < b)
+			{
+				const int c = (a + b) >> 1;
+
+				num64 value = packedCandidates[c].first;
+				if (c >= CandidatesDataHighBitOffsets.first)
+				{
+					value |= 0x100000000ULL;
+				}
+
+				if (value <= LargestCandidate)
+				{
+					a = c + 1;
+				}
+				else
+				{
+					b = c;
+				}
+			}
+			CandidatesCount = static_cast<num64>(a);
+		}
 
 		const num64 TotalNumbersToCheck = CandidatesCount * LargePrimesCount;
 
