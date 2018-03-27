@@ -51,6 +51,9 @@ FORCEINLINE num64 _rotr64(num64 value, int shift)
 #include <unistd.h>
 #include <limits.h>
 #include <semaphore.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #define CRITICAL_SECTION pthread_mutex_t
 
