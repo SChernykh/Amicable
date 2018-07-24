@@ -437,6 +437,11 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 		nPrimesBound = static_cast<double>(g_MaxPrime);
 	}
 
+	if (nPrimesBound < sqrt(primeLimit) + 1.0)
+	{
+		nPrimesBound = sqrt(primeLimit) + 1.0;
+	}
+
 	for (unsigned int i = 0; i < 385; ++i)
 	{
 		unsigned int index = 0;
