@@ -463,7 +463,7 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 		const num64 result = _umul128(a, b, &h);
 		return h ? num64(-1) : result;
 	};
-	for (num64 i = 0; (i < SumEstimatesSize2) && (p.Get() <= std::max<num64>(g_MaxPrime, CompileTimePrimes<CompileTimePrimesCount>::value)); ++i, ++p)
+	for (num64 i = 0; (i < SumEstimatesSize2) && (p.Get() <= std::max<num64>(g_MaxPrime, 65536)); ++i, ++p)
 	{
 		num64 j = 1;
 		PrimeIterator q(p);
@@ -472,7 +472,7 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 		PQ[0][i].first = p.Get();
 		PQ[0][i].second = GetMaxSumRatio(prevP, MultiplyWithSaturation(p.Get(), q.Get()));
 
-		for (; (j < SumEstimatesSize) && (q.Get() <= std::max<num64>(g_MaxPrime, CompileTimePrimes<CompileTimePrimesCount>::value)); ++j)
+		for (; (j < SumEstimatesSize) && (q.Get() <= std::max<num64>(g_MaxPrime, 65536)); ++j)
 		{
 			num64 highProductP;
 			const num64 mulP = _umul128(PQ[j - 1][i].first, q.Get(), &highProductP);
