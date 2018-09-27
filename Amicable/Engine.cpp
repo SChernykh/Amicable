@@ -412,7 +412,7 @@ FORCEINLINE num64 Root4(const num64 n)
 	return static_cast<num64>(static_cast<__int64>(sqrt(sqrt(n))));
 }
 
-FORCEINLINE void CheckPairInternal(const num128 n1, const num64 targetSum, num64 n2TargetSum, num64 n2, num64 sum)
+FORCEINLINE void CheckPairInternal(const num128& n1, const num64 targetSum, num64 n2TargetSum, num64 n2, num64 sum)
 {
 	num64 indexForMaximumSumOfDivisorsN;
 	if (!CheckDivisibility<1>(n2, sum, targetSum, n2TargetSum, indexForMaximumSumOfDivisorsN))
@@ -700,13 +700,13 @@ FORCEINLINE void CheckPairInternal(const num128 n1, const num64 targetSum, num64
 		NumberFound(n1);
 }
 
-NOINLINE static void CheckPairInternalNoInline(const num128 n1, const num64 targetSum, num64 n2TargetSum, num64 n2, num64 sum)
+NOINLINE static void CheckPairInternalNoInline(const num128& n1, const num64 targetSum, num64 n2TargetSum, num64 n2, num64 sum)
 {
 	CheckPairInternal(n1, targetSum, n2TargetSum, n2, sum);
 }
 
 // n2 is either a prime, squared prime, or has two distinct prime factors
-NOINLINE void FinalCheck128(const num128 n1, const num128& targetSum, const num128& n2)
+NOINLINE void FinalCheck128(const num128& n1, const num128& targetSum, const num128& n2)
 {
 	if (LowWord(targetSum) & 1)
 	{
@@ -1028,7 +1028,7 @@ namespace primesieve
 					{
 						if ((candidate->is_over_abundant_mask & mask) == 0)
 						{
-							CheckPair128NoInline(num128(candidate->GetValue()) * curPrime, num128(candidate->GetSum()) * (curPrime + 1));
+							CheckPair128(num128(candidate->GetValue()) * curPrime, num128(candidate->GetSum()) * (curPrime + 1));
 						}
 					}
 				}

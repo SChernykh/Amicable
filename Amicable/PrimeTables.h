@@ -65,6 +65,9 @@ struct SReciprocal
 extern CACHE_ALIGNED SReciprocal privPrimeReciprocals[ReciprocalsTableSize];
 #define PrimeReciprocals ((const SReciprocal* const)(privPrimeReciprocals))
 
+#define PACKED_AMICABLE_CANDIDATE_DATA 0
+
+#if PACKED_AMICABLE_CANDIDATE_DATA
 #pragma pack(push, 1)
 struct AmicableCandidate
 {
@@ -92,6 +95,27 @@ struct AmicableCandidate
 #pragma pack(pop)
 
 static_assert(sizeof(AmicableCandidate) == sizeof(unsigned int) * 2 + sizeof(unsigned short), "AmicableCandidate size is incorrect");
+#else
+struct AmicableCandidate
+{
+	FORCEINLINE AmicableCandidate() {}
+	FORCEINLINE AmicableCandidate(num64 _value, num64 _sum, unsigned char _is_over_abundant_mask)
+		: value(_value)
+		, sum(_sum)
+		, is_over_abundant_mask(_is_over_abundant_mask)
+	{
+	}
+
+	FORCEINLINE num64 GetValue() const { return value; }
+	FORCEINLINE num64 GetSum() const { return value; }
+
+	FORCEINLINE bool operator<(const AmicableCandidate& r) const { return value < r.value; }
+
+	uint64_t value;
+	uint64_t sum;
+	uint32_t is_over_abundant_mask;
+};
+#endif
 
 struct InverseData128
 {

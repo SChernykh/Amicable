@@ -60,11 +60,11 @@ static NOINLINE void ProfileGuidedOptimization_Instrument_WorkerThread(num64 dat
 			break;
 
 		case 4:
-			SearchLargePrimes(&k, SearchLimit::MainPrimeTableBound + 1, SearchLimit::SafeLimit, sharedCounterValue);
+			SearchLargePrimes(&k, 1000000000000000, 1000000000000000 + 1000000, sharedCounterValue);
 			break;
 
 		case 5:
-			SearchLargePrimes(&k, SearchLimit::SafeLimit / 50, SearchLimit::SafeLimit, sharedCounterValue);
+			SearchLargePrimes(&k, SearchLimit::SafeLimit / 50, (SearchLimit::SafeLimit / 50) + 1000000000, sharedCounterValue);
 			break;
 
 		case 6:

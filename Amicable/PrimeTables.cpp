@@ -295,6 +295,7 @@ NOINLINE num64 GetMaxSumRatio(const PrimeIterator& p, const num128 limit)
 	}
 }
 
+#if PACKED_AMICABLE_CANDIDATE_DATA
 AmicableCandidate::AmicableCandidate(num64 _value, num64 _sum, unsigned char _is_over_abundant_mask)
 {
 	value_low = static_cast<unsigned int>(_value);
@@ -305,6 +306,7 @@ AmicableCandidate::AmicableCandidate(num64 _value, num64 _sum, unsigned char _is
 
 	is_over_abundant_mask = _is_over_abundant_mask;
 }
+#endif
 
 static num64 g_LargestCandidate;
 
