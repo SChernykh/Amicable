@@ -107,7 +107,7 @@ struct AmicableCandidate
 	}
 
 	FORCEINLINE num64 GetValue() const { return value; }
-	FORCEINLINE num64 GetSum() const { return value; }
+	FORCEINLINE num64 GetSum() const { return sum; }
 
 	FORCEINLINE bool operator<(const AmicableCandidate& r) const { return value < r.value; }
 
