@@ -974,7 +974,7 @@ bool OpenCL::ProcessLargePrimes()
 		num64 phase1_offset_to_resume = 0;
 		num64 global_offset = LargePrimesStartOffset;
 
-		do
+		while (global_offset < TotalNumbersToCheck)
 		{
 			if (!GetCounter(myQueue, myPhase2_numbers_count_buf, numbers_in_phase2_before))
 			{
@@ -1059,7 +1059,7 @@ bool OpenCL::ProcessLargePrimes()
 			{
 				return false;
 			}
-		} while (global_offset < TotalNumbersToCheck);
+		}
 	}
 
 	const int error_code = errno;
