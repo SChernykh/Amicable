@@ -14,7 +14,7 @@ enum PrimeTablesParams : num64
 	// Set it to 664592 because it's divisible by 16
 	ReciprocalsTableSize128 = 664592,
 
-	MainPrimeTableSize = 1277753232,
+	MainPrimeTableSize = 2857142862,
 };
 
 // Reciprocals are calculated using algorithm published in http://www.agner.org/optimize/optimizing_assembly.pdf (section 16.9 "Integer division by a constant")
@@ -65,7 +65,7 @@ struct SReciprocal
 extern CACHE_ALIGNED SReciprocal privPrimeReciprocals[ReciprocalsTableSize];
 #define PrimeReciprocals ((const SReciprocal* const)(privPrimeReciprocals))
 
-#define PACKED_AMICABLE_CANDIDATE_DATA 0
+#define PACKED_AMICABLE_CANDIDATE_DATA 1
 
 #if PACKED_AMICABLE_CANDIDATE_DATA
 #pragma pack(push, 1)

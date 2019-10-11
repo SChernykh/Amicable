@@ -402,7 +402,7 @@ NOINLINE void SearchCandidates(Factor* factors, const num64 value, const num64 s
 
 NOINLINE void GenerateCandidates()
 {
-	privCandidatesData.reserve(std::min<num64>(178832709, g_LargestCandidate / 30));
+	privCandidatesData.reserve(std::min<num64>(252101336, g_LargestCandidate / 30));
 
 	Factor factors[MaxPrimeFactors];
 	SearchCandidates(factors, 1, 1, 0);
