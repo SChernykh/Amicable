@@ -494,7 +494,7 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 		privPowersOf2_128DivisibilityData[i].second = NUM128_MAX / value;
 	}
 
-	const size_t inverse_ptr128_size = 990059;
+	const size_t inverse_ptr128_size = 2017787;
 	InverseData128* inverse_ptr128_buf = reinterpret_cast<InverseData128*>(AllocateSystemMemory(inverse_ptr128_size * sizeof(InverseData128), false));
 	InverseData128* inverse_ptr128 = inverse_ptr128_buf;
 	InverseData128* inverse_ptr128_end = inverse_ptr128_buf + inverse_ptr128_size;
