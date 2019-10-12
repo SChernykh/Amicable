@@ -5,7 +5,7 @@
 #include "primesieve.hpp"
 
 CACHE_ALIGNED SReciprocal privPrimeReciprocals[ReciprocalsTableSize128];
-unsigned int PrimesCompactAllocationSize = 0;
+num64 PrimesCompactAllocationSize = 0;
 PrimeCompactData* privPrimesCompact = nullptr;
 unsigned int NumPrimes = 0;
 CACHE_ALIGNED std::pair<num64, num64> PQ[SumEstimatesSize][SumEstimatesSize2];
@@ -36,10 +36,10 @@ static FORCEINLINE void SetNthPrime(unsigned int n, num64 p)
 	}
 	else
 	{
-		p -= privPrimesCompact[n >> 2].base;
+		p = (p - privPrimesCompact[n >> 2].base) / 2;
 		if (p >= (1 << 9))
 		{
-			std::cerr << "Prime gap is too large for " << (p + privPrimesCompact[n >> 2].base) << std::endl;
+			std::cerr << "Prime gap is too large for " << (p * 2 + privPrimesCompact[n >> 2].base) << std::endl;
 			abort();
 		}
 		privPrimesCompact[n >> 2].offsets |= p << ((~n & 3) * 9);
@@ -276,7 +276,7 @@ NOINLINE void SearchCandidates(Factor* factors, const num64 value, const num64 s
 
 NOINLINE void GenerateCandidates()
 {
-	size_t capacity = std::min<num64>(178832709, g_LargestCandidate / 30);
+	size_t capacity = std::min<num64>(216853934, g_LargestCandidate / 30);
 	capacity = ((capacity / (4096 / AmicableCandidate::PackedSize)) + 1) * (4096 / AmicableCandidate::PackedSize);
 	privCandidatesData.reserve(capacity);
 
@@ -333,6 +333,11 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 		g_MaxPrime = SearchLimit::MainPrimeTableBound;
 	}
 
+	if (g_LargestCandidate >= (num64(1) << 33))
+	{
+		g_LargestCandidate = (num64(1) << 33) - 1;
+	}
+
 	// We need to know primes at least up to the cube root of the limit to calculate reciprocals
 	double nPrimesBound = pow(Num128ToDouble(SearchLimit::value), 1.0 / 3.0) + 1e4;
 	if (nPrimesBound < g_MaxPrime)
@@ -340,7 +345,7 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 		nPrimesBound = static_cast<double>(g_MaxPrime);
 	}
 
-	unsigned int numPrimesEstimate = static_cast<unsigned int>(nPrimesBound / (log(nPrimesBound) - 1.1));
+	num64 numPrimesEstimate = static_cast<num64>(nPrimesBound / (log(nPrimesBound) - 1.1));
 	PrimesCompactAllocationSize = numPrimesEstimate * 2;
 	PrimesCompactAllocationSize = ((PrimesCompactAllocationSize / 4096) + 1) * 4096;
 	privPrimesCompact = reinterpret_cast<PrimeCompactData*>(AllocateSystemMemory(PrimesCompactAllocationSize, false));

@@ -3,11 +3,11 @@
 
 #if 1
 
-const num128 SearchLimit::value = atoi128("100000000000000000000");	// 10^20
-const num64 SearchLimit::LinearLimit = 14142135624ULL;				// sqrt(value * 2) + 1
-const num64 SearchLimit::MainPrimeTableBound = 14142135624ULL;		// sqrt(value * 2) + 1
-const num64 SearchLimit::RangeGenPrimeBound = 5000000000ULL;		// sqrt(value) / 2
-const num64 SearchLimit::SafeLimit = 5000000000000000000ULL;		// value / 20
+const num128 SearchLimit::value = atoi128("1000000000000000000000");	// 10^21
+const num64 SearchLimit::LinearLimit = 100000000000ULL;				// 10^11
+const num64 SearchLimit::MainPrimeTableBound = 35000000000ULL;		// 0.35*10^11
+const num64 SearchLimit::RangeGenPrimeBound = 15811388301ULL;		// sqrt(value) / 2
+const num64 SearchLimit::SafeLimit = 18446744073709551615ULL;		// value / 20
 
 #else
 

@@ -1229,6 +1229,9 @@ static const char* kernel_cl = "#pragma OPENCL EXTENSION cl_khr_global_int32_bas
 "#endif\n"\
 ")\n"\
 "{\n"\
+"	if (n < 4)\n"\
+"		return (0x07050302 >> (n << 3)) & 0xFF;\n"\
+"\n"\
 "#if NUM_DATA_CHUNKS == 1\n"\
 "	const uint2 data = primes0[n >> 2];\n"\
 "#else\n"\
@@ -1260,7 +1263,7 @@ static const char* kernel_cl = "#pragma OPENCL EXTENSION cl_khr_global_int32_bas
 "\n"\
 "	const ulong offsets = data.y >> 5;\n"\
 "\n"\
-"	return base + ((offsets >> ((~n & 3) * 9)) & 511);\n"\
+"	return base + (((offsets >> ((~n & 3) * 9)) & 511) << 1);\n"\
 "}\n"\
 "\n"\
 "__kernel\n"\
@@ -1568,4 +1571,4 @@ static const char* kernel_cl = "#pragma OPENCL EXTENSION cl_khr_global_int32_bas
 "}\n"\
 "";
 
-static const unsigned int kernel_cl_crc32 = 0xc6628703;
+static const unsigned int kernel_cl_crc32 = 0xb8b4b144;

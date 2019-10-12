@@ -338,7 +338,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 
 	const bool IsLargePrimes = (startPrime && primeLimit);
 	const unsigned char* MainBufferData = IsLargePrimes ? reinterpret_cast<const unsigned char*>(CandidatesData.data()) : reinterpret_cast<const unsigned char*>(PrimesCompact);
-	const unsigned int MainBufferSize = IsLargePrimes ? static_cast<unsigned int>(CandidatesData.capacity() * AmicableCandidate::PackedSize) : PrimesCompactAllocationSize;
+	const num64 MainBufferSize = IsLargePrimes ? static_cast<unsigned int>(CandidatesData.capacity() * AmicableCandidate::PackedSize) : PrimesCompactAllocationSize;
 
 	// Try to create a single continuous buffer for storing prime numbers
 	// Even though its size is bigger than CL_DEVICE_MAX_MEM_ALLOC_SIZE for many devices,
@@ -360,7 +360,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 			unsigned long index;
 			_BitScanReverse64(&index, MaxMemAllocSize);
 			ChunkSizeShift = index;
-			NumMainBufferChunks = (MainBufferSize + (1 << ChunkSizeShift) - 1) >> ChunkSizeShift;
+			NumMainBufferChunks = (MainBufferSize + (1ULL << ChunkSizeShift) - 1) >> ChunkSizeShift;
 		}
 	}
 
@@ -442,9 +442,9 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	else
 	{
 		myMainBuffers.reserve(NumMainBufferChunks);
-		for (unsigned int totalSize = 0; totalSize < MainBufferSize;)
+		for (num64 totalSize = 0; totalSize < MainBufferSize;)
 		{
-			const unsigned int BufSize = std::min<unsigned int>(1U << ChunkSizeShift, MainBufferSize - totalSize);
+			const num64 BufSize = std::min<num64>(1ULL << ChunkSizeShift, MainBufferSize - totalSize);
 			cl_mem buf;
 			CL_CHECKED_CALL_WITH_RESULT(buf, clCreateBuffer, myGPUContext, CL_MEM_READ_ONLY, BufSize, 0);
 			CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, buf, CL_TRUE, 0, BufSize, MainBufferData + totalSize, 0, nullptr, nullptr);
@@ -1186,7 +1186,7 @@ bool OpenCL::Test()
 
 	const char* files[] = {
 		//"c2_1.txt"
-		"c2_3.txt", "c2_4.txt", "c2_5.txt", "c2_6.txt", "c2_7.txt", "c2_8.txt", "c2_9.txt", "c2_10.txt", "c2_11.txt", "c2_12.txt", "c2_13.txt", "c2_14.txt", "c2_15.txt", "c2_16.txt", "c2_17.txt", "c2_18.txt", "c2_19.txt", "c2_20.txt"
+		"c2_3.txt", "c2_4.txt", "c2_5.txt", "c2_6.txt", "c2_7.txt", "c2_8.txt", "c2_9.txt", "c2_10.txt", "c2_11.txt", "c2_12.txt", "c2_13.txt", "c2_14.txt", "c2_15.txt", "c2_16.txt", "c2_17.txt", "c2_18.txt", "c2_19.txt", "c2_20.txt", "c2_21.txt"
 	};
 	for (const char* name : files)
 	{

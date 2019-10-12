@@ -5,14 +5,14 @@ bool IsPrime(num64 n);
 
 enum PrimeTablesParams : num64
 {
-	// There are exactly 325161 primes below 10^(20/3)
-	// We can use this table for factorization when p^3 <= N < 10^20
-	// Set it to 325184 because it's divisible by 32
-	ReciprocalsTableSize128 = 325184,
+	// There are exactly 664579 primes below 10^(21/3)
+	// We can use this table for factorization when p^3 <= N < 10^21
+	// Set it to 664608 because it's divisible by 32
+	ReciprocalsTableSize128 = 664608,
 
-	PowersOfP_128DivisibilityData_count = 990107,
+	PowersOfP_128DivisibilityData_count = 2017835,
 
-	MainPrimeTableSize = 404061114,
+	MainPrimeTableSize = 2857142862,
 };
 
 static_assert(ReciprocalsTableSize128 % 32 == 0, "ReciprocalsTableSize128 must be divisible by 32");
@@ -109,7 +109,7 @@ struct PrimeCompactData
 static_assert(sizeof(PrimeCompactData) == sizeof(num64), "PrimeCompactData has invalid size");
 
 extern byte bitOffset[PrimeTableParameters::Modulo];
-extern unsigned int PrimesCompactAllocationSize;
+extern num64 PrimesCompactAllocationSize;
 extern PrimeCompactData* privPrimesCompact;
 extern unsigned int NumPrimes;
 extern std::vector<AmicableCandidate> privCandidatesData;
@@ -139,13 +139,16 @@ extern CACHE_ALIGNED num64 privSumEstimates128[ReciprocalsTableSize128 / 16];
 #define SumEstimates128 ((const num64*)(privSumEstimates128))
 
 // Can be zero if search limit is <= 10^20
-#define SumEstimates128Shift 0
+#define SumEstimates128Shift 3
 
 template<typename T>
 FORCEINLINE num64 GetNthPrime(T n)
 {
+	if (n < 4)
+		return (0x07050302 >> (n << 3)) & 0xFF;
+
 	const PrimeCompactData& data = privPrimesCompact[n >> 2];
-	return data.base + ((data.offsets >> ((~n & 3) * 9)) & 511);
+	return data.base + (((data.offsets >> ((~n & 3) * 9)) & 511) << 1);
 }
 
 FORCEINLINE num64 Mod385(const num64 n)

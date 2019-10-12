@@ -1227,6 +1227,9 @@ static ulong GetNthPrime(uint n,
 #endif
 )
 {
+	if (n < 4)
+		return (0x07050302 >> (n << 3)) & 0xFF;
+
 #if NUM_DATA_CHUNKS == 1
 	const uint2 data = primes0[n >> 2];
 #else
@@ -1258,7 +1261,7 @@ static ulong GetNthPrime(uint n,
 
 	const ulong offsets = data.y >> 5;
 
-	return base + ((offsets >> ((~n & 3) * 9)) & 511);
+	return base + (((offsets >> ((~n & 3) * 9)) & 511) << 1);
 }
 
 __kernel
