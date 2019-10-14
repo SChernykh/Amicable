@@ -131,9 +131,6 @@
     <ClInclude Include="OpenCL.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="kernel.cl.inl">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="num128.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -201,8 +198,8 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <CustomBuild Include="kernel.cl">
+    <None Include="kernel.cl">
       <Filter>Source Files\CL</Filter>
-    </CustomBuild>
+    </None>
   </ItemGroup>
 </Project>

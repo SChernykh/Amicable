@@ -3,7 +3,7 @@
 #include "PrimeTables.h"
 #include "RangeGen.h"
 #include "sprp64.h"
-#include "kernel.cl.inl"
+#include "kernel.cl"
 
 PRAGMA_WARNING(push, 1)
 PRAGMA_WARNING(disable : 4091 4917 4625 4626 5026 5027)
@@ -131,22 +131,6 @@ OpenCL::~OpenCL()
 	clReleaseCommandQueue(myQueue);
 	clReleaseProgram(myProgram);
 	clReleaseContext(myGPUContext);
-}
-
-static unsigned int crc32(const char *message)
-{
-	unsigned int crc = 0xFFFFFFFF;
-	for (int i = 0; message[i]; ++i)
-	{
-		crc ^= static_cast<unsigned int>(message[i]);
-		for (int j = 7; j >= 0; --j)
-		{
-			PRAGMA_WARNING(suppress : 4146)
-			const unsigned int mask = -(crc & 1);
-			crc = (crc >> 1) ^ (0xEDB88320 & mask);
-		}
-	}
-	return ~crc;
 }
 
 static bool PlatformSupported(const char* platformName)
@@ -338,12 +322,6 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	cl_context_properties cps[3] = { CL_CONTEXT_PLATFORM, (cl_context_properties) platform, 0 };
 	CL_CHECKED_CALL_WITH_RESULT(myGPUContext, clCreateContext, cps, 1, &device, nullptr, nullptr);
 
-	if (crc32(kernel_cl) != kernel_cl_crc32)
-	{
-		LOG_ERROR("OpenCL kernel checksum failed");
-		return false;
-	}
-
 	CL_CHECKED_CALL_WITH_RESULT(myProgram, clCreateProgramWithSource, myGPUContext, 1, &kernel_cl, nullptr);
 
 	num64 NumMainBufferChunks = 0;
@@ -352,7 +330,9 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	const bool IsLargePrimes = (startPrime && primeLimit);
 	myMainBufferData = IsLargePrimes ? reinterpret_cast<const unsigned char*>(CandidatesData.data()) : reinterpret_cast<const unsigned char*>(PrimesCompact);
 	myMainBufferTotalSize = IsLargePrimes ? static_cast<unsigned int>(CandidatesData.capacity() * AmicableCandidate::PackedSize) : PrimesCompactAllocationSize;
-	myMainBufferSize = std::min<num64>(myMainBufferTotalSize, 512 << 20);
+
+	enum { MaxMainBufferSize = 512 << 20 };
+	myMainBufferSize = std::min<num64>(myMainBufferTotalSize, MaxMainBufferSize);
 
 	// Try to create a single continuous buffer for storing prime numbers
 	// Even though its size is bigger than CL_DEVICE_MAX_MEM_ALLOC_SIZE for many devices,
@@ -375,6 +355,16 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 			_BitScanReverse64(&index, MaxMemAllocSize);
 			ChunkSizeShift = index;
 			NumMainBufferChunks = (myMainBufferSize + (1ULL << ChunkSizeShift) - 1) >> ChunkSizeShift;
+
+			myMainBuffers.reserve(NumMainBufferChunks);
+			for (num64 totalSize = 0; totalSize < myMainBufferSize;)
+			{
+				const num64 BufSize = std::min<num64>(1ULL << ChunkSizeShift, myMainBufferSize - totalSize);
+				cl_mem buf;
+				CL_CHECKED_CALL_WITH_RESULT(buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, BufSize, 0);
+				myMainBuffers.emplace_back(buf);
+				totalSize += BufSize;
+			}
 		}
 	}
 
@@ -382,7 +372,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 		char kernel_options[1024];
 		char cBuildLog[10240];
 		sprintf_s(kernel_options,
-			"%s-cl-fast-relaxed-math -D PQ_STRIDE_SIZE=%u -D WORK_GROUP_SIZE=%u -D PHASE2_MAX_COUNT=%u -D LPP=%u -D NUM_DATA_CHUNKS=%u -D CHUNK_SIZE_SHIFT=%u -D SUM_ESTIMATES_128_SHIFT=%u -Werror",
+			"%s-cl-fast-relaxed-math -D PQ_STRIDE_SIZE=%u -D WORK_GROUP_SIZE=%u -D PHASE2_MAX_COUNT=%u -D LPP=%u -D NUM_DATA_CHUNKS=%u -D CHUNK_SIZE_SHIFT=%u -D SUM_ESTIMATES_128_SHIFT=%u -D MAIN_BUFFER_MASK=%u -Werror",
 			vendor_specific_compiler_options.c_str(),
 			SumEstimatesSize2_GPU,
 			static_cast<unsigned int>(myWorkGroupSize),
@@ -390,7 +380,8 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 			myLargestPrimePower,
 			static_cast<unsigned int>(NumMainBufferChunks),
 			ChunkSizeShift,
-			64 - SumEstimates128Shift
+			64 - SumEstimates128Shift,
+			(MaxMainBufferSize / 2) - 1
 		);
 		cl_int build_result = clBuildProgram(myProgram, 0, nullptr, kernel_options, nullptr, nullptr);
 		if (build_result != CL_SUCCESS)
@@ -448,24 +439,6 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	CL_CHECKED_CALL_WITH_RESULT(myCheckPairPhase3, clCreateKernel, myProgram, "CheckPairPhase3");
 
 	CL_CHECKED_CALL_WITH_RESULT(myQueue, clCreateCommandQueue, myGPUContext, device, 0);
-
-	if (!myMainBuffers.empty())
-	{
-		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myMainBuffers.front(), CL_TRUE, 0, myMainBufferSize, myMainBufferData, 0, nullptr, nullptr);
-	}
-	else
-	{
-		myMainBuffers.reserve(NumMainBufferChunks);
-		for (num64 totalSize = 0; totalSize < myMainBufferSize;)
-		{
-			const num64 BufSize = std::min<num64>(1ULL << ChunkSizeShift, myMainBufferSize - totalSize);
-			cl_mem buf;
-			CL_CHECKED_CALL_WITH_RESULT(buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, BufSize, 0);
-			CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, buf, CL_TRUE, 0, BufSize, myMainBufferData + totalSize, 0, nullptr, nullptr);
-			myMainBuffers.emplace_back(buf);
-			totalSize += BufSize;
-		}
-	}
 
 	{
 		std::vector<unsigned int> smallPrimes;
@@ -597,6 +570,13 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 
 	if (IsLargePrimes)
 	{
+		for (num64 totalSize = 0, i = 0; totalSize < myMainBufferSize; ++i)
+		{
+			const num64 BufSize = std::min<num64>(1ULL << ChunkSizeShift, myMainBufferSize - totalSize);
+			CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myMainBuffers[i], CL_TRUE, 0, BufSize, myMainBufferData + totalSize, 0, nullptr, nullptr);
+			totalSize += BufSize;
+		}
+
 		CL_CHECKED_CALL_WITH_RESULT(myLargePrimesBuf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, sizeof(num64) * myLargePrimesMaxCount, 0);
 
 		CL_CHECKED_CALL(setKernelArguments, mySearchLargePrimes,
@@ -681,12 +661,37 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	}
 
 	Timer t;
-	const bool result = IsLargePrimes ? RunLargePrimes(startPrime, primeLimit) : RunRanges(startFrom, stopAt);
+	bool result;
+	if (IsLargePrimes)
+	{
+		result = RunLargePrimes(startPrime, primeLimit);
+	}
+	else
+	{
+		result = true;
+		for (num64 offset = 0; offset < myMainBufferTotalSize; offset += myMainBufferSize)
+		{
+			const num64 n = std::min(myMainBufferSize, myMainBufferTotalSize - offset);
+			for (num64 totalSize = 0, i = 0; totalSize < n; ++i)
+			{
+				const num64 BufSize = std::min<num64>(1ULL << ChunkSizeShift, n - totalSize);
+				CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myMainBuffers[i], CL_TRUE, 0, BufSize, myMainBufferData + offset + totalSize, 0, nullptr, nullptr);
+				totalSize += BufSize;
+			}
+
+			LOG(1, "\n---=== RUNNING RANGES WITH OFFSET " << offset << " ===---\n");
+			if (!RunRanges(startFrom, stopAt, offset))
+			{
+				result = false;
+				break;
+			}
+		}
+	}
 	LOG(1, "\nWork unit finished in " << std::setprecision(6) << t.getElapsedTime() << " seconds, " << myNumbersProcessedTotal << " numbers processed\n");
 	return result;
 }
 
-bool OpenCL::RunRanges(char* startFrom, char* stopAt)
+bool OpenCL::RunRanges(char* startFrom, char* stopAt, num64 offset)
 {
 	RangeData r;
 	memset(&r, 0, sizeof(r));
@@ -756,7 +761,8 @@ bool OpenCL::RunRanges(char* startFrom, char* stopAt)
 	}
 	while (!RangeGen::HasReached(r, stopAtFactors))
 	{
-		if (!AddRange(r))
+		bool range_added;
+		if (!AddRange(r, offset, range_added))
 		{
 			return false;
 		}
@@ -768,7 +774,7 @@ bool OpenCL::RunRanges(char* startFrom, char* stopAt)
 		const double progress = static_cast<double>(myNumbersProcessedTotal) / RangeGen::total_numbers_to_check;
 		boinc_fraction_done((progress < 1.0) ? progress : 1.0);
 
-		if (myTotalNumbersInRanges == 0)
+		if (range_added && (myTotalNumbersInRanges == 0))
 		{
 			unsigned int numbers_in_phase2 = 0;
 			if (!GetCounter(myQueue, myPhase2_numbers_count_buf, numbers_in_phase2))
@@ -1447,8 +1453,10 @@ FORCEINLINE num64 IntegerCbrt(const num128 n)
 	return result;
 }
 
-bool OpenCL::AddRange(const RangeData& r)
+bool OpenCL::AddRange(const RangeData& r, num64 offset, bool& added)
 {
+	added = false;
+
 	num128 prime_limit = 0;
 
 	switch (myLargestPrimePower)
@@ -1543,8 +1551,6 @@ bool OpenCL::AddRange(const RangeData& r)
 		break;
 	}
 
-	unsigned int index_begin = r.index_start_prime;
-
 	// Find the first prime "p" such that "p > prime_limit" is true
 	num64 a = 0;
 	num64 b = NumPrimes;
@@ -1588,13 +1594,15 @@ bool OpenCL::AddRange(const RangeData& r)
 			a = c + 1;
 	}
 
-	if ((a > index_begin) && (index_begin < myMainBufferSize / 2))
+	const num64 index_begin = std::max<num64>(r.index_start_prime, offset / 2);
+	if ((a > index_begin) && (index_begin < (offset + myMainBufferSize) / 2))
 	{
-		const unsigned int range_size = static_cast<unsigned int>(std::min(a - index_begin, myMainBufferSize / 2 - index_begin));
+		const unsigned int range_size = static_cast<unsigned int>(std::min(a - index_begin, (offset + myMainBufferSize) / 2 - index_begin));
 
-		myRanges.emplace_back(r.value, r.sum, index_begin, range_size);
+		myRanges.emplace_back(r.value, r.sum, static_cast<unsigned int>(index_begin), range_size);
 		myTotalNumbersInRanges += range_size;
 		myNumbersProcessedTotal += range_size;
+		added = true;
 
 		if ((myTotalNumbersInRanges >= Phase1Limit) || (myRanges.size() >= myMaxRangesCount))
 		{

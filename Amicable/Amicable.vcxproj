@@ -14,20 +14,20 @@
     <ProjectGuid>{8AA45A5D-C16F-4ADF-9C0C-FDFE038FDAA4}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>Amicable</RootNamespace>
-    <WindowsTargetPlatformVersion>7.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v141_xp</PlatformToolset>
+    <PlatformToolset>v142</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v141_xp</PlatformToolset>
+    <PlatformToolset>v142</PlatformToolset>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
@@ -46,7 +46,6 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
-    <CustomBuildBeforeTargets>PrepareForBuild</CustomBuildBeforeTargets>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
@@ -66,14 +65,8 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <CustomBuildStep>
-      <Command>php cpp_stringify.php kernel.cl</Command>
-    </CustomBuildStep>
-    <CustomBuildStep>
-      <Outputs>kernel.cl.inl</Outputs>
-      <TreatOutputAsContent>false</TreatOutputAsContent>
-      <Inputs>kernel.cl</Inputs>
-    </CustomBuildStep>
+    <CustomBuildStep />
+    <CustomBuildStep />
     <ClCompile>
       <WarningLevel>EnableAllWarnings</WarningLevel>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
@@ -128,7 +121,6 @@
     <ClInclude Include="..\primesieve\include\primesieve_warnings.h" />
     <ClInclude Include="CompileTimeFunctions.h" />
     <ClInclude Include="Definitions.h" />
-    <ClInclude Include="kernel.cl.inl" />
     <ClInclude Include="num128.h" />
     <ClInclude Include="OpenCL.h" />
     <ClInclude Include="Platform_GCC_Linux.h" />
@@ -172,9 +164,7 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <CustomBuild Include="kernel.cl">
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">kernel.cl.inl</Outputs>
-    </CustomBuild>
+    <None Include="kernerl.cl" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

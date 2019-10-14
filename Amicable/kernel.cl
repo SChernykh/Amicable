@@ -1,3 +1,6 @@
+#pragma once
+
+static const char* kernel_cl = R"===(
 #pragma OPENCL EXTENSION cl_khr_global_int32_base_atomics : enable
 
 #ifdef cl_clang_storage_class_specifiers
@@ -519,7 +522,8 @@ static void CheckPairPhase1(
 		*phase1_offset_to_resume_after_overflow = global_offset;
 	}
 }
-
+)==="
+R"===(
 __kernel
 __attribute__((reqd_work_group_size(WORK_GROUP_SIZE, 1, 1)))
 void CheckPairPhase2(
@@ -853,7 +857,8 @@ void CheckPairPhase2(
 	const ulong i_to_save = i;
 	filtered_numbers_data[filtered_numbers_data_id].w = i_to_save | (M_high << 22) | (N_high << 36) | (targetSumHigh << 50);
 }
-
+)==="
+R"===(
 __kernel
 __attribute__((reqd_work_group_size(WORK_GROUP_SIZE, 1, 1)))
 void CheckPairPhase3(
@@ -1198,7 +1203,8 @@ void CheckPairPhase3(
 		}
 	}
 }
-
+)==="
+R"===(
 __kernel
 __attribute__((reqd_work_group_size(1, 1, 1)))
 void SaveCounter(__global uint* phase2_numbers_count)
@@ -1229,6 +1235,8 @@ static ulong GetNthPrime(uint n,
 {
 	if (n < 4)
 		return (0x07050302 >> (n << 3)) & 0xFF;
+
+	n &= MAIN_BUFFER_MASK;
 
 #if NUM_DATA_CHUNKS == 1
 	const uint2 data = primes0[n >> 2];
@@ -1567,3 +1575,4 @@ void CheckPairs(
 	}
 	CheckPairPhase1(smallPrimes, primeInverses, PQ, PowerOf2SumInverses, PowersOfP_128SumInverses_offsets, PowersOfP_128SumInverses, PrimeInverses_128, SumEstimates_128, cur_pair.x, cur_pair.y, cur_pair.z, cur_pair.w, 0, 0, filtered_numbers_count, filtered_numbers_data, amicable_numbers_count, amicable_numbers_data);
 }
+)===";
