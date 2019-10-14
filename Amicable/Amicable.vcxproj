@@ -56,13 +56,13 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <TreatWarningAsError>true</TreatWarningAsError>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
-      <AdditionalIncludeDirectories>$(SolutionDir)Amicable;$(SolutionDir)primesieve\include;..\..\Boinc\api;..\..\Boinc\lib;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v8.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)Amicable;$(SolutionDir)primesieve\include;..\..\Boinc\api;..\..\Boinc\lib;$(CUDA_PATH)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalDependencies>libboinc_staticcrt.lib;libboincapi_staticcrt.lib;libboincopencl_staticcrt.lib;OpenCL.lib;Winmm.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>..\..\Boinc\win_build\Build\x64\Debug;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v8.0\lib\x64</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>..\..\Boinc\win_build\Build\x64\Debug;$(CUDA_PATH)\lib\x64</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -90,7 +90,7 @@
       <ControlFlowGuard>false</ControlFlowGuard>
       <FloatingPointModel>Fast</FloatingPointModel>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <AdditionalIncludeDirectories>$(SolutionDir)Amicable;$(SolutionDir)primesieve\include;..\..\Boinc\api;..\..\Boinc\lib;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v8.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)Amicable;$(SolutionDir)primesieve\include;..\..\Boinc\api;..\..\Boinc\lib;$(CUDA_PATH)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -98,7 +98,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalDependencies>libboinc_staticcrt.lib;libboincapi_staticcrt.lib;libboincopencl_staticcrt.lib;OpenCL.lib;Winmm.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>..\..\Boinc\win_build\Build\x64\Release;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v8.0\lib\x64</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>..\..\Boinc\win_build\Build\x64\Release;$(CUDA_PATH)\lib\x64</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>

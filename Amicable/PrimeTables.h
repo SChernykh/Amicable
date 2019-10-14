@@ -145,7 +145,7 @@ template<typename T>
 FORCEINLINE num64 GetNthPrime(T n)
 {
 	if (n < 4)
-		return (0x07050302 >> (n << 3)) & 0xFF;
+		return (0x07050302U >> (n << 3)) & 0xFFU;
 
 	const PrimeCompactData& data = privPrimesCompact[n >> 2];
 	return data.base + (((data.offsets >> ((~n & 3) * 9)) & 511) << 1);

@@ -69,6 +69,9 @@ OpenCL::OpenCL(const char* preferences)
 	, myWorkGroupSize(128)
 	, myMaxRangesCount(131072)
 	, myMaxLookupTableSize((myMaxRangesCount + 1) * 4) // very conservative estimate to be safe
+	, myMainBufferData(nullptr)
+	, myMainBufferSize(0)
+	, myMainBufferTotalSize(0)
 	, myTotalNumbersInRanges(0)
 	, myNumbersProcessedTotal(0)
 	, myAmicableNumbersFound(0)
@@ -199,6 +202,16 @@ int OpenCL::SetKernelSize(int size)
 	myPhase2MaxNumbersCount = myPhase2MinNumbersCount + myPhase1MaxKernelSize;
 
 	return size;
+}
+
+static cl_mem clCreateBufferLogged(int line, cl_context context, cl_mem_flags flags, size_t size, void* host_ptr, cl_int* errcode_ret)
+{
+	static size_t total_allocated = 0;
+
+	total_allocated += size;
+	LOG(1, "Allocating " << size << " bytes on GPU (" __FILE__ ", line " << line << "), " << ((total_allocated + (1 << 20) - 1) >> 20) << " MB total");
+
+	return clCreateBuffer(context, flags, size, host_ptr, errcode_ret);
 }
 
 bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned int largestPrimePower, num64 startPrime, num64 primeLimit)
@@ -333,24 +346,25 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 
 	CL_CHECKED_CALL_WITH_RESULT(myProgram, clCreateProgramWithSource, myGPUContext, 1, &kernel_cl, nullptr);
 
-	unsigned int NumMainBufferChunks = 0;
+	num64 NumMainBufferChunks = 0;
 	unsigned int ChunkSizeShift = 0;
 
 	const bool IsLargePrimes = (startPrime && primeLimit);
-	const unsigned char* MainBufferData = IsLargePrimes ? reinterpret_cast<const unsigned char*>(CandidatesData.data()) : reinterpret_cast<const unsigned char*>(PrimesCompact);
-	const num64 MainBufferSize = IsLargePrimes ? static_cast<unsigned int>(CandidatesData.capacity() * AmicableCandidate::PackedSize) : PrimesCompactAllocationSize;
+	myMainBufferData = IsLargePrimes ? reinterpret_cast<const unsigned char*>(CandidatesData.data()) : reinterpret_cast<const unsigned char*>(PrimesCompact);
+	myMainBufferTotalSize = IsLargePrimes ? static_cast<unsigned int>(CandidatesData.capacity() * AmicableCandidate::PackedSize) : PrimesCompactAllocationSize;
+	myMainBufferSize = std::min<num64>(myMainBufferTotalSize, 512 << 20);
 
 	// Try to create a single continuous buffer for storing prime numbers
 	// Even though its size is bigger than CL_DEVICE_MAX_MEM_ALLOC_SIZE for many devices,
 	// they are still able to do big allocations sometimes
 	{
 		cl_int ciErrNum;
-		cl_mem buf = clCreateBuffer(myGPUContext, CL_MEM_READ_ONLY, MainBufferSize, 0, &ciErrNum);
+		cl_mem buf = clCreateBufferLogged(__LINE__, myGPUContext, CL_MEM_READ_ONLY, myMainBufferSize, 0, &ciErrNum);
 		if (ciErrNum == CL_SUCCESS)
 		{
 			NumMainBufferChunks = 1;
 			unsigned long index;
-			_BitScanReverse64(&index, MainBufferSize);
+			_BitScanReverse64(&index, myMainBufferSize);
 			ChunkSizeShift = index + 1;
 			myMainBuffers.emplace_back(buf);
 		}
@@ -360,7 +374,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 			unsigned long index;
 			_BitScanReverse64(&index, MaxMemAllocSize);
 			ChunkSizeShift = index;
-			NumMainBufferChunks = (MainBufferSize + (1ULL << ChunkSizeShift) - 1) >> ChunkSizeShift;
+			NumMainBufferChunks = (myMainBufferSize + (1ULL << ChunkSizeShift) - 1) >> ChunkSizeShift;
 		}
 	}
 
@@ -374,7 +388,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 			static_cast<unsigned int>(myWorkGroupSize),
 			myPhase2MaxNumbersCount,
 			myLargestPrimePower,
-			NumMainBufferChunks,
+			static_cast<unsigned int>(NumMainBufferChunks),
 			ChunkSizeShift,
 			64 - SumEstimates128Shift
 		);
@@ -437,17 +451,17 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 
 	if (!myMainBuffers.empty())
 	{
-		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myMainBuffers.front(), CL_TRUE, 0, MainBufferSize, MainBufferData, 0, nullptr, nullptr);
+		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myMainBuffers.front(), CL_TRUE, 0, myMainBufferSize, myMainBufferData, 0, nullptr, nullptr);
 	}
 	else
 	{
 		myMainBuffers.reserve(NumMainBufferChunks);
-		for (num64 totalSize = 0; totalSize < MainBufferSize;)
+		for (num64 totalSize = 0; totalSize < myMainBufferSize;)
 		{
-			const num64 BufSize = std::min<num64>(1ULL << ChunkSizeShift, MainBufferSize - totalSize);
+			const num64 BufSize = std::min<num64>(1ULL << ChunkSizeShift, myMainBufferSize - totalSize);
 			cl_mem buf;
-			CL_CHECKED_CALL_WITH_RESULT(buf, clCreateBuffer, myGPUContext, CL_MEM_READ_ONLY, BufSize, 0);
-			CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, buf, CL_TRUE, 0, BufSize, MainBufferData + totalSize, 0, nullptr, nullptr);
+			CL_CHECKED_CALL_WITH_RESULT(buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, BufSize, 0);
+			CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, buf, CL_TRUE, 0, BufSize, myMainBufferData + totalSize, 0, nullptr, nullptr);
 			myMainBuffers.emplace_back(buf);
 			totalSize += BufSize;
 		}
@@ -460,17 +474,17 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 		{
 			smallPrimes.emplace_back(static_cast<unsigned int>(GetNthPrime(i)));
 		}
-		CL_CHECKED_CALL_WITH_RESULT(mySmallPrimesBuf, clCreateBuffer, myGPUContext, CL_MEM_READ_ONLY, ReciprocalsTableSize128 * sizeof(unsigned int), 0);
+		CL_CHECKED_CALL_WITH_RESULT(mySmallPrimesBuf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, ReciprocalsTableSize128 * sizeof(unsigned int), 0);
 		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, mySmallPrimesBuf, CL_TRUE, 0, ReciprocalsTableSize128 * sizeof(unsigned int), smallPrimes.data(), 0, nullptr, nullptr);
 	}
 
 	const size_t primeInversesBufSize = sizeof(std::pair<num64, num64>) * ReciprocalsTableSize128;
-	CL_CHECKED_CALL_WITH_RESULT(myPrimeInversesBuf, clCreateBuffer, myGPUContext, CL_MEM_READ_ONLY, primeInversesBufSize, 0);
+	CL_CHECKED_CALL_WITH_RESULT(myPrimeInversesBuf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, primeInversesBufSize, 0);
 	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPrimeInversesBuf, CL_TRUE, 0, primeInversesBufSize, PrimeInverses, 0, nullptr, nullptr);
 
 	{
 		const size_t primeReciprocalsBufSize = sizeof(std::pair<num64, num64>) * ReciprocalsTableSize128;
-		CL_CHECKED_CALL_WITH_RESULT(myPrimeReciprocalsBuf, clCreateBuffer, myGPUContext, CL_MEM_READ_ONLY, primeReciprocalsBufSize, 0);
+		CL_CHECKED_CALL_WITH_RESULT(myPrimeReciprocalsBuf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, primeReciprocalsBufSize, 0);
 
 		std::vector<std::pair<num64, num64>> r;
 		r.resize(ReciprocalsTableSize128);
@@ -504,7 +518,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 		pq[0].first = 0;
 
 		const size_t PQ_BufSize = sizeof(std::pair<num64, num64>) * pq.size();
-		CL_CHECKED_CALL_WITH_RESULT(myPQ_Buf, clCreateBuffer, myGPUContext, CL_MEM_READ_ONLY, PQ_BufSize, 0);
+		CL_CHECKED_CALL_WITH_RESULT(myPQ_Buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, PQ_BufSize, 0);
 		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPQ_Buf, CL_TRUE, 0, PQ_BufSize, pq.data(), 0, nullptr, nullptr);
 	}
 
@@ -522,7 +536,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 			powerOf2Inverses[i + 64][0] = LowWord(PowersOf2_128DivisibilityData[i]);
 			powerOf2Inverses[i + 64][1] = HighWord(PowersOf2_128DivisibilityData[i]);
 		}
-		CL_CHECKED_CALL_WITH_RESULT(myPowerOf2SumInverses_Buf, clCreateBuffer, myGPUContext, CL_MEM_READ_ONLY, sizeof(powerOf2Inverses), 0);
+		CL_CHECKED_CALL_WITH_RESULT(myPowerOf2SumInverses_Buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, sizeof(powerOf2Inverses), 0);
 		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPowerOf2SumInverses_Buf, CL_TRUE, 0, sizeof(powerOf2Inverses), powerOf2Inverses, 0, nullptr, nullptr);
 	}
 
@@ -534,7 +548,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 			offsets.emplace_back(static_cast<unsigned int>(PowersOfP_128DivisibilityData[i] - PowersOfP_128DivisibilityData_base));
 		}
 
-		CL_CHECKED_CALL_WITH_RESULT(myPowersOfP_128SumInverses_offsets_Buf, clCreateBuffer, myGPUContext, CL_MEM_READ_ONLY, sizeof(unsigned int) * ReciprocalsTableSize128, 0);
+		CL_CHECKED_CALL_WITH_RESULT(myPowersOfP_128SumInverses_offsets_Buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, sizeof(unsigned int) * ReciprocalsTableSize128, 0);
 		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPowersOfP_128SumInverses_offsets_Buf, CL_TRUE, 0, sizeof(unsigned int) * ReciprocalsTableSize128, offsets.data(), 0, nullptr, nullptr);
 
 		std::vector<num64> inverses;
@@ -547,23 +561,23 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 			inverses[i * 4 + 3] = PowersOfP_128DivisibilityData_base[i].shift_bits;
 		}
 
-		CL_CHECKED_CALL_WITH_RESULT(myPowersOfP_128SumInverses_Buf, clCreateBuffer, myGPUContext, CL_MEM_READ_ONLY, sizeof(num64) * 4 * PowersOfP_128DivisibilityData_count, 0);
+		CL_CHECKED_CALL_WITH_RESULT(myPowersOfP_128SumInverses_Buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, sizeof(num64) * 4 * PowersOfP_128DivisibilityData_count, 0);
 		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPowersOfP_128SumInverses_Buf, CL_TRUE, 0, sizeof(num64) * 4 * PowersOfP_128DivisibilityData_count, inverses.data(), 0, nullptr, nullptr);
 	}
 
-	CL_CHECKED_CALL_WITH_RESULT(myPrimeInverses_128_Buf, clCreateBuffer, myGPUContext, CL_MEM_READ_ONLY, sizeof(num128) * ReciprocalsTableSize128, 0);
+	CL_CHECKED_CALL_WITH_RESULT(myPrimeInverses_128_Buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, sizeof(num128) * ReciprocalsTableSize128, 0);
 	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPrimeInverses_128_Buf, CL_TRUE, 0, sizeof(num128) * ReciprocalsTableSize128, PrimeInverses128, 0, nullptr, nullptr);
 
-	CL_CHECKED_CALL_WITH_RESULT(mySumEstimates_128_Buf, clCreateBuffer, myGPUContext, CL_MEM_READ_ONLY, sizeof(num64) * ReciprocalsTableSize128 / 16, 0);
+	CL_CHECKED_CALL_WITH_RESULT(mySumEstimates_128_Buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, sizeof(num64) * ReciprocalsTableSize128 / 16, 0);
 	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, mySumEstimates_128_Buf, CL_TRUE, 0, sizeof(num64) * ReciprocalsTableSize128 / 16, SumEstimates128, 0, nullptr, nullptr);
 
-	CL_CHECKED_CALL_WITH_RESULT(myRangesTable_Buf, clCreateBuffer, myGPUContext, CL_MEM_READ_ONLY, sizeof(RangeDataGPU) * myMaxRangesCount, 0);
-	CL_CHECKED_CALL_WITH_RESULT(myRangesLookupTable_Buf, clCreateBuffer, myGPUContext, CL_MEM_READ_ONLY, sizeof(LookupDataGPU) * myMaxLookupTableSize, 0);
+	CL_CHECKED_CALL_WITH_RESULT(myRangesTable_Buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, sizeof(RangeDataGPU) * myMaxRangesCount, 0);
+	CL_CHECKED_CALL_WITH_RESULT(myRangesLookupTable_Buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, sizeof(LookupDataGPU) * myMaxLookupTableSize, 0);
 
-	CL_CHECKED_CALL_WITH_RESULT(myPhase1_offset_to_resume_buf, clCreateBuffer, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64), 0);
-	CL_CHECKED_CALL_WITH_RESULT(myPhase2_numbers_count_buf, clCreateBuffer, myGPUContext, CL_MEM_READ_WRITE, sizeof(unsigned int) * 2, 0);
-	CL_CHECKED_CALL_WITH_RESULT(myPhase3_numbers_count_buf, clCreateBuffer, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64), 0);
-	CL_CHECKED_CALL_WITH_RESULT(myAmicable_numbers_count_buf, clCreateBuffer, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64), 0);
+	CL_CHECKED_CALL_WITH_RESULT(myPhase1_offset_to_resume_buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64), 0);
+	CL_CHECKED_CALL_WITH_RESULT(myPhase2_numbers_count_buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(unsigned int) * 2, 0);
+	CL_CHECKED_CALL_WITH_RESULT(myPhase3_numbers_count_buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64), 0);
+	CL_CHECKED_CALL_WITH_RESULT(myAmicable_numbers_count_buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64), 0);
 
 	ourZeroBuf = new unsigned char[ourZeroBufSize];
 	memset(ourZeroBuf, 0, ourZeroBufSize);
@@ -573,9 +587,9 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase3_numbers_count_buf, CL_TRUE, 0, sizeof(num64), ourZeroBuf, 0, nullptr, nullptr);
 	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myAmicable_numbers_count_buf, CL_TRUE, 0, sizeof(num64), ourZeroBuf, 0, nullptr, nullptr);
 
-	CL_CHECKED_CALL_WITH_RESULT(myPhase2_numbers_buf, clCreateBuffer, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64) * 4 * myPhase2MaxNumbersCount, 0);
-	CL_CHECKED_CALL_WITH_RESULT(myPhase3_numbers_buf, clCreateBuffer, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64) * 4 * myPhase2MaxNumbersCount, 0);
-	CL_CHECKED_CALL_WITH_RESULT(myAmicable_numbers_data_buf, clCreateBuffer, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64) * 4 * 8192, 0);
+	CL_CHECKED_CALL_WITH_RESULT(myPhase2_numbers_buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64) * 4 * myPhase2MaxNumbersCount, 0);
+	CL_CHECKED_CALL_WITH_RESULT(myPhase3_numbers_buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64) * 4 * myPhase2MaxNumbersCount, 0);
+	CL_CHECKED_CALL_WITH_RESULT(myAmicable_numbers_data_buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64) * 4 * 8192, 0);
 
 	CL_CHECKED_CALL(clFinish, myQueue);
 
@@ -583,7 +597,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 
 	if (IsLargePrimes)
 	{
-		CL_CHECKED_CALL_WITH_RESULT(myLargePrimesBuf, clCreateBuffer, myGPUContext, CL_MEM_READ_ONLY, sizeof(num64) * myLargePrimesMaxCount, 0);
+		CL_CHECKED_CALL_WITH_RESULT(myLargePrimesBuf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, sizeof(num64) * myLargePrimesMaxCount, 0);
 
 		CL_CHECKED_CALL(setKernelArguments, mySearchLargePrimes,
 			mySmallPrimesBuf,
@@ -1231,13 +1245,18 @@ bool OpenCL::Test()
 
 	cl_mem pairsToCheck_Buf;
 	pairs.resize(((pairs.size() + myWorkGroupSize - 1) / myWorkGroupSize) * myWorkGroupSize);
-	CL_CHECKED_CALL_WITH_RESULT(pairsToCheck_Buf, clCreateBuffer, myGPUContext, CL_MEM_READ_WRITE, sizeof(SPairToCheck) * pairs.size(), 0);
+	CL_CHECKED_CALL_WITH_RESULT(pairsToCheck_Buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(SPairToCheck) * pairs.size(), 0);
 	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, pairsToCheck_Buf, CL_TRUE, 0, sizeof(SPairToCheck) * pairs.size(), pairs.data(), 0, nullptr, nullptr);
 
 	struct TmpBuf
 	{
 		explicit TmpBuf(cl_context gpuContext) { mem = clCreateBuffer(gpuContext, CL_MEM_READ_WRITE, sizeof(num64) * 4 * 5000000, 0, nullptr); }
 		~TmpBuf() { clReleaseMemObject(mem); }
+
+		TmpBuf(const TmpBuf&) = delete;
+		TmpBuf(TmpBuf&&) = delete;
+		TmpBuf& operator=(const TmpBuf&) = delete;
+		TmpBuf& operator=(TmpBuf&&) = delete;
 
 		operator cl_mem() { return mem; }
 
@@ -1527,11 +1546,11 @@ bool OpenCL::AddRange(const RangeData& r)
 	unsigned int index_begin = r.index_start_prime;
 
 	// Find the first prime "p" such that "p > prime_limit" is true
-	unsigned int a = 0;
-	unsigned int b = NumPrimes;
+	num64 a = 0;
+	num64 b = NumPrimes;
 	do
 	{
-		const unsigned int c = (a + b) >> 1;
+		const num64 c = (a + b) >> 1;
 		if (LowWord(prime_limit) < GetNthPrime(c))
 		{
 			b = c;
@@ -1542,9 +1561,9 @@ bool OpenCL::AddRange(const RangeData& r)
 		}
 	} while (a < b);
 
-	if (a > index_begin)
+	if ((a > index_begin) && (index_begin < myMainBufferSize / 2))
 	{
-		const unsigned int range_size = a - index_begin;
+		const unsigned int range_size = static_cast<unsigned int>(std::min(a - index_begin, myMainBufferSize / 2 - index_begin));
 
 		myRanges.emplace_back(r.value, r.sum, index_begin, range_size);
 		myTotalNumbersInRanges += range_size;

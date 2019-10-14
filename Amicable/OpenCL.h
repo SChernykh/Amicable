@@ -122,6 +122,10 @@ private:
 
 	num64 myOldTimerResolution;
 
+	const unsigned char* myMainBufferData;
+	num64 myMainBufferSize;
+	num64 myMainBufferTotalSize;
+
 	std::vector<RangeDataGPU> myRanges;
 	unsigned int myTotalNumbersInRanges;
 	num64 myNumbersProcessedTotal;
@@ -163,7 +167,7 @@ private:
 FORCEINLINE cl_int setKernelArgumentsWithOffset(cl_kernel, cl_uint) { return CL_SUCCESS; }
 
 template<typename T0, typename... Arguments>
-FORCEINLINE cl_int setKernelArgumentsWithOffset(cl_kernel kernel, cl_uint offset, const T0& arg0, Arguments... args)
+FORCEINLINE cl_int setKernelArgumentsWithOffset(cl_kernel kernel, cl_uint offset, const T0& arg0, const Arguments&... args)
 {
 	cl_int ciErrNum = clSetKernelArg(kernel, offset, sizeof(T0), &arg0);
 	if (ciErrNum != CL_SUCCESS) return ciErrNum;
@@ -172,7 +176,7 @@ FORCEINLINE cl_int setKernelArgumentsWithOffset(cl_kernel kernel, cl_uint offset
 }
 
 template<typename... Arguments>
-FORCEINLINE cl_int setKernelArguments(cl_kernel kernel, Arguments... args)
+FORCEINLINE cl_int setKernelArguments(cl_kernel kernel, const Arguments&... args)
 {
 	return setKernelArgumentsWithOffset(kernel, 0, args...);
 }
