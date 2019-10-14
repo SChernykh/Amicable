@@ -1548,18 +1548,45 @@ bool OpenCL::AddRange(const RangeData& r)
 	// Find the first prime "p" such that "p > prime_limit" is true
 	num64 a = 0;
 	num64 b = NumPrimes;
-	do
+	const num64 t = LowWord(prime_limit);
+
+	// Use prime counting function estimates to bound the initial search values
+	if (t > 3)
+	{
+		unsigned long index;
+		_BitScanReverse64(&index, t);
+		if (index < 37)
+		{
+			// oeis.org sequence A185192
+			static const num64 num_primes[37] = { 0, 2, 4, 6, 11, 18, 31, 54, 97, 172, 309, 564, 1028, 1900, 3512, 6542, 12251, 23000, 43390, 82025, 155611, 295947, 564163, 1077871, 2063689, 3957809, 7603553, 14630843, 28192750, 54400028, 105097565, 203280221, 393615806, 762939111, 1480206279, 2874398515, 5586502348 };
+			const num64 b1 = num_primes[index];
+			if (b > b1)
+				b = b1;
+		}
+
+		double x = log(static_cast<double>(t)) - 1.0;
+		for (int i = 0; i <= 1; ++i, x -= 0.1)
+		{
+			const num64 c = static_cast<num64>(t / x);
+			if (a < c && c < b)
+			{
+				if (t < GetNthPrime(c))
+					b = c;
+				else
+					a = c + 1;
+			}
+		}
+	}
+
+	// Run the search
+	while (a < b)
 	{
 		const num64 c = (a + b) >> 1;
-		if (LowWord(prime_limit) < GetNthPrime(c))
-		{
+		if (t < GetNthPrime(c))
 			b = c;
-		}
 		else
-		{
 			a = c + 1;
-		}
-	} while (a < b);
+	}
 
 	if ((a > index_begin) && (index_begin < myMainBufferSize / 2))
 	{
