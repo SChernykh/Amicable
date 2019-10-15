@@ -63,7 +63,7 @@ private:
 	bool GetAndResetCounter(cl_command_queue queue, cl_mem buf, num64 &counter);
 	unsigned int GetMaxPhaseSize(num64 total_size, unsigned int max_size);
 
-	bool RunRanges(char* startFrom, char* stopAt, num64 offset);
+	bool RunRanges(char* startFrom, char* stopAt, num64& offset);
 	bool RunLargePrimes(num64 startPrime, num64 primeLimit);
 
 	void PassLargePrimesToThread();
@@ -75,7 +75,7 @@ private:
 	void CleanupRanges();
 
 	bool SaveFoundNumbers();
-	bool SaveProgressForRanges(const RangeData& r);
+	bool SaveProgressForRanges(const RangeData& r, num64 offset);
 	bool SaveProgressForLargePrimes(num64 firstPrime, num64 lastPrime, num64 offset, bool queueEmpty);
 
 	unsigned int myLargestPrimePower;

@@ -691,7 +691,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	return result;
 }
 
-bool OpenCL::RunRanges(char* startFrom, char* stopAt, num64 offset)
+bool OpenCL::RunRanges(char* startFrom, char* stopAt, num64& offset)
 {
 	RangeData r;
 	memset(&r, 0, sizeof(r));
@@ -737,17 +737,23 @@ bool OpenCL::RunRanges(char* startFrom, char* stopAt, num64 offset)
 			if (end_of_data)
 			{
 				*end_of_data = '\0';
-				char* first_token_end = strchr(checkpoint_buf, ' ');
-				if (first_token_end)
+				char* c = strchr(checkpoint_buf, ' ');
+				if (c)
 				{
-					myNumbersProcessedTotal = StrToNumber(checkpoint_buf);
-					const double f = myNumbersProcessedTotal / RangeGen::total_numbers_to_check;
-					boinc_fraction_done((f < 1.0) ? f : 1.0);
-					do
+					const num64 saved_NumbersProcessedTotal = StrToNumber(checkpoint_buf);
+					do { ++c; } while (*c == ' ');
+					const num64 saved_offset = StrToNumber(c);
+					if (saved_offset >= offset)
 					{
-						++first_token_end;
-					} while (*first_token_end == ' ');
-					startFrom = first_token_end;
+						myNumbersProcessedTotal = saved_NumbersProcessedTotal;
+						const double f = myNumbersProcessedTotal / RangeGen::total_numbers_to_check;
+						boinc_fraction_done((f < 1.0) ? f : 1.0);
+
+						offset = saved_offset;
+						do { ++c; } while (*c != ' ');
+						do { ++c; } while (*c == ' ');
+						startFrom = c;
+					}
 				}
 			}
 		}
@@ -783,7 +789,7 @@ bool OpenCL::RunRanges(char* startFrom, char* stopAt, num64 offset)
 			}
 			if (numbers_in_phase2 == 0)
 			{
-				if (!SaveProgressForRanges(r))
+				if (!SaveProgressForRanges(r, offset))
 				{
 					return false;
 				}
@@ -808,7 +814,7 @@ bool OpenCL::RunRanges(char* startFrom, char* stopAt, num64 offset)
 	}
 	CleanupRanges();
 
-	return SaveProgressForRanges(r);
+	return true;
 }
 
 bool OpenCL::RunLargePrimes(num64 startPrime, num64 primeLimit)
@@ -1886,7 +1892,7 @@ bool OpenCL::SaveFoundNumbers()
 	return true;
 }
 
-bool OpenCL::SaveProgressForRanges(const RangeData& r)
+bool OpenCL::SaveProgressForRanges(const RangeData& r, num64 offset)
 {
 	// This is only called when the queue is empty: there are no numbers in phases 1-3 on GPU and GPU is idle
 
@@ -1903,7 +1909,7 @@ bool OpenCL::SaveProgressForRanges(const RangeData& r)
 		boinc_resolve_filename_s(CHECKPOINT_LOGICAL_NAME, checkpoint_name);
 
 		// First write how many numbers have been checked so far
-		s << myNumbersProcessedTotal << ' ';
+		s << myNumbersProcessedTotal << ' ' << offset << ' ';
 
 		// Then current range
 		const Factor(&mainFactors)[MaxPrimeFactors] = r.factors;

@@ -164,7 +164,7 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="kernerl.cl" />
+    <None Include="kernel.cl" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
