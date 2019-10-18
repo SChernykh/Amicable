@@ -5,7 +5,7 @@ LIBS=-L ../boinc/api -L ../boinc/lib -Wl,--whole-archive -lboinc -lboinc_api -lb
 # Build profile-optimized, stripped and ready to use binary
 all: Amicable/*.* primesieve/src/primesieve/*.cpp primesieve/include/*.* primesieve/include/primesieve/*.*
 	mkdir -p release
-	cd Amicable; php cpp_stringify.php kernel.cl
+	cd Amicable
 	g++ -o release/amicable -static-libstdc++ -static-libgcc -std=c++0x $(WARNINGS) -O3 $(INCLUDES) Amicable/*.cpp primesieve/src/primesieve/*.cpp $(LIBS)
 	strip release/amicable
 
