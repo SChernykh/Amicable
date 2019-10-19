@@ -814,7 +814,7 @@ bool OpenCL::RunRanges(char* startFrom, char* stopAt, num64& offset)
 	}
 	CleanupRanges();
 
-	return true;
+	return SaveFoundNumbers();
 }
 
 bool OpenCL::RunLargePrimes(num64 startPrime, num64 primeLimit)
