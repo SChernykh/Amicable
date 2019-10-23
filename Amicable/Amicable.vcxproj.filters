@@ -198,7 +198,7 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="kernel.cl">
+    <None Include="kernel.cl.inl">
       <Filter>Source Files\CL</Filter>
     </None>
   </ItemGroup>

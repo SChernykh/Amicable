@@ -3,7 +3,7 @@
 #include "PrimeTables.h"
 #include "RangeGen.h"
 #include "sprp64.h"
-#include "kernel.cl"
+#include "kernel.cl.inl"
 
 PRAGMA_WARNING(push, 1)
 PRAGMA_WARNING(disable : 4091 4917 4625 4626 5026 5027)
@@ -332,41 +332,41 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	myMainBufferTotalSize = IsLargePrimes ? static_cast<unsigned int>(CandidatesData.capacity() * AmicableCandidate::PackedSize) : PrimesCompactAllocationSize;
 
 	enum { MaxMainBufferSize = 512 << 20 };
-	myMainBufferSize = std::min<num64>(myMainBufferTotalSize, MaxMainBufferSize);
+	myMainBufferSize = myMainBufferTotalSize;// std::min<num64>(myMainBufferTotalSize, MaxMainBufferSize);
 
 	// Try to create a single continuous buffer for storing prime numbers
 	// Even though its size is bigger than CL_DEVICE_MAX_MEM_ALLOC_SIZE for many devices,
 	// they are still able to do big allocations sometimes
-	{
-		cl_int ciErrNum;
-		cl_mem buf = clCreateBufferLogged(__LINE__, myGPUContext, CL_MEM_READ_ONLY, myMainBufferSize, 0, &ciErrNum);
-		if (ciErrNum == CL_SUCCESS)
-		{
-			NumMainBufferChunks = 1;
-			unsigned long index;
-			_BitScanReverse64(&index, myMainBufferSize);
-			ChunkSizeShift = index + 1;
-			myMainBuffers.emplace_back(buf);
-		}
-		else
-		{
-			// If it failed, take into account maximum allocation size for this device
-			unsigned long index;
-			_BitScanReverse64(&index, MaxMemAllocSize);
-			ChunkSizeShift = index;
-			NumMainBufferChunks = (myMainBufferSize + (1ULL << ChunkSizeShift) - 1) >> ChunkSizeShift;
+	//{
+	//	cl_int ciErrNum;
+	//	cl_mem buf = clCreateBufferLogged(__LINE__, myGPUContext, CL_MEM_READ_ONLY, myMainBufferSize, 0, &ciErrNum);
+	//	if (ciErrNum == CL_SUCCESS)
+	//	{
+	//		NumMainBufferChunks = 1;
+	//		unsigned long index;
+	//		_BitScanReverse64(&index, myMainBufferSize);
+	//		ChunkSizeShift = index + 1;
+	//		myMainBuffers.emplace_back(buf);
+	//	}
+	//	else
+	//	{
+	//		// If it failed, take into account maximum allocation size for this device
+	//		unsigned long index;
+	//		_BitScanReverse64(&index, MaxMemAllocSize);
+	//		ChunkSizeShift = index;
+	//		NumMainBufferChunks = (myMainBufferSize + (1ULL << ChunkSizeShift) - 1) >> ChunkSizeShift;
 
-			myMainBuffers.reserve(NumMainBufferChunks);
-			for (num64 totalSize = 0; totalSize < myMainBufferSize;)
-			{
-				const num64 BufSize = std::min<num64>(1ULL << ChunkSizeShift, myMainBufferSize - totalSize);
-				cl_mem buf;
-				CL_CHECKED_CALL_WITH_RESULT(buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, BufSize, 0);
-				myMainBuffers.emplace_back(buf);
-				totalSize += BufSize;
-			}
-		}
-	}
+	//		myMainBuffers.reserve(NumMainBufferChunks);
+	//		for (num64 totalSize = 0; totalSize < myMainBufferSize;)
+	//		{
+	//			const num64 BufSize = std::min<num64>(1ULL << ChunkSizeShift, myMainBufferSize - totalSize);
+	//			cl_mem buf;
+	//			CL_CHECKED_CALL_WITH_RESULT(buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, BufSize, 0);
+	//			myMainBuffers.emplace_back(buf);
+	//			totalSize += BufSize;
+	//		}
+	//	}
+	//}
 
 	{
 		char kernel_options[1024];
@@ -570,12 +570,12 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 
 	if (IsLargePrimes)
 	{
-		for (num64 totalSize = 0, i = 0; totalSize < myMainBufferSize; ++i)
-		{
-			const num64 BufSize = std::min<num64>(1ULL << ChunkSizeShift, myMainBufferSize - totalSize);
-			CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myMainBuffers[i], CL_TRUE, 0, BufSize, myMainBufferData + totalSize, 0, nullptr, nullptr);
-			totalSize += BufSize;
-		}
+		//for (num64 totalSize = 0, i = 0; totalSize < myMainBufferSize; ++i)
+		//{
+		//	const num64 BufSize = std::min<num64>(1ULL << ChunkSizeShift, myMainBufferSize - totalSize);
+		//	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myMainBuffers[i], CL_TRUE, 0, BufSize, myMainBufferData + totalSize, 0, nullptr, nullptr);
+		//	totalSize += BufSize;
+		//}
 
 		CL_CHECKED_CALL_WITH_RESULT(myLargePrimesBuf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, sizeof(num64) * myLargePrimesMaxCount, 0);
 
@@ -669,29 +669,16 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	else
 	{
 		result = true;
-		for (num64 offset = 0; offset < myMainBufferTotalSize; offset += myMainBufferSize)
-		{
-			const num64 n = std::min(myMainBufferSize, myMainBufferTotalSize - offset);
-			for (num64 totalSize = 0, i = 0; totalSize < n; ++i)
-			{
-				const num64 BufSize = std::min<num64>(1ULL << ChunkSizeShift, n - totalSize);
-				CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myMainBuffers[i], CL_TRUE, 0, BufSize, myMainBufferData + offset + totalSize, 0, nullptr, nullptr);
-				totalSize += BufSize;
-			}
 
-			LOG(1, "\n---=== RUNNING RANGES WITH OFFSET " << offset << " ===---\n");
-			if (!RunRanges(startFrom, stopAt, offset))
-			{
-				result = false;
-				break;
-			}
-		}
+		myNumbersProcessedTotal = 0;
+		result &= RunRanges(startFrom, stopAt);
+		std::cout << myNumbersProcessedTotal << " numbers" << std::endl;
 	}
 	LOG(1, "\nWork unit finished in " << std::setprecision(6) << t.getElapsedTime() << " seconds, " << myNumbersProcessedTotal << " numbers processed\n");
 	return result;
 }
 
-bool OpenCL::RunRanges(char* startFrom, char* stopAt, num64& offset)
+bool OpenCL::RunRanges(char* startFrom, char* stopAt)
 {
 	RangeData r;
 	memset(&r, 0, sizeof(r));
@@ -725,40 +712,40 @@ bool OpenCL::RunRanges(char* startFrom, char* stopAt, num64& offset)
 	// Work unit with 75% GPU load
 	// /from 2*5*11*13*17*919*10861 /to 2*5*11*13*17*947*977*1973 /task_size 109093979525 
 
-	char checkpoint_buf[256];
-	std::string checkpoint_name;
-	boinc_resolve_filename_s(CHECKPOINT_LOGICAL_NAME, checkpoint_name);
-	FILE* checkpoint = boinc_fopen(checkpoint_name.c_str(), "r");
-	if (checkpoint)
-	{
-		if (fgets(checkpoint_buf, sizeof(checkpoint_buf), checkpoint))
-		{
-			char* end_of_data = strchr(checkpoint_buf, '#');
-			if (end_of_data)
-			{
-				*end_of_data = '\0';
-				char* c = strchr(checkpoint_buf, ' ');
-				if (c)
-				{
-					const num64 saved_NumbersProcessedTotal = StrToNumber(checkpoint_buf);
-					do { ++c; } while (*c == ' ');
-					const num64 saved_offset = StrToNumber(c);
-					if (saved_offset >= offset)
-					{
-						myNumbersProcessedTotal = saved_NumbersProcessedTotal;
-						const double f = myNumbersProcessedTotal / RangeGen::total_numbers_to_check;
-						boinc_fraction_done((f < 1.0) ? f : 1.0);
+	//char checkpoint_buf[256];
+	//std::string checkpoint_name;
+	//boinc_resolve_filename_s(CHECKPOINT_LOGICAL_NAME, checkpoint_name);
+	//FILE* checkpoint = boinc_fopen(checkpoint_name.c_str(), "r");
+	//if (checkpoint)
+	//{
+	//	if (fgets(checkpoint_buf, sizeof(checkpoint_buf), checkpoint))
+	//	{
+	//		char* end_of_data = strchr(checkpoint_buf, '#');
+	//		if (end_of_data)
+	//		{
+	//			*end_of_data = '\0';
+	//			char* c = strchr(checkpoint_buf, ' ');
+	//			if (c)
+	//			{
+	//				const num64 saved_NumbersProcessedTotal = StrToNumber(checkpoint_buf);
+	//				do { ++c; } while (*c == ' ');
+	//				const num64 saved_offset = StrToNumber(c);
+	//				if (saved_offset >= offset)
+	//				{
+	//					myNumbersProcessedTotal = saved_NumbersProcessedTotal;
+	//					const double f = myNumbersProcessedTotal / RangeGen::total_numbers_to_check;
+	//					boinc_fraction_done((f < 1.0) ? f : 1.0);
 
-						offset = saved_offset;
-						do { ++c; } while (*c != ' ');
-						do { ++c; } while (*c == ' ');
-						startFrom = c;
-					}
-				}
-			}
-		}
-		fclose(checkpoint);
-	}
+	//					offset = saved_offset;
+	//					do { ++c; } while (*c != ' ');
+	//					do { ++c; } while (*c == ' ');
+	//					startFrom = c;
+	//				}
+	//			}
+	//		}
+	//	}
+	//	fclose(checkpoint);
+	//}
 
 	RangeGen::Init(startFrom, stopAt, &r, stopAtFactors, myLargestPrimePower);
 	if (!startFrom)
@@ -767,8 +754,7 @@ bool OpenCL::RunRanges(char* startFrom, char* stopAt, num64& offset)
 	}
 	while (!RangeGen::HasReached(r, stopAtFactors))
 	{
-		bool range_added;
-		if (!AddRange(r, offset, range_added))
+		if (!AddRange(r))
 		{
 			return false;
 		}
@@ -777,41 +763,41 @@ bool OpenCL::RunRanges(char* startFrom, char* stopAt, num64& offset)
 			break;
 		}
 
-		const double progress = static_cast<double>(myNumbersProcessedTotal) / RangeGen::total_numbers_to_check;
-		boinc_fraction_done((progress < 1.0) ? progress : 1.0);
+		//const double progress = static_cast<double>(myNumbersProcessedTotal) / RangeGen::total_numbers_to_check;
+		//boinc_fraction_done((progress < 1.0) ? progress : 1.0);
 
-		if (range_added && (myTotalNumbersInRanges == 0))
-		{
-			unsigned int numbers_in_phase2 = 0;
-			if (!GetCounter(myQueue, myPhase2_numbers_count_buf, numbers_in_phase2))
-			{
-				return false;
-			}
-			if (numbers_in_phase2 == 0)
-			{
-				if (!SaveProgressForRanges(r, offset))
-				{
-					return false;
-				}
-			}
-		}
+		//if (range_added && (myTotalNumbersInRanges == 0))
+		//{
+		//	unsigned int numbers_in_phase2 = 0;
+		//	if (!GetCounter(myQueue, myPhase2_numbers_count_buf, numbers_in_phase2))
+		//	{
+		//		return false;
+		//	}
+		//	if (numbers_in_phase2 == 0)
+		//	{
+		//		if (!SaveProgressForRanges(r, offset))
+		//		{
+		//			return false;
+		//		}
+		//	}
+		//}
 	}
 
-	if ((myTotalNumbersInRanges > 0) && !ProcessNumbers())
-	{
-		return false;
-	}
+	//if ((myTotalNumbersInRanges > 0) && !ProcessNumbers())
+	//{
+	//	return false;
+	//}
 
-	unsigned int numbers_in_phase2 = 0;
-	if (!GetCounter(myQueue, myPhase2_numbers_count_buf, numbers_in_phase2))
-	{
-		return false;
-	}
+	//unsigned int numbers_in_phase2 = 0;
+	//if (!GetCounter(myQueue, myPhase2_numbers_count_buf, numbers_in_phase2))
+	//{
+	//	return false;
+	//}
 
-	if ((numbers_in_phase2 > 0) && !ProcessNumbersPhases2_3(numbers_in_phase2))
-	{
-		return false;
-	}
+	//if ((numbers_in_phase2 > 0) && !ProcessNumbersPhases2_3(numbers_in_phase2))
+	//{
+	//	return false;
+	//}
 	CleanupRanges();
 
 	return true;
@@ -1459,10 +1445,8 @@ FORCEINLINE num64 IntegerCbrt(const num128 n)
 	return result;
 }
 
-bool OpenCL::AddRange(const RangeData& r, num64 offset, bool& added)
+bool OpenCL::AddRange(const RangeData& r)
 {
-	added = false;
-
 	num128 prime_limit = 0;
 
 	switch (myLargestPrimePower)
@@ -1600,24 +1584,23 @@ bool OpenCL::AddRange(const RangeData& r, num64 offset, bool& added)
 			a = c + 1;
 	}
 
-	const num64 index_begin = std::max<num64>(r.index_start_prime, offset / 2);
-	if ((a > index_begin) && (index_begin < (offset + myMainBufferSize) / 2))
+	const num64 index_begin = r.index_start_prime;
+	if (a > index_begin)
 	{
-		const unsigned int range_size = static_cast<unsigned int>(std::min(a - index_begin, (offset + myMainBufferSize) / 2 - index_begin));
+		const unsigned int range_size = a - index_begin;
 
-		myRanges.emplace_back(r.value, r.sum, static_cast<unsigned int>(index_begin), range_size);
-		myTotalNumbersInRanges += range_size;
+		//myRanges.emplace_back(r.value, r.sum, static_cast<unsigned int>(index_begin), range_size);
+		//myTotalNumbersInRanges += range_size;
 		myNumbersProcessedTotal += range_size;
-		added = true;
 
-		if ((myTotalNumbersInRanges >= Phase1Limit) || (myRanges.size() >= myMaxRangesCount))
-		{
-			if (!ProcessNumbers())
-			{
-				return false;
-			}
-			CleanupRanges();
-		}
+		//if ((myTotalNumbersInRanges >= Phase1Limit) || (myRanges.size() >= myMaxRangesCount))
+		//{
+		//	if (!ProcessNumbers())
+		//	{
+		//		return false;
+		//	}
+		//	CleanupRanges();
+		//}
 	}
 
 	return true;

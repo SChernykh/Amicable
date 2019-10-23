@@ -347,8 +347,12 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 
 	num64 numPrimesEstimate = static_cast<num64>(nPrimesBound / (log(nPrimesBound) - 1.1));
 	PrimesCompactAllocationSize = numPrimesEstimate * 2;
-	PrimesCompactAllocationSize = ((PrimesCompactAllocationSize / 4096) + 1) * 4096;
-	privPrimesCompact = reinterpret_cast<PrimeCompactData*>(AllocateSystemMemory(PrimesCompactAllocationSize, false));
+	PrimesCompactAllocationSize = ((PrimesCompactAllocationSize / 65536) + 1) * 65536;
+
+	HANDLE hFile = CreateFile("D:\\primes.dat", GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, 0);
+	HANDLE hMap = CreateFileMapping(hFile, 0, PAGE_READONLY, 0, 0, "primes.dat");
+
+	privPrimesCompact = reinterpret_cast<PrimeCompactData*>(MapViewOfFile(hMap, FILE_MAP_READ, 0, 0, 0));
 
 	for (unsigned int i = 0; i < 385; ++i)
 	{
@@ -359,7 +363,27 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 		privCandidatesDataMask[i] = static_cast<byte>(1 << index);
 	}
 
-	CalculateMainPrimeTable(static_cast<num64>(nPrimesBound));
+	num64 tmp = 0;
+	for (num64 i = 0; i < PrimesCompactAllocationSize; i += 4096)
+	{
+		tmp += ((uint8_t*)privPrimesCompact)[i];
+	}
+
+	for (NumPrimes = 0; NumPrimes < ReciprocalsTableSize128; ++NumPrimes)
+	{
+		MainPrimeTableInitializer p;
+		p.InitReciprocals(GetNthPrime(NumPrimes));
+	}
+
+#if 0
+	const num64 upperBound = ((nPrimesBound / PrimeTableParameters::Modulo) + 10) * PrimeTableParameters::Modulo;
+	primesieve::PrimeSieve sieve;
+	sieve.sieveTemplated(0, upperBound, [](num64) { ++NumPrimes; });
+	std::cout << "NumPrimes = " << NumPrimes << std::endl;
+#endif
+	NumPrimes = 4118054907;
+
+	std::cout << "Primes loaded (" << tmp << ")" << std::endl;
 
 	num128 curPowerOf2 = 4;
 	for (num64 i = 1; i < 128; ++i, curPowerOf2 += curPowerOf2)

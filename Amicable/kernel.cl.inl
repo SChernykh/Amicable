@@ -1,7 +1,6 @@
 #pragma once
 
-static const char* kernel_cl = R"===(
-#pragma OPENCL EXTENSION cl_khr_global_int32_base_atomics : enable
+static const char* kernel_cl = R"===(#pragma OPENCL EXTENSION cl_khr_global_int32_base_atomics : enable
 
 #ifdef cl_clang_storage_class_specifiers
 #pragma OPENCL EXTENSION cl_clang_storage_class_specifiers : enable

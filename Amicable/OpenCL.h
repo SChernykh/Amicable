@@ -41,7 +41,7 @@ public:
 
 	bool Test();
 
-	bool AddRange(const RangeData& r, num64 offset, bool& added);
+	bool AddRange(const RangeData& r);
 
 	FORCEINLINE void operator()(num64 p)
 	{
@@ -52,7 +52,7 @@ public:
 		}
 	}
 
-private:
+public:
 	int SetKernelSize(int size);
 
 	bool GetPlatformID(cl_platform_id* clSelectedPlatformID);
@@ -63,7 +63,7 @@ private:
 	bool GetAndResetCounter(cl_command_queue queue, cl_mem buf, num64 &counter);
 	unsigned int GetMaxPhaseSize(num64 total_size, unsigned int max_size);
 
-	bool RunRanges(char* startFrom, char* stopAt, num64& offset);
+	bool RunRanges(char* startFrom, char* stopAt);
 	bool RunLargePrimes(num64 startPrime, num64 primeLimit);
 
 	void PassLargePrimesToThread();
