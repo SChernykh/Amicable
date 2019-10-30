@@ -671,16 +671,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 		result = true;
 		for (num64 offset = 0; offset < myMainBufferTotalSize; offset += myMainBufferSize)
 		{
-			const num64 n = std::min(myMainBufferSize, myMainBufferTotalSize - offset);
-			for (num64 totalSize = 0, i = 0; totalSize < n; ++i)
-			{
-				const num64 BufSize = std::min<num64>(1ULL << ChunkSizeShift, n - totalSize);
-				CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myMainBuffers[i], CL_TRUE, 0, BufSize, myMainBufferData + offset + totalSize, 0, nullptr, nullptr);
-				totalSize += BufSize;
-			}
-
-			LOG(1, "\n---=== RUNNING RANGES WITH OFFSET " << offset << " ===---\n");
-			if (!RunRanges(startFrom, stopAt, offset))
+			if (!RunRanges(startFrom, stopAt, offset, ChunkSizeShift))
 			{
 				result = false;
 				break;
@@ -691,7 +682,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	return result;
 }
 
-bool OpenCL::RunRanges(char* startFrom, char* stopAt, num64& offset)
+bool OpenCL::RunRanges(char* startFrom, char* stopAt, num64& offset, unsigned int ChunkSizeShift)
 {
 	RangeData r;
 	memset(&r, 0, sizeof(r));
@@ -759,6 +750,16 @@ bool OpenCL::RunRanges(char* startFrom, char* stopAt, num64& offset)
 		}
 		fclose(checkpoint);
 	}
+
+	const num64 n = std::min(myMainBufferSize, myMainBufferTotalSize - offset);
+	for (num64 totalSize = 0, i = 0; totalSize < n; ++i)
+	{
+		const num64 BufSize = std::min<num64>(1ULL << ChunkSizeShift, n - totalSize);
+		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myMainBuffers[i], CL_TRUE, 0, BufSize, myMainBufferData + offset + totalSize, 0, nullptr, nullptr);
+		totalSize += BufSize;
+	}
+
+	LOG(1, "\n---=== RUNNING RANGES WITH OFFSET " << offset << " ===---\n");
 
 	RangeGen::Init(startFrom, stopAt, &r, stopAtFactors, myLargestPrimePower);
 	if (!startFrom)
