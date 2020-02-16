@@ -266,6 +266,9 @@ int main(int argc, char* argv[])
 	while (!f.eof())
 	{
 		std::getline(f, s);
+		if (s.empty())
+			break;
+
 		data.assign(s.begin(), s.end());
 
 		char* c = data.data();
@@ -287,7 +290,8 @@ int main(int argc, char* argv[])
 			largestPrimePower = atoi(params[5]);
 
 		const num64 numbersProcessedTotal = RunRanges(params[1], params[3], largestPrimePower);
-		RunRanges(params[1], params[3], largestPrimePower, (numbersProcessedTotal / 10) + 1);
+		const num64 numTasks = std::max(10ULL, numbersProcessedTotal / 500000000000ULL);
+		RunRanges(params[1], params[3], largestPrimePower, (numbersProcessedTotal / numTasks) + 1);
 	}
 
 	return 0;
