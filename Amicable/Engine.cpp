@@ -804,7 +804,7 @@ FORCEINLINE bool InitialCheck128(const num128 n1, num128& targetSum, num128& n2)
 			{
 				n2 = q;
 				q *= *prime_inverse;
-				if (q > n2)
+				if (HighWord(q) > HighWord(n2))
 				{
 					break;
 				}
