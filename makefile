@@ -1,5 +1,5 @@
 WARNINGS=-Wall -Wextra -Wpedantic -Wstrict-overflow=5 -Wshadow -Warray-bounds=2
-INCLUDES=-I primesieve/include -I Amicable -I ../boinc/api -I ../boinc/lib
+INCLUDES=-I primesieve/include -I Amicable -I ../boinc/api -I ../boinc/lib -I ../boinc/
 LIBS=-L ../boinc/api -L ../boinc/lib -Wl,--whole-archive -lboinc_api -lboinc -lpthread -Wl,--no-whole-archive
 
 # Build profile-optimized, stripped and ready to use binary
