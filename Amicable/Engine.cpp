@@ -723,8 +723,16 @@ NOINLINE void FinalCheck128(const num128& n1, const num128& targetSum, const num
 		// targetSum is even, n2 is either p or p * q
 		if (targetSum == n2 + 1)
 		{
-			// May give some false positives if n2 is composite
-			// TODO: check that n2 is prime
+			/* May give some false positives if n2 is composite
+			   TODO: check that n2 is prime
+
+			   Example:
+
+			   M = 467915168733863040016 = 2^4*17*199*431*19973*1004210069
+			   N = 499109513316120575984 = 2^4*1908062567*16348701097
+			   targetSum = 31194344582257536000
+			   n2 = 31194344582257535999 = 1908062567*16348701097
+			*/
 			NumberFound(n1);
 		}
 		else
