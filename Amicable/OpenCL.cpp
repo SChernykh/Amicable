@@ -329,10 +329,18 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 
 	const bool IsLargePrimes = (startPrime && primeLimit);
 	myMainBufferData = IsLargePrimes ? reinterpret_cast<const unsigned char*>(CandidatesData.data()) : reinterpret_cast<const unsigned char*>(PrimesCompact);
-	myMainBufferTotalSize = IsLargePrimes ? static_cast<unsigned int>(CandidatesData.capacity() * AmicableCandidate::PackedSize) : PrimesCompactAllocationSize;
+	myMainBufferTotalSize = IsLargePrimes ? static_cast<unsigned int>((CandidatesData.size() + 1) * sizeof(AmicableCandidate)) : PrimesCompactAllocationSize;
 
 	enum { MaxMainBufferSize = 512 << 20 };
-	myMainBufferSize = std::min<num64>(myMainBufferTotalSize, MaxMainBufferSize);
+
+	if (IsLargePrimes) {
+		myMainBufferSize = myMainBufferTotalSize;
+		constexpr num64 N = 1 << 20;
+		myMainBufferSize = ((myMainBufferSize + N - 1) / N) * N;
+	}
+	else {
+		myMainBufferSize = std::min<num64>(myMainBufferTotalSize, MaxMainBufferSize);
+	}
 
 	// Try to create a single continuous buffer for storing prime numbers
 	// Even though its size is bigger than CL_DEVICE_MAX_MEM_ALLOC_SIZE for many devices,
@@ -594,7 +602,6 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 			0U,
 			0ULL,
 			0ULL,
-			CandidatesDataHighBitOffsets,
 			myPhase1_offset_to_resume_buf,
 			myPhase2_numbers_count_buf,
 			myPhase2_numbers_buf,
@@ -604,7 +611,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 
 		for (num64 i = 0; i < myMainBuffers.size(); ++i)
 		{
-			CL_CHECKED_CALL(clSetKernelArg, mySearchLargePrimes, static_cast<cl_uint>(i + 20), sizeof(cl_mem), &myMainBuffers[i]);
+			CL_CHECKED_CALL(clSetKernelArg, mySearchLargePrimes, static_cast<cl_uint>(i + 19), sizeof(cl_mem), &myMainBuffers[i]);
 		}
 	}
 	else
@@ -963,20 +970,13 @@ bool OpenCL::ProcessLargePrimes()
 		const num64 LargestCandidate = LowWord(SearchLimit::value / FirstPrime);
 		num64 CandidatesCount;
 		{
-			const std::pair<unsigned int, unsigned int>* packedCandidates = reinterpret_cast<const std::pair<unsigned int, unsigned int>*>(CandidatesData.data());
 			int a = 0;
 			int b = static_cast<int>(CandidatesData.size());
 			while (a < b)
 			{
 				const int c = (a + b) >> 1;
 
-				num64 value = packedCandidates[c].first;
-				if (c >= CandidatesDataHighBitOffsets.first)
-				{
-					value |= 0x100000000ULL;
-				}
-
-				if (value <= LargestCandidate)
+				if (CandidatesData[c].get_value() <= LargestCandidate)
 				{
 					a = c + 1;
 				}

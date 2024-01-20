@@ -1411,43 +1411,42 @@ void SearchLargePrimes(
 	const uint largePrimesCountIncrementAndShift,
 	const ulong global_offset,
 	const ulong global_size,
-	const int2 candidatesDataHighBitOffsets,
 	__global ulong* phase1_offset_to_resume_after_overflow,
 	__global uint* phase2_numbers_count,
 	__global ulong4* phase2_numbers_data,
 	__global uint* amicable_numbers_count,
 	__global ulong4* amicable_numbers_data,
 
-	__global uint2* amicableCandidates0
+	__global ulong* amicableCandidates0
 #if NUM_DATA_CHUNKS > 1
-	, __global uint2* amicableCandidates1
+	, __global ulong* amicableCandidates1
 #endif
 #if NUM_DATA_CHUNKS > 2
-	, __global uint2* amicableCandidates2
+	, __global ulong* amicableCandidates2
 #endif
 #if NUM_DATA_CHUNKS > 3
-	, __global uint2* amicableCandidates3
+	, __global ulong* amicableCandidates3
 #endif
 #if NUM_DATA_CHUNKS > 4
-	, __global uint2* amicableCandidates4
+	, __global ulong* amicableCandidates4
 #endif
 #if NUM_DATA_CHUNKS > 5
-	, __global uint2* amicableCandidates5
+	, __global ulong* amicableCandidates5
 #endif
 #if NUM_DATA_CHUNKS > 6
-	, __global uint2* amicableCandidates6
+	, __global ulong* amicableCandidates6
 #endif
 #if NUM_DATA_CHUNKS > 7
-	, __global uint2* amicableCandidates7
+	, __global ulong* amicableCandidates7
 #endif
 #if NUM_DATA_CHUNKS > 8
-	, __global uint2* amicableCandidates8
+	, __global ulong* amicableCandidates8
 #endif
 #if NUM_DATA_CHUNKS > 9
-	, __global uint2* amicableCandidates9
+	, __global ulong* amicableCandidates9
 #endif
 #if NUM_DATA_CHUNKS > 10
-	, __global uint2* amicableCandidates10
+	, __global ulong* amicableCandidates10
 #endif
 )
 {
@@ -1477,56 +1476,93 @@ void SearchLargePrimes(
 		largePrimeIndex = globalIndex - (amicableCandidateIndex << largePrimesCountIncrementAndShift);
 	}
 
+	const uint amicableCandidateByteIndex = amicableCandidateIndex * 9;
+
 #if NUM_DATA_CHUNKS == 1
-	const uint2 value = amicableCandidates0[amicableCandidateIndex];
+	ulong data0 = amicableCandidates0[amicableCandidateByteIndex / 8];
+	ulong data1 = amicableCandidates0[amicableCandidateByteIndex / 8 + 1];
 #else
-	__global const uint2* chunk;
-	switch (amicableCandidateIndex >> (CHUNK_SIZE_SHIFT - 4))
+	__global const ulong* chunk;
+	__global const ulong* next_chunk;
+
+#if   NUM_DATA_CHUNKS == 2
+	__global const ulong* amicableCandidates2 = amicableCandidates0;
+#elif NUM_DATA_CHUNKS == 3
+	__global const ulong* amicableCandidates3 = amicableCandidates0;
+#elif NUM_DATA_CHUNKS == 4
+	__global const ulong* amicableCandidates4 = amicableCandidates0;
+#elif NUM_DATA_CHUNKS == 5
+	__global const ulong* amicableCandidates5 = amicableCandidates0;
+#elif NUM_DATA_CHUNKS == 6
+	__global const ulong* amicableCandidates6 = amicableCandidates0;
+#elif NUM_DATA_CHUNKS == 7
+	__global const ulong* amicableCandidates7 = amicableCandidates0;
+#elif NUM_DATA_CHUNKS == 8
+	__global const ulong* amicableCandidates8 = amicableCandidates0;
+#elif NUM_DATA_CHUNKS == 9
+	__global const ulong* amicableCandidates9 = amicableCandidates0;
+#elif NUM_DATA_CHUNKS == 10
+	__global const ulong* amicableCandidates10 = amicableCandidates0;
+#elif NUM_DATA_CHUNKS == 11
+	__global const ulong* amicableCandidates11 = amicableCandidates0;
+#endif
+
+	switch (amicableCandidateByteIndex >> CHUNK_SIZE_SHIFT)
 	{
-	default: chunk = amicableCandidates0; break;
+	default: chunk = amicableCandidates0; next_chunk = amicableCandidates1; break;
 #if NUM_DATA_CHUNKS > 1
-	case 1: chunk = amicableCandidates1; break;
+	case 1: chunk = amicableCandidates1; next_chunk = amicableCandidates2; break;
 #endif
 #if NUM_DATA_CHUNKS > 2
-	case 2: chunk = amicableCandidates2; break;
+	case 2: chunk = amicableCandidates2; next_chunk = amicableCandidates3; break;
 #endif
 #if NUM_DATA_CHUNKS > 3
-	case 3: chunk = amicableCandidates3; break;
+	case 3: chunk = amicableCandidates3; next_chunk = amicableCandidates4; break;
 #endif
 #if NUM_DATA_CHUNKS > 4
-	case 4: chunk = amicableCandidates4; break;
+	case 4: chunk = amicableCandidates4; next_chunk = amicableCandidates5; break;
 #endif
 #if NUM_DATA_CHUNKS > 5
-	case 5: chunk = amicableCandidates5; break;
+	case 5: chunk = amicableCandidates5; next_chunk = amicableCandidates6; break;
 #endif
 #if NUM_DATA_CHUNKS > 6
-	case 6: chunk = amicableCandidates6; break;
+	case 6: chunk = amicableCandidates6; next_chunk = amicableCandidates7; break;
 #endif
 #if NUM_DATA_CHUNKS > 7
-	case 7: chunk = amicableCandidates7; break;
+	case 7: chunk = amicableCandidates7; next_chunk = amicableCandidates8; break;
 #endif
 #if NUM_DATA_CHUNKS > 8
-	case 8: chunk = amicableCandidates8; break;
+	case 8: chunk = amicableCandidates8; next_chunk = amicableCandidates9; break;
 #endif
 #if NUM_DATA_CHUNKS > 9
-	case 9: chunk = amicableCandidates9; break;
+	case 9: chunk = amicableCandidates9; next_chunk = amicableCandidates10; break;
 #endif
 #if NUM_DATA_CHUNKS > 10
-	case 10: chunk = amicableCandidates10; break;
+	case 10: chunk = amicableCandidates10; next_chunk = amicableCandidates11; break;
 #endif
 	}
-	const uint chunk_offset = amicableCandidateIndex & ((1U << (CHUNK_SIZE_SHIFT - 4)) - 1);
-	const uint2 value = chunk[chunk_offset];
+
+	const uint offset = (amicableCandidateByteIndex & ((1U << CHUNK_SIZE_SHIFT) - 1)) >> 3;
+
+	ulong data0 = chunk[offset];
+	ulong data1;
+
+	if (offset + 1 < (1U << (CHUNK_SIZE_SHIFT - 3))) {
+		data1 = chunk[offset + 1];
+	} else {
+		data1 = next_chunk[0];
+	}
 #endif
 
-	ulong value_ulong = value.x;
-	ulong sum_ulong = value.y;
+	const uint shift = (amicableCandidateByteIndex & 7) * 8;
 
-	const uint high_bit_offset_value = candidatesDataHighBitOffsets.x;
-	const uint high_bit_offset_sum = candidatesDataHighBitOffsets.y;
-	if (amicableCandidateIndex >= high_bit_offset_value) value_ulong |= 0x100000000UL;
-	if (amicableCandidateIndex >= high_bit_offset_sum) sum_ulong |= 0x100000000UL;
-	sum_ulong += value_ulong * 2;
+	data0 = (data0 >> shift) | (data1 << (64u - shift));
+	data1 >>= shift;
+
+	ulong value_ulong = (data0 & 4294967295u) | ((data1 & 15u) << 32u);
+	ulong sum_ulong = (data0 >> 32u) | ((data1 & 240u) << 28u);
+
+	sum_ulong += (value_ulong << 1);
 
 	const ulong p = largePrimes[largePrimeIndex];
 

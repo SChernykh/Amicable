@@ -276,39 +276,21 @@ NOINLINE void SearchCandidates(Factor* factors, const num64 value, const num64 s
 
 NOINLINE void GenerateCandidates()
 {
-	size_t capacity = std::min<num64>(216853934, g_LargestCandidate / 30);
-	capacity = ((capacity / (4096 / AmicableCandidate::PackedSize)) + 1) * (4096 / AmicableCandidate::PackedSize);
-	privCandidatesData.reserve(capacity);
+	privCandidatesData.reserve(std::min<num64>(252101336, g_LargestCandidate / 30) + ((1 << 20) / sizeof(AmicableCandidate)) + 1);
 
 	Factor factors[MaxPrimeFactors];
 	SearchCandidates(factors, 1, 1, 0);
 
-	std::sort(privCandidatesData.begin(), privCandidatesData.end(),
-		[](const AmicableCandidate& a, const AmicableCandidate& b)
-		{
-			if (a.high_bits != b.high_bits)
-			{
-				return a.high_bits < b.high_bits;
-			}
-			return a.value < b.value;
-		}
-	);
+	num64 expected_capacity = (CandidatesData.size() + 1) * sizeof(AmicableCandidate);
 
-	// Pack candidates
-	std::pair<unsigned int, unsigned int>* packedCandidates = reinterpret_cast<std::pair<unsigned int, unsigned int>*>(privCandidatesData.data());
-	int candidatesDataHighBitOffsets[4] = { -1, -1, -1, -1 };
-	for (size_t i = 0; i < privCandidatesData.size(); ++i)
-	{
-		const unsigned char high_bits = privCandidatesData[i].high_bits;
-		if (candidatesDataHighBitOffsets[high_bits] < 0)
-		{
-			candidatesDataHighBitOffsets[high_bits] = static_cast<int>(i);
-		}
-		packedCandidates[i].first = privCandidatesData[i].value;
-		packedCandidates[i].second = privCandidatesData[i].sum;
+	constexpr num64 N = 1 << 20;
+	expected_capacity = ((expected_capacity + N - 1) / N) * N;
+
+	if (expected_capacity > privCandidatesData.capacity() * sizeof(AmicableCandidate)) {
+		privCandidatesData.reserve(expected_capacity / sizeof(AmicableCandidate) + 1);
 	}
-	privCandidatesDataHighBitOffsets.first = (candidatesDataHighBitOffsets[2] >= 0) ? candidatesDataHighBitOffsets[2] : std::numeric_limits<int>::max();
-	privCandidatesDataHighBitOffsets.second = (candidatesDataHighBitOffsets[3] >= 0) ? candidatesDataHighBitOffsets[3] : std::numeric_limits<int>::max();
+
+	std::sort(privCandidatesData.begin(), privCandidatesData.end());
 }
 
 void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
@@ -333,9 +315,9 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 		g_MaxPrime = SearchLimit::MainPrimeTableBound;
 	}
 
-	if (g_LargestCandidate >= (num64(1) << 33))
+	if (g_LargestCandidate >= (num64(1) << 36))
 	{
-		g_LargestCandidate = (num64(1) << 33) - 1;
+		g_LargestCandidate = (num64(1) << 36) - 1;
 	}
 
 	// We need to know primes at least up to the cube root of the limit to calculate reciprocals

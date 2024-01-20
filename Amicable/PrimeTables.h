@@ -66,31 +66,31 @@ extern CACHE_ALIGNED SReciprocal privPrimeReciprocals[ReciprocalsTableSize128];
 
 struct AmicableCandidate
 {
-	AmicableCandidate() {}
-	AmicableCandidate(num64 _value, num64 _sum)
+	FORCEINLINE AmicableCandidate() {}
+
+	FORCEINLINE AmicableCandidate(num64 _value, num64 _sum)
 	{
 		const num64 s = _sum - _value * 2;
-		if ((_value >= (num64(1) << 33)) || (s >= (num64(1) << 33)))
-		{
-			std::cerr << "Amicable candidate (" << _value << ',' << _sum << ") is too large" << std::endl;
-			abort();
-		}
+
 		value = static_cast<unsigned int>(_value);
 		sum = static_cast<unsigned int>(s);
-		high_bits = static_cast<unsigned char>(((_value >> 32) << 1) | (s >> 32));
+		value_high = _value >> 32;
+		sum_high = s >> 32;
 	}
 
-	enum
-	{
-		// Size when high_bits are stored separately
-		PackedSize = sizeof(unsigned int) * 2,
-	};
+	FORCEINLINE num64 get_value() const { return (num64(value_high) << 32) | value; }
+	FORCEINLINE num64 get_sum() const { return (num64(sum_high) << 32) | sum; }
+
+	FORCEINLINE bool operator<(const AmicableCandidate& rhs) const { return get_value() < rhs.get_value(); }
 
 	unsigned int value;
 	unsigned int sum;
-	unsigned char high_bits;
+	unsigned char value_high : 4;
+	unsigned char sum_high : 4;
 };
 #pragma pack(pop)
+
+static_assert(sizeof(AmicableCandidate) == 9, "Invalid AmicableCandidate size");
 
 struct InverseData128
 {
@@ -113,7 +113,6 @@ extern num64 PrimesCompactAllocationSize;
 extern PrimeCompactData* privPrimesCompact;
 extern unsigned int NumPrimes;
 extern std::vector<AmicableCandidate> privCandidatesData;
-extern std::pair<int, int> privCandidatesDataHighBitOffsets;
 extern CACHE_ALIGNED unsigned char privCandidatesDataMask[5 * 7 * 11];
 extern CACHE_ALIGNED std::pair<num64, num64> privPrimeInverses[ReciprocalsTableSize128];
 
@@ -126,7 +125,6 @@ extern CACHE_ALIGNED num64 privSumEstimates128[ReciprocalsTableSize128 / 16];
 
 #define PrimesCompact ((const PrimeCompactData* const)(privPrimesCompact))
 #define CandidatesData ((const std::vector<AmicableCandidate>&)(privCandidatesData))
-#define CandidatesDataHighBitOffsets ((const std::pair<int, int>&)(privCandidatesDataHighBitOffsets))
 #define CandidatesDataMask ((const unsigned char*)(privCandidatesDataMask))
 
 #define PrimeInverses ((const std::pair<num64, num64>*)(privPrimeInverses))
