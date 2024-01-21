@@ -659,12 +659,14 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 		myAmicable_numbers_data_buf
 	);
 
-	IF_CONSTEXPR(LogLevel > 0)
+	if (Test())
 	{
-		if (!Test())
-		{
-			return false;
-		}
+		LOG_ERROR("Self-test passed");
+	}
+	else
+	{
+		LOG_ERROR("Self-test failed");
+		return false;
 	}
 
 	Timer t;
@@ -1211,39 +1213,47 @@ bool OpenCL::Test()
 	};
 	std::vector<SPairToCheck> pairs;
 
-	const char* files[] = {
-		//"c2_1.txt"
-		"c2_3.txt", "c2_4.txt", "c2_5.txt", "c2_6.txt", "c2_7.txt", "c2_8.txt", "c2_9.txt", "c2_10.txt", "c2_11.txt", "c2_12.txt", "c2_13.txt", "c2_14.txt", "c2_15.txt", "c2_16.txt", "c2_17.txt", "c2_18.txt", "c2_19.txt", "c2_20.txt", "c2_21.txt"
-	};
-	for (const char* name : files)
+	IF_CONSTEXPR(LogLevel > 0)
 	{
-		std::ifstream f(name);
-		while (!f.eof())
+		const char* files[] = {
+			"c2_3.txt", "c2_4.txt", "c2_5.txt", "c2_6.txt", "c2_7.txt", "c2_8.txt", "c2_9.txt", "c2_10.txt", "c2_11.txt", "c2_12.txt", "c2_13.txt", "c2_14.txt", "c2_15.txt", "c2_16.txt", "c2_17.txt", "c2_18.txt", "c2_19.txt", "c2_20.txt", "c2_21.txt"
+		};
+		for (const char* name : files)
 		{
-			char buf[1024];
-			buf[0] = '\0';
-			f.getline(buf, sizeof(buf)); // type author year
-			if (buf[0] == '\0')
-				break;
+			std::ifstream f(name);
+			while (!f.eof())
+			{
+				char buf[1024];
+				buf[0] = '\0';
+				f.getline(buf, sizeof(buf)); // type author year
+				if (buf[0] == '\0')
+					break;
 
-			buf[0] = '\0';
-			f.getline(buf, sizeof(buf)); // M and factorization
+				buf[0] = '\0';
+				f.getline(buf, sizeof(buf)); // M and factorization
 
-			const num128 m = atoi128(buf);
-			if (m >= SearchLimit::value)
-				break;
+				const num128 m = atoi128(buf);
+				if (m >= SearchLimit::value)
+					break;
 
-			buf[0] = '\0';
-			f.getline(buf, sizeof(buf)); // N and factorization
+				buf[0] = '\0';
+				f.getline(buf, sizeof(buf)); // N and factorization
 
-			const num128 n = atoi128(buf);
+				const num128 n = atoi128(buf);
 
-			buf[0] = '\0';
-			f.getline(buf, sizeof(buf)); // empty line
+				buf[0] = '\0';
+				f.getline(buf, sizeof(buf)); // empty line
 
-			pairs.emplace_back(m, m + n);
+				pairs.emplace_back(m, m + n);
+			}
+			LOG(1, "Loaded " << name);
 		}
-		LOG(1, "Loaded " << name);
+	}
+	else
+	{
+		pairs.assign(
+#include "self_test.inl"
+		);
 	}
 
 	const unsigned int total_numbers = static_cast<unsigned int>(pairs.size());
@@ -1263,7 +1273,7 @@ bool OpenCL::Test()
 
 	struct TmpBuf
 	{
-		explicit TmpBuf(cl_context gpuContext) { mem = clCreateBuffer(gpuContext, CL_MEM_READ_WRITE, sizeof(num64) * 4 * 5000000, 0, nullptr); }
+		TmpBuf(cl_context gpuContext, num64 N) { mem = clCreateBuffer(gpuContext, CL_MEM_READ_WRITE, sizeof(num64) * 4 * N, 0, nullptr); }
 		~TmpBuf() { clReleaseMemObject(mem); }
 
 		TmpBuf(const TmpBuf&) = delete;
@@ -1274,7 +1284,7 @@ bool OpenCL::Test()
 		operator cl_mem() { return mem; }
 
 		cl_mem mem;
-	} buf(myGPUContext);
+	} buf(myGPUContext, pairs.size());
 
 	cl_event event = nullptr;
 
