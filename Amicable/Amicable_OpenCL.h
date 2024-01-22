@@ -1,6 +1,10 @@
 #pragma once
 
+#ifdef __APPLE__
+#include <OpenCL/opencl.h>
+#else
 #include <CL/opencl.h>
+#endif
 
 extern FILE* g_outputFile;
 

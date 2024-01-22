@@ -122,7 +122,7 @@
     <ClInclude Include="CompileTimeFunctions.h" />
     <ClInclude Include="Definitions.h" />
     <ClInclude Include="num128.h" />
-    <ClInclude Include="OpenCL.h" />
+    <ClInclude Include="Amicable_OpenCL.h" />
     <ClInclude Include="Platform_GCC_Linux.h" />
     <ClInclude Include="Platform_MSVC_Windows.h" />
     <ClInclude Include="PrimeTables.h" />
@@ -150,7 +150,7 @@
     </ClCompile>
     <ClCompile Include="Definitions.cpp" />
     <ClCompile Include="num128.cpp" />
-    <ClCompile Include="OpenCL.cpp" />
+    <ClCompile Include="Amicable_OpenCL.cpp" />
     <ClCompile Include="Platform.cpp" />
     <ClCompile Include="PrimeTables.cpp">
       <AssemblerOutput Condition="'$(Configuration)|$(Platform)'=='Release|x64'">All</AssemblerOutput>

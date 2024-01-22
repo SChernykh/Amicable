@@ -1,5 +1,5 @@
 #include "stdafx.h"
-#include "OpenCL.h"
+#include "Amicable_OpenCL.h"
 #include "PrimeTables.h"
 #include "RangeGen.h"
 #include "sprp64.h"
@@ -1251,9 +1251,12 @@ bool OpenCL::Test()
 	}
 	else
 	{
-		pairs.assign(
 #include "self_test.inl"
-		);
+
+		for (size_t i = 0; i < ARRAYSIZE(pair_list); ++i)
+		{
+			pairs.emplace_back(num128(pair_list[i][0]), num128(pair_list[i][1]));
+		}
 	}
 
 	const unsigned int total_numbers = static_cast<unsigned int>(pairs.size());
