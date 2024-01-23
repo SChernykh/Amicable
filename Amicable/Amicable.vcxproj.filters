@@ -128,10 +128,10 @@
     <ClInclude Include="CompileTimeFunctions.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="OpenCL.h">
+    <ClInclude Include="num128.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="num128.h">
+    <ClInclude Include="Amicable_OpenCL.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -190,10 +190,10 @@
     <ClCompile Include="Definitions.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="OpenCL.cpp">
+    <ClCompile Include="num128.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="num128.cpp">
+    <ClCompile Include="Amicable_OpenCL.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

@@ -1432,7 +1432,7 @@ bool OpenCL::Test()
 	{
 		if (pair.targetSum != NUM128_MAX)
 		{
-			LOG(1, "First missed number: " << pair.M);
+			LOG_ERROR("Fatal error: self-test returned false negative for a known amicable number " << pair.M);
 			return false;
 		}
 	}
