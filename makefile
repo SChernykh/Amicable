@@ -6,7 +6,7 @@ LIBS=-L ../boinc/api -L ../boinc/lib -Wl,--whole-archive -lboinc -lboinc_api -lb
 all: Amicable/*.* primesieve/src/primesieve/*.cpp primesieve/include/*.* primesieve/include/primesieve/*.*
 	mkdir -p release
 	cd Amicable
-	g++ -o release/amicable -static-libstdc++ -static-libgcc -std=c++0x $(WARNINGS) -O3 $(INCLUDES) Amicable/*.cpp primesieve/src/primesieve/*.cpp $(LIBS)
+	g++ -o release/amicable -static-libstdc++ -static-libgcc -std=c++17 $(WARNINGS) -O3 $(INCLUDES) Amicable/*.cpp primesieve/src/primesieve/*.cpp $(LIBS)
 	strip release/amicable
 
 # Check that compiled binary doesn't miss any known amicable numbers, run some other internal tests

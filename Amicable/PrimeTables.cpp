@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "PrimeTables.h"
+#include <execution>
 #include <algorithm>
 #include "sprp64.h"
 #include "primesieve.hpp"
@@ -290,7 +291,12 @@ NOINLINE void GenerateCandidates()
 		privCandidatesData.reserve(expected_capacity / sizeof(AmicableCandidate) + 1);
 	}
 
-	std::sort(privCandidatesData.begin(), privCandidatesData.end());
+	std::sort(
+#ifndef __APPLE__
+		std::execution::par_unseq,
+#endif
+		privCandidatesData.begin(), privCandidatesData.end()
+	);
 }
 
 void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
