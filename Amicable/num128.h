@@ -12,8 +12,6 @@ struct num128
 	FORCEINLINE num128(int a) : lo(static_cast<unsigned int>(a)), hi(0) {}
 	FORCEINLINE num128(num64 a) : lo(a), hi(0) {}
 
-	FORCEINLINE num128(const char* s) { *this = from_string(s); }
-
 	FORCEINLINE num128& operator=(num64 a)
 	{
 		lo = a;
@@ -189,8 +187,6 @@ struct num128
 	FORCEINLINE byte operator>=(const num128& a) const { return leq128(a.lo, a.hi, lo, hi); }
 	FORCEINLINE byte operator<(const num128& a) const { return less128(lo, hi, a.lo, a.hi); }
 	FORCEINLINE byte operator>(const num128& a) const { return less128(a.lo, a.hi, lo, hi); }
-
-	static num128 from_string(const char* s);
 
 	num64 lo;
 	num64 hi;

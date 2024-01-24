@@ -1255,7 +1255,7 @@ bool OpenCL::Test()
 
 		for (size_t i = 0; i < ARRAYSIZE(pair_list); ++i)
 		{
-			pairs.emplace_back(num128(pair_list[i][0]), num128(pair_list[i][1]));
+			pairs.emplace_back(atoi128(pair_list[i][0]), atoi128(pair_list[i][1]));
 		}
 	}
 

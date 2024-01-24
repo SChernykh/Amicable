@@ -151,9 +151,4 @@ NOINLINE num128 num128::operator/(const num128& a) const
 	return q;
 }
 
-num128 num128::from_string(const char* s)
-{
-	return atoi128(s);
-}
-
 #endif
