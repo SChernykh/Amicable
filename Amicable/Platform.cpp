@@ -48,9 +48,9 @@ typedef NTSTATUS (NTAPI *NtQueryTimerResolutionPtr)(OUT PULONG MinimumResolution
 typedef NTSTATUS (NTAPI *NtSetTimerResolutionPtr)(IN ULONG DesiredResolution, IN BOOLEAN SetResolution, OUT PULONG CurrentResolution);
 typedef NTSTATUS (NTAPI *NtDelayExecutionPtr)(IN BOOLEAN Alertable, IN PLARGE_INTEGER DelayInterval);
 
-static NtQueryTimerResolutionPtr NtQueryTimerResolution = nullptr;
-static NtSetTimerResolutionPtr NtSetTimerResolution = nullptr;
-static NtDelayExecutionPtr NtDelayExecution = nullptr;
+static NtQueryTimerResolutionPtr NtQueryTimerResolution_ptr = nullptr;
+static NtSetTimerResolutionPtr NtSetTimerResolution_ptr = nullptr;
+static NtDelayExecutionPtr NtDelayExecution_ptr = nullptr;
 
 static bool HiResTimerAvailable = false;
 
@@ -60,12 +60,12 @@ static struct HiResTimerInitializer
 	HiResTimerInitializer()
 	{
 		const HMODULE hNTDLL = LoadLibraryA("ntdll.dll");
-		NtQueryTimerResolution = reinterpret_cast<NtQueryTimerResolutionPtr>(GetProcAddress(hNTDLL, "NtQueryTimerResolution"));
-		NtSetTimerResolution = reinterpret_cast<NtSetTimerResolutionPtr>(GetProcAddress(hNTDLL, "NtSetTimerResolution"));
-		NtDelayExecution = reinterpret_cast<NtDelayExecutionPtr>(GetProcAddress(hNTDLL, "NtDelayExecution"));
+		NtQueryTimerResolution_ptr = reinterpret_cast<NtQueryTimerResolutionPtr>(GetProcAddress(hNTDLL, "NtQueryTimerResolution"));
+		NtSetTimerResolution_ptr = reinterpret_cast<NtSetTimerResolutionPtr>(GetProcAddress(hNTDLL, "NtSetTimerResolution"));
+		NtDelayExecution_ptr = reinterpret_cast<NtDelayExecutionPtr>(GetProcAddress(hNTDLL, "NtDelayExecution"));
 		FreeLibrary(hNTDLL);
 
-		HiResTimerAvailable = (NtQueryTimerResolution && NtSetTimerResolution && NtDelayExecution);
+		HiResTimerAvailable = (NtQueryTimerResolution_ptr && NtSetTimerResolution_ptr && NtDelayExecution_ptr);
 	}
 } locHiResTimerInitializer;
 PRAGMA_WARNING(default : 4191)
@@ -75,8 +75,8 @@ num64 SetHighestTimerResolution()
 	if (HiResTimerAvailable)
 	{
 		ULONG minRes, maxRes, curRes, oldRes;
-		NtQueryTimerResolution(&minRes, &maxRes, &curRes);
-		NtSetTimerResolution(maxRes, true, &oldRes);
+		NtQueryTimerResolution_ptr(&minRes, &maxRes, &curRes);
+		NtSetTimerResolution_ptr(maxRes, true, &oldRes);
 		return oldRes;
 	}
 	else
@@ -90,7 +90,7 @@ void SetTimerResoluion(const num64 res)
 	if (HiResTimerAvailable)
 	{
 		ULONG oldRes;
-		NtSetTimerResolution(static_cast<ULONG>(res), true, &oldRes);
+		NtSetTimerResolution_ptr(static_cast<ULONG>(res), true, &oldRes);
 	}
 }
 
@@ -100,7 +100,7 @@ void HiResSleep(const double ms)
 	{
 		LARGE_INTEGER delay;
 		delay.QuadPart = static_cast<LONGLONG>(ms * -1e4);
-		NtDelayExecution(false, &delay);
+		NtDelayExecution_ptr(false, &delay);
 	}
 	else
 	{

@@ -29,10 +29,10 @@ enum
 
 #define DEVICE_TYPE_TO_USE CL_DEVICE_TYPE_GPU
 
-#define LOG_ERROR(X) std::cerr << __FILE__ << ", line " << __LINE__ << ": " << X << std::endl << std::flush;
-#define LOG(LEVEL, X) IF_CONSTEXPR(LogLevel >= LEVEL) { std::cout << X; IF_CONSTEXPR(LEVEL > 0) { std::cout << std::endl; } }
-#define CL_CHECKED_CALL(FUNC, ...) { const cl_int ciErrNum = FUNC(__VA_ARGS__); if (ciErrNum != CL_SUCCESS) { LOG_ERROR(#FUNC" returned error " << ciErrNum); return false; } }
-#define CL_CHECKED_CALL_WITH_RESULT(result, FUNC, ...) { cl_int ciErrNum; result = FUNC(__VA_ARGS__, &ciErrNum); if (ciErrNum != CL_SUCCESS) { LOG_ERROR(#FUNC" returned error " << ciErrNum); return false; } }
+#define LOG_ERROR(X) do { std::cerr << __FILE__ << ", line " << __LINE__ << ": " << X << std::endl << std::flush; } while (0)
+#define LOG(LEVEL, X) do { IF_CONSTEXPR(LogLevel >= LEVEL) { std::cout << X; IF_CONSTEXPR(LEVEL > 0) { std::cout << std::endl; } } } while (0)
+#define CL_CHECKED_CALL(FUNC, ...) do { const cl_int ciErrNum = FUNC(__VA_ARGS__); if (ciErrNum != CL_SUCCESS) { LOG_ERROR(#FUNC" returned error " << ciErrNum); return false; } } while (0)
+#define CL_CHECKED_CALL_WITH_RESULT(result, FUNC, ...) do { cl_int ciErrNum; result = FUNC(__VA_ARGS__, &ciErrNum); if (ciErrNum != CL_SUCCESS) { LOG_ERROR(#FUNC" returned error " << ciErrNum); return false; } } while (0)
 
 unsigned char* OpenCL::ourZeroBuf = nullptr;
 
@@ -574,6 +574,16 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 
 	CL_CHECKED_CALL(clFinish, myQueue);
 
+	if (Test())
+	{
+		LOG_ERROR("Self-test passed");
+	}
+	else
+	{
+		LOG_ERROR("Self-test failed");
+		return false;
+	}
+
 	CL_CHECKED_CALL(setKernelArguments, mySaveCounter, myPhase2_numbers_count_buf);
 
 	if (IsLargePrimes)
@@ -658,16 +668,6 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 		myAmicable_numbers_count_buf,
 		myAmicable_numbers_data_buf
 	);
-
-	if (Test())
-	{
-		LOG_ERROR("Self-test passed");
-	}
-	else
-	{
-		LOG_ERROR("Self-test failed");
-		return false;
-	}
 
 	Timer t;
 	bool result;
@@ -1269,25 +1269,19 @@ bool OpenCL::Test()
 
 	Timer overall_timer;
 
-	cl_mem pairsToCheck_Buf;
-	pairs.resize(((pairs.size() + myWorkGroupSize - 1) / myWorkGroupSize) * myWorkGroupSize);
-	CL_CHECKED_CALL_WITH_RESULT(pairsToCheck_Buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(SPairToCheck) * pairs.size(), 0);
-	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, pairsToCheck_Buf, CL_TRUE, 0, sizeof(SPairToCheck) * pairs.size(), pairs.data(), 0, nullptr, nullptr);
-
 	struct TmpBuf
 	{
-		TmpBuf(cl_context gpuContext, num64 N) { mem = clCreateBuffer(gpuContext, CL_MEM_READ_WRITE, sizeof(num64) * 4 * N, 0, nullptr); }
-		~TmpBuf() { clReleaseMemObject(mem); }
-
-		TmpBuf(const TmpBuf&) = delete;
-		TmpBuf(TmpBuf&&) = delete;
-		TmpBuf& operator=(const TmpBuf&) = delete;
-		TmpBuf& operator=(TmpBuf&&) = delete;
-
-		operator cl_mem() { return mem; }
+		FORCEINLINE ~TmpBuf() { clReleaseMemObject(mem); }
+		FORCEINLINE operator cl_mem() { return mem; }
 
 		cl_mem mem;
-	} buf(myGPUContext, pairs.size());
+	} pairsToCheck, buf;
+
+	pairs.resize(((pairs.size() + myWorkGroupSize - 1) / myWorkGroupSize) * myWorkGroupSize);
+	CL_CHECKED_CALL_WITH_RESULT(pairsToCheck.mem, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(SPairToCheck) * pairs.size(), 0);
+	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, pairsToCheck, CL_TRUE, 0, sizeof(SPairToCheck) * pairs.size(), pairs.data(), 0, nullptr, nullptr);
+
+	CL_CHECKED_CALL_WITH_RESULT(buf.mem, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64) * 4 * pairs.size(), 0);
 
 	cl_event event = nullptr;
 
@@ -1302,7 +1296,7 @@ bool OpenCL::Test()
 		Timer t;
 
 		const size_t globalSizePhase1 = pairs.size();
-		CL_CHECKED_CALL(setKernelArguments, myCheckPairs, mySmallPrimesBuf, myPrimeInversesBuf, myPQ_Buf, myPowerOf2SumInverses_Buf, myPowersOfP_128SumInverses_offsets_Buf, myPowersOfP_128SumInverses_Buf, myPrimeInverses_128_Buf, mySumEstimates_128_Buf, pairsToCheck_Buf, myPhase2_numbers_count_buf, myPhase2_numbers_buf, myAmicable_numbers_count_buf, buf);
+		CL_CHECKED_CALL(setKernelArguments, myCheckPairs, mySmallPrimesBuf, myPrimeInversesBuf, myPQ_Buf, myPowerOf2SumInverses_Buf, myPowersOfP_128SumInverses_offsets_Buf, myPowersOfP_128SumInverses_Buf, myPrimeInverses_128_Buf, mySumEstimates_128_Buf, pairsToCheck, myPhase2_numbers_count_buf, myPhase2_numbers_buf, myAmicable_numbers_count_buf, buf);
 		CL_CHECKED_CALL(clEnqueueNDRangeKernel, myQueue, myCheckPairs, 1, nullptr, &globalSizePhase1, &myWorkGroupSize, 0, nullptr, &event);
 
 		if (!WaitForQueue(myQueue, event) || !GetAndResetCounter(myQueue, myPhase2_numbers_count_buf, filtered_numbers_count) || !GetCounter(myQueue, myAmicable_numbers_count_buf, amicable_numberscount))
@@ -1428,16 +1422,25 @@ bool OpenCL::Test()
 		}
 	}
 
+	num64 num_missed = 0;
+
 	for (const SPairToCheck& pair : pairs)
 	{
 		if (pair.targetSum != NUM128_MAX)
 		{
-			LOG_ERROR("Fatal error: self-test returned false negative for a known amicable number " << pair.M);
-			return false;
+			if (num_missed == 0)
+				LOG_ERROR("Fatal error: self-test returned false negative for these known amicable numbers:");
+
+			++num_missed;
+
+			if (num_missed < 10)
+				LOG_ERROR(pair.M);
+			else if (num_missed == 10)
+				LOG_ERROR("... and more");
 		}
 	}
 
-	return true;
+	return (num_missed == 0);
 }
 
 // Fast integer cube root. Returns num64 m such that m^3 <= n < (m+1)^3 for all n > 0
