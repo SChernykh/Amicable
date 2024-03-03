@@ -245,7 +245,6 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 		unsigned int max_clock_frequency = 0;
 		num64 max_work_group_size = 0;
 		char deviceName[1024] = {};
-		char extensions[1024] = {};
 		CL_CHECKED_CALL(clGetDeviceInfo, device, CL_DEVICE_NAME, sizeof(deviceName), deviceName, nullptr);
 		CL_CHECKED_CALL(clGetDeviceInfo, device, CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(global_memory_size), &global_memory_size, nullptr);
 		CL_CHECKED_CALL(clGetDeviceInfo, device, CL_DEVICE_GLOBAL_MEM_CACHE_SIZE, sizeof(global_memory_cache_size), &global_memory_cache_size, nullptr);
@@ -256,7 +255,12 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 		CL_CHECKED_CALL(clGetDeviceInfo, device, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(max_compute_units), &max_compute_units, nullptr);
 		CL_CHECKED_CALL(clGetDeviceInfo, device, CL_DEVICE_MAX_CLOCK_FREQUENCY, sizeof(max_compute_units), &max_clock_frequency, nullptr);
 		CL_CHECKED_CALL(clGetDeviceInfo, device, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(max_work_group_size), &max_work_group_size, nullptr);
-		CL_CHECKED_CALL(clGetDeviceInfo, device, CL_DEVICE_EXTENSIONS, sizeof(extensions), extensions, nullptr);
+
+		size_t extensions_size = 0;
+		CL_CHECKED_CALL(clGetDeviceInfo, device, CL_DEVICE_EXTENSIONS, 0, nullptr, &extensions_size);
+
+		std::vector<char> extensions(extensions_size);
+		CL_CHECKED_CALL(clGetDeviceInfo, device, CL_DEVICE_EXTENSIONS, extensions.size(), extensions.data(), nullptr);
 
 		global_memory_size >>= 20;
 
@@ -271,7 +275,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 			"\t" << (constant_buffer_size >> 10) << " KB constant memory" << std::endl <<
 			"\t" << (MaxMemAllocSize >> 20) << " MB max allocation size" << std::endl <<
 			"\t" << max_work_group_size << " max work group size" << std::endl <<
-			"\t" << extensions << std::endl
+			"\t" << extensions.data() << std::endl
 		);
 
 		if (MaxMemAllocSize < (1 << 28))
@@ -304,7 +308,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 			myWorkGroupSize >>= 1;
 		}
 
-		if (strstr(extensions, "cl_nv_compiler_options"))
+		if (strstr(extensions.data(), "cl_nv_compiler_options"))
 		{
 			// NVIDIA
 			vendor_specific_compiler_options += "-cl-nv-verbose ";
