@@ -135,12 +135,6 @@ OpenCL::~OpenCL()
 
 static bool PlatformSupported(const char* platformName)
 {
-	// Sorry Intel, but your OpenCL drivers are buggy
-	if (strstr(platformName, "Intel") || strstr(platformName, "INTEL") || strstr(platformName, "intel"))
-	{
-		return false;
-	}
-
 	return true;
 }
 
