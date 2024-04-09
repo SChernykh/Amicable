@@ -1556,8 +1556,10 @@ void SearchLargePrimes(
 
 	const uint shift = (amicableCandidateByteIndex & 7) * 8;
 
-	data0 = (data0 >> shift) | (data1 << (64u - shift));
-	data1 >>= shift;
+	if (shift > 0) {
+		data0 = (data0 >> shift) | (data1 << (64u - shift));
+		data1 >>= shift;
+	}
 
 	ulong value_ulong = (data0 & 4294967295u) | ((data1 & 15u) << 32u);
 	ulong sum_ulong = (data0 >> 32u) | ((data1 & 240u) << 28u);
