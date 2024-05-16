@@ -992,12 +992,14 @@ NOINLINE num64 SearchRangeCubed(const RangeData& r)
 
 #include <primesieve/PrimeGenerator.hpp>
 
+static num64 TaskSize = 0;
+
 namespace primesieve
 {
 	class PrimeGeneratorLargePrimes final : public PrimeGenerator
 	{
 	public:
-		PrimeGeneratorLargePrimes(PrimeSieve& ps, const PreSieve& preSieve) : PrimeGenerator(ps, preSieve) {}
+		PrimeGeneratorLargePrimes(PrimeSieve& ps, const PreSieve& preSieve) : PrimeGenerator(ps, preSieve), prevPrime(0) {}
 
 		FORCEINLINE void Init(const num64 rangeBegin)
 		{
@@ -1008,6 +1010,7 @@ namespace primesieve
 				return (SearchLimit::value > CombineNum128(m_lo, m_hi));
 			});
 			last_candidate = CandidatesData.data() + (it - CandidatesData.begin()) - 1;
+			prevPrime = rangeBegin;
 		}
 
 		NOINLINE virtual void generatePrimes(const byte_t* sieve, uint64_t sieveSize) override
@@ -1032,12 +1035,12 @@ namespace primesieve
 						--last_candidate;
 					}
 
-					for (const AmicableCandidate* candidate = CandidatesData.data(); candidate <= last_candidate; ++candidate)
-					{
-						if ((candidate->is_over_abundant_mask & mask) == 0)
-						{
-							CheckPair128(num128(candidate->GetValue()) * curPrime, num128(candidate->GetSum()) * (curPrime + 1));
-						}
+					TaskSize += static_cast<num64>(last_candidate - CandidatesData.data()) + 1;
+
+					if (TaskSize >= 200000000000) {
+						printf("--command_line \"/lpr %I64u %I64u /task_size %I64u\"\n", prevPrime, curPrime, TaskSize);
+						TaskSize = 0;
+						prevPrime = curPrime;
 					}
 				}
 			}
@@ -1045,6 +1048,8 @@ namespace primesieve
 
 	private:
 		const AmicableCandidate* last_candidate;
+
+		num64 prevPrime;
 
 		DISALLOW_COPY_AND_ASSIGN(PrimeGeneratorLargePrimes);
 	};
