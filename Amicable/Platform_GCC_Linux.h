@@ -44,7 +44,11 @@ FORCEINLINE num64 _rotr64(num64 value, int shift)
 #include <string.h>
 #include <sys/mman.h>
 #include <fenv.h>
+
+#if defined(__x86_64__) || defined(_M_X64)
 #include <cpuid.h>
+#endif
+
 #include <time.h>
 #include <alloca.h>
 #include <sys/resource.h>
