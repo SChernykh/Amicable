@@ -674,7 +674,7 @@ void CheckPairPhase2(
 		}
 		++k;
 		uint index = k * PQ_STRIDE_SIZE + (i >> 4) + 16;
-		while (N <= PQ[index].x)
+		while (k && (N <= PQ[index].x))
 		{
 			--k;
 			index -= PQ_STRIDE_SIZE;
