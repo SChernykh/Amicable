@@ -1,16 +1,21 @@
 #pragma once
 
 void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt);
+
+// If not zero, the prime table for the first stage (ranges) only goes up to this bound instead of SearchLimit::MainPrimeTableBound
+// (the GPU sieve doesn't need the prime numbers p, only the ones that occur in the factorizations of M0)
+extern num64 g_RangesPrimeTableBound;
 bool IsPrime(num64 n);
 
 enum PrimeTablesParams : num64
 {
-	// There are exactly 664579 primes below 10^(21/3)
-	// We can use this table for factorization when p^3 <= N < 10^21
-	// Set it to 664608 because it's divisible by 32
-	ReciprocalsTableSize128 = 664608,
+	// There are exactly 1362201 primes below 10^(22/3)
+	// We can use this table for factorization when p^3 <= N < 10^22
+	// Set it to 1362208 because it's divisible by 32 (the table starts from 3, so it needs 1362200 entries)
+	ReciprocalsTableSize128 = 1362208,
 
-	PowersOfP_128DivisibilityData_count = 2017835,
+	// Exact number of entries for 10^22 (all p^k with sigma(p^k) <= 3 * 10^22 for the primes in the table above)
+	PowersOfP_128DivisibilityData_count = 4126457,
 
 	MainPrimeTableSize = 2857142862,
 };
@@ -68,29 +73,23 @@ struct AmicableCandidate
 {
 	FORCEINLINE AmicableCandidate() {}
 
-	FORCEINLINE AmicableCandidate(num64 _value, num64 _sum)
-	{
-		const num64 s = _sum - _value * 2;
-
-		value = static_cast<unsigned int>(_value);
-		sum = static_cast<unsigned int>(s);
-		value_high = _value >> 32;
-		sum_high = s >> 32;
-	}
+	AmicableCandidate(num64 _value, num64 _sum);
 
 	FORCEINLINE num64 get_value() const { return (num64(value_high) << 32) | value; }
 	FORCEINLINE num64 get_sum() const { return (num64(sum_high) << 32) | sum; }
 
 	FORCEINLINE bool operator<(const AmicableCandidate& rhs) const { return get_value() < rhs.get_value(); }
 
+	// value and sum (sigma(value) - value * 2) are 40-bit numbers: candidates go up to SearchLimit::value / SearchLimit::LinearLimit
+	// (10^11 for 10^22). The OpenCL kernels read this exact 10-byte layout.
 	unsigned int value;
 	unsigned int sum;
-	unsigned char value_high : 4;
-	unsigned char sum_high : 4;
+	unsigned char value_high;
+	unsigned char sum_high;
 };
 #pragma pack(pop)
 
-static_assert(sizeof(AmicableCandidate) == 9, "Invalid AmicableCandidate size");
+static_assert(sizeof(AmicableCandidate) == 10, "Invalid AmicableCandidate size");
 
 struct InverseData128
 {
@@ -136,8 +135,8 @@ extern CACHE_ALIGNED num64 privSumEstimates128[ReciprocalsTableSize128 / 16];
 
 #define SumEstimates128 ((const num64*)(privSumEstimates128))
 
-// Can be zero if search limit is <= 10^20
-#define SumEstimates128Shift 3
+// The smallest value that passes the overflow check in PrimeTablesInit: 0 if search limit is <= 10^20, 3 for 10^21, 7 for 10^22
+#define SumEstimates128Shift 7
 
 template<typename T>
 FORCEINLINE num64 GetNthPrime(T n)

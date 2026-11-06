@@ -128,14 +128,28 @@ FORCEINLINE byte less128(num64 a_lo, num64 a_hi, num64 b_lo, num64 b_hi)
 #endif
 }
 
+// __shiftleft128 / __shiftright128 and the 64-bit shifts use the count modulo 64, so counts >= 64 need their own case
+// (the sieve tables use num128(1) << L with L up to 127)
 FORCEINLINE void shl128(num64& lo, num64& hi, unsigned char count)
 {
+	if (count >= 64)
+	{
+		hi = (count < 128) ? (lo << (count - 64)) : 0;
+		lo = 0;
+		return;
+	}
 	hi = __shiftleft128(lo, hi, count);
 	lo <<= count;
 }
 
 FORCEINLINE void shr128(num64& lo, num64& hi, unsigned char count)
 {
+	if (count >= 64)
+	{
+		lo = (count < 128) ? (hi >> (count - 64)) : 0;
+		hi = 0;
+		return;
+	}
 	lo = __shiftright128(lo, hi, count);
 	hi >>= count;
 }

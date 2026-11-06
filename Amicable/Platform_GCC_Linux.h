@@ -41,6 +41,9 @@ FORCEINLINE num64 _rotr64(num64 value, int shift)
 }
 
 #include <pthread.h>
+#if defined(__x86_64__) || defined(__i386__)
+#include <x86intrin.h> // (__rdtsc and the other intrinsics, <intrin.h> on MSVC)
+#endif
 #include <string.h>
 #include <sys/mman.h>
 #include <fenv.h>

@@ -196,6 +196,22 @@ NOINLINE num64 GetMaxSumRatio(const PrimeIterator& p, const num128 limit)
 
 static num64 g_MaxPrime;
 static num64 g_LargestCandidate;
+num64 g_RangesPrimeTableBound = 0;
+
+AmicableCandidate::AmicableCandidate(num64 _value, num64 _sum)
+{
+	const num64 s = _sum - _value * 2;
+	if ((_value | s) >> 40)
+	{
+		std::cerr << "Amicable candidate " << _value << " (sum of divisors " << _sum << ") doesn't fit in AmicableCandidate" << std::endl;
+		abort();
+	}
+
+	value = static_cast<unsigned int>(_value);
+	sum = static_cast<unsigned int>(s);
+	value_high = static_cast<unsigned char>(_value >> 32);
+	sum_high = static_cast<unsigned char>(s >> 32);
+}
 
 NOINLINE void SearchCandidates(Factor* factors, const num64 value, const num64 sum, int depth)
 {
@@ -277,7 +293,9 @@ NOINLINE void SearchCandidates(Factor* factors, const num64 value, const num64 s
 
 NOINLINE void GenerateCandidates()
 {
-	privCandidatesData.reserve(std::min<num64>(252101336, g_LargestCandidate / 30) + ((1 << 20) / sizeof(AmicableCandidate)) + 1);
+	// 2420786330 is the exact number of candidates when g_LargestCandidate = 10^22 / 10^11 (2.42 billion * 10 bytes = 24.2 GB),
+	// reserving it avoids reallocations that would temporarily need even more memory
+	privCandidatesData.reserve(std::min<num64>(2420786330ULL, g_LargestCandidate / 30) + ((1 << 20) / sizeof(AmicableCandidate)) + 1);
 
 	Factor factors[MaxPrimeFactors];
 	SearchCandidates(factors, 1, 1, 0);
@@ -318,12 +336,12 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 	}
 	else
 	{
-		g_MaxPrime = SearchLimit::MainPrimeTableBound;
+		g_MaxPrime = g_RangesPrimeTableBound ? std::min<num64>(g_RangesPrimeTableBound, SearchLimit::MainPrimeTableBound) : SearchLimit::MainPrimeTableBound;
 	}
 
-	if (g_LargestCandidate >= (num64(1) << 36))
+	if (g_LargestCandidate >= (num64(1) << 40))
 	{
-		g_LargestCandidate = (num64(1) << 36) - 1;
+		g_LargestCandidate = (num64(1) << 40) - 1;
 	}
 
 	// We need to know primes at least up to the cube root of the limit to calculate reciprocals

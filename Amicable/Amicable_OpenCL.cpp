@@ -1,14 +1,17 @@
+#include <array>
 #include "stdafx.h"
 #include "Amicable_OpenCL.h"
 #include "PrimeTables.h"
 #include "RangeGen.h"
 #include "sprp64.h"
 #include "kernel.cl"
+#include "kernel_sieve.cl"
 
 PRAGMA_WARNING(push, 1)
 PRAGMA_WARNING(disable : 4091 4917 4625 4626 5026 5027)
 #include <boinc_api.h>
 #include <boinc_opencl.h>
+#include "Spsp2Table.h"
 PRAGMA_WARNING(pop)
 
 //#pragma optimize("", off)
@@ -18,6 +21,35 @@ PRAGMA_WARNING(pop)
 static const char* const CHECKPOINT_LOGICAL_NAME = "amicable_checkpoint";
 
 FILE* g_outputFile = nullptr;
+
+bool g_UseSieve = true;
+bool g_SieveDryRun = false;
+bool g_SieveProfile = false;
+// Development aid: cycles spent in the host parts of the sieve path (printed with the sieve statistics)
+static num64 g_HostCycles[6] = {};
+unsigned int g_SieveBatchShift = 35;
+bool g_RunTests = false;
+double g_AnalyzeRate = 0;
+static num128 Gcd128Host(num128 a, num128 b)
+{
+	while (b != 0)
+	{
+		const num128 t = a % b;
+		a = b;
+		b = t;
+	}
+	return a;
+}
+static const unsigned int SieveW30Host[8] = { 1, 7, 11, 13, 17, 19, 23, 29 };
+bool g_SieveReduce = true;
+bool g_SieveKill = true;
+// band sieve for the ranges with W ~ 0 (SetBandParameters); AMICABLE_NO_BAND=1 switches it off (for comparisons)
+static const bool g_SieveBand = (getenv("AMICABLE_NO_BAND") == nullptr);
+static const double SieveBandMaxW = 1e-4;
+num64 g_ExploreNumbers = 0;
+bool g_TestReductionOnly = false;
+unsigned int g_TestStride = 16;
+SieveGPUConfig g_SieveConfig;
 
 enum
 {
@@ -47,6 +79,9 @@ OpenCL::OpenCL(const char* preferences)
 	, myCheckPairs(nullptr)
 	, myCheckPairPhase2(nullptr)
 	, myCheckPairPhase3(nullptr)
+	, mySieveRanges(nullptr)
+	, myCheckSieveSurvivors(nullptr)
+	, mySieveLaunchDone(nullptr)
 	, mySmallPrimesBuf(nullptr)
 	, myPrimeInversesBuf(nullptr)
 	, myPrimeReciprocalsBuf(nullptr)
@@ -66,6 +101,45 @@ OpenCL::OpenCL(const char* preferences)
 	, myPhase3_numbers_buf(nullptr)
 	, myAmicable_numbers_count_buf(nullptr)
 	, myAmicable_numbers_data_buf(nullptr)
+	, myUseSieve(false)
+	, myLargePrimesSieve(false)
+	, mySieveChunkOffsetArg(2)
+	, mySieveMaxCandidates(1U << 22)
+	, mySievePrimeRecsBuf(nullptr)
+	, mySieveModRecsBuf(nullptr)
+	, mySieveModRecs2Buf(nullptr)
+	, mySieveTtabBuf(nullptr)
+	, mySieveTasksBuf(nullptr)
+	, mySieveTierInfoBuf(nullptr)
+	, mySieveWheelTabsBuf(nullptr)
+	, mySieveModTaskIdxBuf(nullptr)
+	, mySieveModTaskListBuf(nullptr)
+	, mySieveRangesBuf(nullptr)
+	, mySieveChunksBuf(nullptr)
+	, mySurvivorCountBuf(nullptr)
+	, mySurvivorsBuf(nullptr)
+	, mySieveStatsBuf(nullptr)
+	, myPrimeBitsBuf(nullptr)
+	, myPrimeBitsP1(0)
+	, myPrimeBitsP2(0)
+	, mySieveMaxRanges(65536)
+	, mySieveMaxChunks(262144)
+	, mySurvivorCapacity(1U << 25)
+	, mySieveCheckGlobalSize(524288)
+	, mySieveMaxPositions(0)
+	, mySieveSurvivorRate(0.01)
+	, mySievePhase2Rate(1e-6)
+	, mySieveRoundPositions2(0)
+	, mySieveStatPositions(0)
+	, mySieveStatSurvivors(0)
+	, mySieveStatRanges(0)
+	, mySieveStatChunks(0)
+	, mySieveStatBatches(0)
+	, mySieveStatPhase2(0)
+	, mySieveStatOverflows(0)
+	, mySieveStatTime(0.0)
+	, mySieveStatSieveKernelTime(0.0)
+	, mySieveStatCheckKernelTime(0.0)
 	, myWorkGroupSize(128)
 	, myMaxRangesCount(131072)
 	, myMaxLookupTableSize((myMaxRangesCount + 1) * 4) // very conservative estimate to be safe
@@ -95,9 +169,36 @@ OpenCL::OpenCL(const char* preferences)
 
 OpenCL::~OpenCL()
 {
+	if (mySieveWorker.joinable())
+	{
+		{
+			std::lock_guard<std::mutex> lock(mySieveWorkerMutex);
+			mySieveWorkerStop = true;
+		}
+		mySieveWorkerCV.notify_all();
+		mySieveWorker.join();
+	}
+	delete mySieveBatchFirstRange;
 	SetTimerResoluion(myOldTimerResolution);
 
 	std::cout.precision(myStdOldPrecision);
+
+	cl_mem sieveBuffers[] = { myPrimeBitsBuf, mySievePrimeRecsBuf, mySieveModRecsBuf, mySieveModRecs2Buf, mySieveTtabBuf, mySieveTasksBuf, mySieveTierInfoBuf, mySieveWheelTabsBuf, mySieveModTaskIdxBuf, mySieveModTaskListBuf, mySieveRangesBuf, mySieveChunksBuf, mySurvivorCountBuf, mySurvivorsBuf, mySieveDeferredCountBuf, mySieveDeferredListBuf, mySievePrimeCountBuf };
+	for (cl_mem buf : sieveBuffers)
+	{
+		if (buf) clReleaseMemObject(buf);
+	}
+	if (mySieveRanges) clReleaseKernel(mySieveRanges);
+	if (myCheckSieveSurvivors) clReleaseKernel(myCheckSieveSurvivors);
+	if (mySieveLaunchDone) clReleaseKernel(mySieveLaunchDone);
+	if (mySieveTestDeferred) clReleaseKernel(mySieveTestDeferred);
+	if (myCheckSieveSurvivorsPrime) clReleaseKernel(myCheckSieveSurvivorsPrime);
+	if (mySieveBand) clReleaseKernel(mySieveBand);
+	if (mySieveBandTableBuf) clReleaseMemObject(mySieveBandTableBuf);
+	if (mySieveBandBitmapBuf) clReleaseMemObject(mySieveBandBitmapBuf);
+	if (mySieveRangesKill) clReleaseKernel(mySieveRangesKill);
+	if (myProgramKill) clReleaseProgram(myProgramKill);
+	if (mySieveStatsBuf) clReleaseMemObject(mySieveStatsBuf);
 
 	clReleaseMemObject(mySmallPrimesBuf);
 	for (cl_mem buf : myMainBuffers)
@@ -120,6 +221,7 @@ OpenCL::~OpenCL()
 	clReleaseMemObject(myPhase2_numbers_buf);
 	clReleaseMemObject(myPhase3_numbers_count_buf);
 	clReleaseMemObject(myPhase3_numbers_buf);
+	if (myPhase3BacklogBuf) clReleaseMemObject(myPhase3BacklogBuf);
 	clReleaseMemObject(myAmicable_numbers_count_buf);
 	clReleaseMemObject(myAmicable_numbers_data_buf);
 	clReleaseKernel(mySaveCounter);
@@ -128,6 +230,13 @@ OpenCL::~OpenCL()
 	clReleaseKernel(myCheckPairs);
 	clReleaseKernel(myCheckPairPhase2);
 	clReleaseKernel(myCheckPairPhase3);
+	if (myCheckPairPhase3Wide) clReleaseKernel(myCheckPairPhase3Wide);
+	if (myPhase3WideStatusBuf) clReleaseMemObject(myPhase3WideStatusBuf);
+	if (mySpsp2Buf) clReleaseMemObject(mySpsp2Buf);
+	if (myPhase2BucketCount) clReleaseKernel(myPhase2BucketCount);
+	if (myPhase2BucketScatter) clReleaseKernel(myPhase2BucketScatter);
+	if (myPhase2Prefilter) clReleaseKernel(myPhase2Prefilter);
+	if (myPhase2BucketsBuf) clReleaseMemObject(myPhase2BucketsBuf);
 	clReleaseCommandQueue(myQueue);
 	clReleaseProgram(myProgram);
 	clReleaseContext(myGPUContext);
@@ -217,7 +326,11 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 			return false;
 		}
 
-		CL_CHECKED_CALL(clGetDeviceIDs, platform, DEVICE_TYPE_TO_USE, 1, &device, nullptr);
+		if (clGetDeviceIDs(platform, DEVICE_TYPE_TO_USE, 1, &device, nullptr) != CL_SUCCESS)
+		{
+			// No GPU: use any OpenCL device (for example a CPU OpenCL runtime for testing)
+			CL_CHECKED_CALL(clGetDeviceIDs, platform, CL_DEVICE_TYPE_ALL, 1, &device, nullptr);
+		}
 	}
 
 	if (!(platform && device))
@@ -227,6 +340,8 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 
 	std::string vendor_specific_compiler_options;
 	num64 MaxMemAllocSize = 0;
+	num64 deviceLocalMemSize = 0;
+	num64 deviceMaxWorkGroupSize = 0;
 	{
 		char platformName[1024] = {};
 		CL_CHECKED_CALL(clGetPlatformInfo, platform, CL_PLATFORM_NAME, sizeof(platformName), &platformName, nullptr);
@@ -263,6 +378,8 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 		CL_CHECKED_CALL(clGetDeviceInfo, device, CL_DEVICE_EXTENSIONS, extensions.size(), extensions.data(), nullptr);
 
 		global_memory_size >>= 20;
+		deviceLocalMemSize = local_memory_size;
+		deviceMaxWorkGroupSize = max_work_group_size;
 
 		LOG(2,
 			"Device " << 0 << ": " << deviceName << std::endl <<
@@ -320,18 +437,47 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	cl_context_properties cps[3] = { CL_CONTEXT_PLATFORM, (cl_context_properties) platform, 0 };
 	CL_CHECKED_CALL_WITH_RESULT(myGPUContext, clCreateContext, cps, 1, &device, nullptr, nullptr);
 
-	CL_CHECKED_CALL_WITH_RESULT(myProgram, clCreateProgramWithSource, myGPUContext, 1, &kernel_cl, nullptr);
+	const char* kernel_sources[2] = { kernel_cl, kernel_sieve_cl };
+	CL_CHECKED_CALL_WITH_RESULT(myProgram, clCreateProgramWithSource, myGPUContext, 2, kernel_sources, nullptr);
 
 	num64 NumMainBufferChunks = 0;
 	unsigned int ChunkSizeShift = 0;
 
 	const bool IsLargePrimes = (startPrime && primeLimit);
 	myMainBufferData = IsLargePrimes ? reinterpret_cast<const unsigned char*>(CandidatesData.data()) : reinterpret_cast<const unsigned char*>(PrimesCompact);
-	myMainBufferTotalSize = IsLargePrimes ? static_cast<unsigned int>((CandidatesData.size() + 1) * sizeof(AmicableCandidate)) : PrimesCompactAllocationSize;
+	myMainBufferTotalSize = IsLargePrimes ? static_cast<num64>((CandidatesData.size() + 1) * sizeof(AmicableCandidate)) : PrimesCompactAllocationSize;
 
 	enum { MaxMainBufferSize = 512 << 20 };
 
-	if (IsLargePrimes) {
+	// The sieve is used for all ranges when the largest prime has exponent 1 (N(p) is linear in p only then), and for large primes
+	myUseSieve = (IsLargePrimes || (largestPrimePower == 1)) && (g_UseSieve || g_RunTests);
+	myLargePrimesSieve = myUseSieve && IsLargePrimes;
+	mySieveChunkOffsetArg = myLargePrimesSieve ? 6 : 2;
+	std::string sieve_compiler_options;
+	if (myUseSieve)
+	{
+		if (!InitSieve(device, std::min<num64>(deviceLocalMemSize, 65536), deviceMaxWorkGroupSize, sieve_compiler_options))
+		{
+			return false;
+		}
+		if (myLargePrimesSieve)
+		{
+			sieve_compiler_options += " -D SIEVE_LARGE_PRIMES";
+		}
+		if (mySieve.cfg.wgSize > deviceMaxWorkGroupSize)
+		{
+			LOG_ERROR("Sieve work-group size " << mySieve.cfg.wgSize << " is not supported by this device (" << deviceMaxWorkGroupSize << " max)");
+			return false;
+		}
+
+		// The sieve doesn't need prime numbers on the GPU
+		myMainBufferData = nullptr;
+		myMainBufferTotalSize = 0;
+		myMainBufferSize = 0;
+		NumMainBufferChunks = 1;
+		ChunkSizeShift = 20;
+	}
+	else if (IsLargePrimes) {
 		myMainBufferSize = myMainBufferTotalSize;
 		constexpr num64 N = 1 << 20;
 		myMainBufferSize = ((myMainBufferSize + N - 1) / N) * N;
@@ -343,6 +489,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	// Try to create a single continuous buffer for storing prime numbers
 	// Even though its size is bigger than CL_DEVICE_MAX_MEM_ALLOC_SIZE for many devices,
 	// they are still able to do big allocations sometimes
+	if (!myUseSieve)
 	{
 		cl_int ciErrNum;
 		cl_mem buf = clCreateBufferLogged(__LINE__, myGPUContext, CL_MEM_READ_ONLY, myMainBufferSize, 0, &ciErrNum);
@@ -375,10 +522,10 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	}
 
 	{
-		char kernel_options[1024];
+		char kernel_options[2048];
 		char cBuildLog[10240];
 		sprintf_s(kernel_options,
-			"%s-cl-fast-relaxed-math -D PQ_STRIDE_SIZE=%u -D WORK_GROUP_SIZE=%u -D PHASE2_MAX_COUNT=%u -D LPP=%u -D NUM_DATA_CHUNKS=%u -D CHUNK_SIZE_SHIFT=%u -D SUM_ESTIMATES_128_SHIFT=%u -D MAIN_BUFFER_MASK=%u -Werror",
+			"%s-cl-fast-relaxed-math -D PQ_STRIDE_SIZE=%u -D WORK_GROUP_SIZE=%u -D PHASE2_MAX_COUNT=%u -D LPP=%u -D NUM_DATA_CHUNKS=%u -D CHUNK_SIZE_SHIFT=%u -D SUM_ESTIMATES_128_SHIFT=%u -D MAIN_BUFFER_MASK=%u%s -Werror",
 			vendor_specific_compiler_options.c_str(),
 			SumEstimatesSize2_GPU,
 			static_cast<unsigned int>(myWorkGroupSize),
@@ -387,8 +534,16 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 			static_cast<unsigned int>(NumMainBufferChunks),
 			ChunkSizeShift,
 			64 - SumEstimates128Shift,
-			(MaxMainBufferSize / 2) - 1
+			(MaxMainBufferSize / 2) - 1,
+			sieve_compiler_options.c_str()
 		);
+		// Development aid: extra kernel build options (for example -D switches of experimental kernel variants)
+		if (const char* extra = getenv("AMICABLE_CL_OPTIONS"))
+		{
+			strcat_s(kernel_options, " ");
+			strcat_s(kernel_options, extra);
+		}
+		myBuildOptions = kernel_options;
 		cl_int build_result = clBuildProgram(myProgram, 0, nullptr, kernel_options, nullptr, nullptr);
 		if (build_result != CL_SUCCESS)
 		{
@@ -408,6 +563,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 			LOG_ERROR("Trying to disable 'goto' and build again");
 
 			strcat_s(kernel_options, " -D DISABLE_GOTO");
+			myBuildOptions = kernel_options;
 			build_result = clBuildProgram(myProgram, 0, nullptr, kernel_options, nullptr, nullptr);
 		}
 
@@ -420,20 +576,58 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 
 		LOG(2, cBuildLog);
 
-		if (build_result != CL_SUCCESS)
-		{
-			LOG_ERROR("clBuildProgram returned error " << build_result);
-			LOG_ERROR("Build options: " << kernel_options);
-			LOG_ERROR("Build log:\n" << cBuildLog);
-			return false;
+			if (build_result != CL_SUCCESS)
+			{
+				LOG_ERROR("clBuildProgram returned error " << build_result);
+				LOG_ERROR("Build options: " << kernel_options);
+				LOG_ERROR("Build log:\n" << cBuildLog);
+				return false;
+			}
+
+			// the sieve with the divisibility kill (chunks of the last tier)
+			if (!mySieveKillOptions.empty())
+			{
+				std::string killOptions = kernel_options;
+				const size_t pos = killOptions.find(mySieveOptions);
+				if (pos == std::string::npos)
+				{
+					LOG_ERROR("Sieve build options not found");
+					return false;
+				}
+				killOptions.replace(pos, mySieveOptions.size(), mySieveKillOptions);
+				CL_CHECKED_CALL_WITH_RESULT(myProgramKill, clCreateProgramWithSource, myGPUContext, 2, kernel_sources, nullptr);
+				const cl_int killBuild = clBuildProgram(myProgramKill, 0, nullptr, killOptions.c_str(), nullptr, nullptr);
+				if (killBuild != CL_SUCCESS)
+				{
+					clGetProgramBuildInfo(myProgramKill, device, CL_PROGRAM_BUILD_LOG, sizeof(cBuildLog), cBuildLog, nullptr);
+					LOG_ERROR("clBuildProgram (sieve with the kill) returned error " << killBuild << "\nBuild options: " << killOptions << "\nBuild log:\n" << cBuildLog);
+					return false;
+				}
+				myBuildOptionsKill = killOptions;
+			}
 		}
-	}
 
 	CL_CHECKED_CALL_WITH_RESULT(mySaveCounter, clCreateKernel, myProgram, "SaveCounter");
 
-	if (IsLargePrimes)
+	if (IsLargePrimes && !myUseSieve)
 	{
 		CL_CHECKED_CALL_WITH_RESULT(mySearchLargePrimes, clCreateKernel, myProgram, "SearchLargePrimes");
+	}
+	else if (myUseSieve)
+	{
+		CL_CHECKED_CALL_WITH_RESULT(mySieveRanges, clCreateKernel, myProgram, "SieveRanges");
+		if (myProgramKill)
+		{
+			CL_CHECKED_CALL_WITH_RESULT(mySieveRangesKill, clCreateKernel, myProgramKill, "SieveRanges");
+		}
+		CL_CHECKED_CALL_WITH_RESULT(myCheckSieveSurvivors, clCreateKernel, myProgram, "CheckSieveSurvivors");
+		CL_CHECKED_CALL_WITH_RESULT(mySieveLaunchDone, clCreateKernel, myProgram, "SieveLaunchDone");
+		if (!myLargePrimesSieve)
+		{
+			CL_CHECKED_CALL_WITH_RESULT(mySieveTestDeferred, clCreateKernel, myProgram, "SieveTestDeferred");
+			CL_CHECKED_CALL_WITH_RESULT(mySieveBand, clCreateKernel, myProgram, "SieveBand");
+			CL_CHECKED_CALL_WITH_RESULT(myCheckSieveSurvivorsPrime, clCreateKernel, myProgram, "CheckSieveSurvivors");
+		}
 	}
 	else
 	{
@@ -443,8 +637,13 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	CL_CHECKED_CALL_WITH_RESULT(myCheckPairs, clCreateKernel, myProgram, "CheckPairs");
 	CL_CHECKED_CALL_WITH_RESULT(myCheckPairPhase2, clCreateKernel, myProgram, "CheckPairPhase2");
 	CL_CHECKED_CALL_WITH_RESULT(myCheckPairPhase3, clCreateKernel, myProgram, "CheckPairPhase3");
+	CL_CHECKED_CALL_WITH_RESULT(myCheckPairPhase3Wide, clCreateKernel, myProgram, "CheckPairPhase3Wide");
+	CL_CHECKED_CALL_WITH_RESULT(myPhase2BucketCount, clCreateKernel, myProgram, "Phase2BucketCount");
+	CL_CHECKED_CALL_WITH_RESULT(myPhase2BucketScatter, clCreateKernel, myProgram, "Phase2BucketScatter");
+	CL_CHECKED_CALL_WITH_RESULT(myPhase2Prefilter, clCreateKernel, myProgram, "Phase2Prefilter");
+	CL_CHECKED_CALL_WITH_RESULT(myPhase2BucketsBuf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(cl_uint) * Phase2Buckets, 0);
 
-	CL_CHECKED_CALL_WITH_RESULT(myQueue, clCreateCommandQueue, myGPUContext, device, 0);
+	CL_CHECKED_CALL_WITH_RESULT(myQueue, clCreateCommandQueue, myGPUContext, device, g_SieveProfile ? CL_QUEUE_PROFILING_ENABLE : 0);
 
 	{
 		std::vector<unsigned int> smallPrimes;
@@ -455,6 +654,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 		}
 		CL_CHECKED_CALL_WITH_RESULT(mySmallPrimesBuf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, ReciprocalsTableSize128 * sizeof(unsigned int), 0);
 		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, mySmallPrimesBuf, CL_TRUE, 0, ReciprocalsTableSize128 * sizeof(unsigned int), smallPrimes.data(), 0, nullptr, nullptr);
+		mySmallPrimesHost = smallPrimes;
 	}
 
 	const size_t primeInversesBufSize = sizeof(std::pair<num64, num64>) * ReciprocalsTableSize128;
@@ -564,15 +764,29 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase1_offset_to_resume_buf, CL_TRUE, 0, sizeof(num64), ourZeroBuf, 0, nullptr, nullptr);
 	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase2_numbers_count_buf, CL_TRUE, 0, sizeof(unsigned int) * 2, ourZeroBuf, 0, nullptr, nullptr);
 	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase3_numbers_count_buf, CL_TRUE, 0, sizeof(num64), ourZeroBuf, 0, nullptr, nullptr);
-	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myAmicable_numbers_count_buf, CL_TRUE, 0, sizeof(num64), ourZeroBuf, 0, nullptr, nullptr);
+	// counter, capacity of the buffer of found numbers (kernel.cl: NumberFound)
+	if (!SetFoundCapacity(AmicableFoundMax))
+	{
+		return false;
+	}
 
 	CL_CHECKED_CALL_WITH_RESULT(myPhase2_numbers_buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64) * 4 * myPhase2MaxNumbersCount, 0);
 	CL_CHECKED_CALL_WITH_RESULT(myPhase3_numbers_buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64) * 4 * myPhase2MaxNumbersCount, 0);
-	CL_CHECKED_CALL_WITH_RESULT(myAmicable_numbers_data_buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64) * 4 * 8192, 0);
+	CL_CHECKED_CALL_WITH_RESULT(myPhase3WideStatusBuf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(cl_uint) * myPhase2MaxNumbersCount, 0);
+	if (myUseSieve && !myLargePrimesSieve)
+	{
+		CL_CHECKED_CALL_WITH_RESULT(myPhase3BacklogBuf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64) * 4 * Phase3BacklogCapacity(), 0);
+	}
+	CL_CHECKED_CALL_WITH_RESULT(myAmicable_numbers_data_buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64) * 4 * AmicableFoundMax, 0);
+
+	if (myUseSieve && !CreateSieveBuffers())
+	{
+		return false;
+	}
 
 	CL_CHECKED_CALL(clFinish, myQueue);
 
-	if (Test())
+	if (Test() && (!myUseSieve || TestSieveStartup()))
 	{
 		LOG_ERROR("Self-test passed");
 	}
@@ -584,7 +798,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 
 	CL_CHECKED_CALL(setKernelArguments, mySaveCounter, myPhase2_numbers_count_buf);
 
-	if (IsLargePrimes)
+	if (IsLargePrimes && !myUseSieve)
 	{
 		for (num64 totalSize = 0, i = 0; totalSize < myMainBufferSize; ++i)
 		{
@@ -622,7 +836,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 			CL_CHECKED_CALL(clSetKernelArg, mySearchLargePrimes, static_cast<cl_uint>(i + 19), sizeof(cl_mem), &myMainBuffers[i]);
 		}
 	}
-	else
+	else if (!myUseSieve)
 	{
 		CL_CHECKED_CALL(setKernelArguments, mySearchMultipleRanges,
 			mySmallPrimesBuf,
@@ -651,41 +865,95 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 		}
 	}
 
-	CL_CHECKED_CALL(setKernelArguments, myCheckPairPhase2,
-		mySmallPrimesBuf,
-		myPhase2_numbers_buf,
-		0,
-		myPrimeInversesBuf,
-		myPowersOfP_128SumInverses_offsets_Buf,
-		myPowersOfP_128SumInverses_Buf,
-		myPrimeInverses_128_Buf,
-		mySumEstimates_128_Buf,
-		myPQ_Buf,
-		myPhase3_numbers_count_buf,
-		myPhase3_numbers_buf,
-		myAmicable_numbers_count_buf,
-		myAmicable_numbers_data_buf
-	);
+	if (!SetPhase2KernelArguments())
+	{
+		return false;
+	}
+
+	if (g_RunTests)
+	{
+		return RunSieveTests();
+	}
 
 	Timer t;
 	bool result;
 	if (IsLargePrimes)
 	{
-		result = RunLargePrimes(startPrime, primeLimit);
+		result = myUseSieve ? RunLargePrimesSieve(startPrime, primeLimit) : RunLargePrimes(startPrime, primeLimit);
 	}
 	else
 	{
 		result = true;
-		for (num64 offset = 0; offset < myMainBufferTotalSize; offset += myMainBufferSize)
+		if (myUseSieve)
 		{
-			if (!RunRanges(startFrom, stopAt, offset, ChunkSizeShift))
+			num64 offset = 0;
+			result = RunRanges(startFrom, stopAt, offset, ChunkSizeShift);
+		}
+		else
+		{
+			for (num64 offset = 0; offset < myMainBufferTotalSize; offset += myMainBufferSize)
 			{
-				result = false;
-				break;
+				if (!RunRanges(startFrom, stopAt, offset, ChunkSizeShift))
+				{
+					result = false;
+					break;
+				}
 			}
 		}
 	}
 	LOG(1, "\nWork unit finished in " << std::setprecision(6) << t.getElapsedTime() << " seconds, " << myNumbersProcessedTotal << " numbers processed\n");
+	if (myUseSieve)
+	{
+		std::cerr << "Sieve: " << mySieveStatRanges << " ranges, " << mySieveStatChunks << " chunks, " << mySieveStatPositions << " positions, " << mySieveStatSurvivors << " survivors (" << ((mySieveStatPositions > 0) ? (mySieveStatSurvivors * 100.0 / mySieveStatPositions) : 0.0) << "%), " << mySieveStatBatches << " batches, " << mySieveStatTime << " seconds in batches, " << mySieveStatPhase2 << " numbers in phase 2, " << mySieveStatOverflows << " overflows" << std::endl;
+		std::cerr << "Host cycles (1e9): AddSieveRange " << g_HostCycles[0] * 1e-9 << ", reduction " << g_HostCycles[1] * 1e-9 << ", PrepareRange " << g_HostCycles[2] * 1e-9 << ", RangeGen::Iterate " << g_HostCycles[3] * 1e-9 << ", EstimatePrimes " << g_HostCycles[4] * 1e-9 << ", AddSieveRangeRecord " << g_HostCycles[5] * 1e-9 << std::endl;
+		std::cerr << "Sieve launches: " << mySieveStatLaunches << " launches in " << mySieveStatRounds << " rounds, " << mySieveStatLaunchedPositions << " positions sieved (" << ((mySieveStatPositions > 0) ? (static_cast<double>(mySieveStatLaunchedPositions) / mySieveStatPositions) : 0.0) << " x)" << std::endl;
+		if (g_SieveProfile)
+		{
+			std::cerr << "Sieve profile: " << mySieveStatSieveKernelTime << " seconds in SieveRanges, " << mySieveStatCheckKernelTime << " seconds in CheckSieveSurvivors, " << mySieveStatBandKernelTime << " seconds in SieveBand (" << mySieveStatBandChunks << " chunks), " << mySieveStatPhase2Sorts << " sorted phase 2 runs" << std::endl;
+			std::cerr << "Phase 2 profile: " << mySieveStatPhase2Wall << " seconds (host), GPU: prefilter " << mySieveStatPhase2Times[0] << ", bucket count " << mySieveStatPhase2Times[1] << ", scatter and copy " << mySieveStatPhase2Times[2] << ", CheckPairPhase2 " << mySieveStatPhase2Times[3] << std::endl;
+			std::cerr << "Survivor checks: first pass " << mySieveStatCheckTimes[0] << ", SieveTestDeferred " << mySieveStatCheckTimes[1] << ", prime p " << mySieveStatCheckTimes[2] << " seconds" << std::endl;
+			std::cerr << "Phase 3 profile: " << mySieveStatPhase3Wall << " seconds (host), " << mySieveStatPhase3Numbers << " numbers; per iteration (seconds, numbers, runs):";
+			for (int k = 1; k < 20; ++k)
+			{
+				if (mySieveStatPhase3IterLaunches[k])
+				{
+					std::cerr << " " << k << ": " << mySieveStatPhase3IterTime[k] << " " << mySieveStatPhase3IterNumbers[k] << " " << mySieveStatPhase3IterLaunches[k] << ";";
+				}
+			}
+			std::cerr << std::endl;
+		}
+	}
+	if (myUseSieve && !myLargePrimesSieve)
+	{
+		std::cerr << "Reduction: " << myRedStat[0] << " positions, " << myRedStat[1] << " in impossible ranges (" << (myRedStat[1] * 100.0 / myRedStat[0]) << "%), "
+			<< myRedStat[2] << " after p == -1 (mod L) (" << (myRedStat[2] * 100.0 / myRedStat[0]) << "%), " << myRedStat[3] << " with the 2, 3, 5 parts (" << (myRedStat[3] * 100.0 / myRedStat[0]) << "%)" << std::endl;
+		if (g_AnalyzeRate > 0)
+		{
+			std::cerr << "Analysis: " << myAnalyzeSamples << " positions sampled" << std::endl;
+			for (unsigned int t = 0; t < mySieve.cfg.numTiers; ++t)
+			{
+				std::cerr << "  Q=" << mySieve.cfg.tierQ[t] << ": window " << (myAnalyzeCounts[t][0] * 100.0 / myAnalyzeSamples) << "%, full divisibility " << (myAnalyzeCounts[t][1] * 100.0 / myAnalyzeSamples)
+					<< "%, e=1 255<q<=16381 " << (myAnalyzeCounts[t][2] * 100.0 / myAnalyzeSamples) << "%, +2-adic " << (myAnalyzeCounts[t][3] * 100.0 / myAnalyzeSamples)
+					<< "%, e=1 q<=Q " << (myAnalyzeCounts[t][4] * 100.0 / myAnalyzeSamples) << "%, +2-adic " << (myAnalyzeCounts[t][5] * 100.0 / myAnalyzeSamples) << "%" << std::endl;
+			}
+		}
+		std::cerr << "Positions by W (window height above the known part) <1e-4, 1e-3, 1e-2, 0.03, 0.1, 0.3, 1, more:";
+		for (int b = 0; b < 8; ++b)
+		{
+			std::cerr << " " << (myRedHistW[b] * 100.0 / myRedStat[0]) << "%";
+		}
+		std::cerr << std::endl << mySieveStatSkipped << " ranges skipped (no amicable numbers possible)" << std::endl;
+		std::cerr << "Positions by bit length of L:";
+		for (int b = 0; b < 64; ++b)
+		{
+			if (myRedHist[b] > 0)
+			{
+				std::cerr << " " << b << ":" << (myRedHist[b] * 100.0 / myRedStat[0]) << "%";
+			}
+		}
+		std::cerr << std::endl;
+	}
+	std::cerr << "Work unit finished in " << std::setprecision(6) << t.getElapsedTime() << " seconds" << std::endl;
 	return result;
 }
 
@@ -772,6 +1040,92 @@ bool OpenCL::RunRanges(char* startFrom, char* stopAt, num64& offset, unsigned in
 	if (!startFrom)
 	{
 		RangeGen::Iterate(r);
+	}
+
+	if (myUseSieve)
+	{
+		while (!RangeGen::HasReached(r, stopAtFactors))
+		{
+			// Process the batch before adding a range that doesn't fit in it, so that ranges are not split between batches (unless a
+			// single range is bigger than a batch). Then all ranges before r are completely processed, which allows a checkpoint.
+			num64 p_lo, p_hi;
+			num64 numSegments = 0;
+			if (GetPrimeLimit(r, p_lo, p_hi))
+			{
+				numSegments = ((p_hi - (p_lo / SieveWheel) * SieveWheel) / SieveWheel) / mySieve.cfg.segJ + 1;
+			}
+			const num64 numChunks = (numSegments + mySieve.cfg.chunkSegments - 1) / mySieve.cfg.chunkSegments;
+			if (!mySieveBatch.chunks.empty() && (
+				(mySieveBatch.ranges.size() / SieveRangeStride + 1 >= mySieveMaxRanges) ||
+				(mySieveBatch.chunks.size() / 4 + numChunks + 1 >= mySieveMaxChunks) ||
+				(mySieveBatch.positions + numSegments * mySieve.cfg.segJ * SievePositionsPerJ > mySieveMaxPositions)))
+			{
+				// the GPU processes the batch while the next one is prepared
+				if (!SubmitSieveBatch(true, offset))
+				{
+					return false;
+				}
+			}
+			if (mySieveBatch.chunks.empty() && mySieveBatch.extra.empty())
+			{
+				if (!mySieveBatchFirstRange)
+				{
+					mySieveBatchFirstRange = new RangeData;
+				}
+				*mySieveBatchFirstRange = r;
+				mySieveBatchStartNumbers = myNumbersProcessedTotal;
+				mySieveBatchHasFirst = true;
+			}
+
+			// Development aid: "/explore <numbers>" prints the factorization where a work unit of that many numbers starting at /from ends
+			if (g_ExploreNumbers > 0)
+			{
+				num64 p_lo, p_hi;
+				if (GetPrimeLimit(r, p_lo, p_hi))
+				{
+					myNumbersProcessedTotal += static_cast<num64>(SieveGPUTables::EstimatePrimes(p_lo, p_hi) + 0.5);
+				}
+				if (myNumbersProcessedTotal >= g_ExploreNumbers)
+				{
+					std::stringstream f;
+					for (int i = 0; i <= r.last_factor_index; ++i)
+					{
+						if (i)
+						{
+							f << '*';
+						}
+						f << r.factors[i].p.Get();
+						if (r.factors[i].k > 1)
+						{
+							f << '^' << r.factors[i].k;
+						}
+					}
+					std::cerr << "Explore: /to " << f.str() << " /task_size " << myNumbersProcessedTotal << std::endl;
+					return WaitSieveBatch();
+				}
+			}
+			else if (!AddSieveRange(r))
+			{
+				return false;
+			}
+
+			const num64 ti0 = ReadCycleCounter();
+			const bool more = RangeGen::Iterate(r) && (RangeGen::cur_largest_prime_power == myLargestPrimePower);
+			g_HostCycles[3] += ReadCycleCounter() - ti0;
+			if (!more)
+			{
+				break;
+			}
+
+			const double progress = static_cast<double>(myNumbersProcessedTotal) / RangeGen::total_numbers_to_check;
+			boinc_fraction_done((progress < 1.0) ? progress : 1.0);
+		}
+
+		if (!WaitSieveBatch() || !ProcessSieveBatch(mySieveBatch))
+		{
+			return false;
+		}
+		return SaveFoundNumbers();
 	}
 	while (!RangeGen::HasReached(r, stopAtFactors))
 	{
@@ -1166,6 +1520,13 @@ bool OpenCL::GetCounter(cl_command_queue queue, cl_mem buf, unsigned int &counte
 	return true;
 }
 
+bool OpenCL::SetFoundCapacity(unsigned int capacity)
+{
+	const cl_uint data[2] = { 0, capacity };
+	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myAmicable_numbers_count_buf, CL_TRUE, 0, sizeof(data), data, 0, nullptr, nullptr);
+	return true;
+}
+
 bool OpenCL::ResetCounter(cl_command_queue queue, cl_mem buf)
 {
 	CL_CHECKED_CALL(clEnqueueWriteBuffer, queue, buf, CL_TRUE, 0, sizeof(num64), ourZeroBuf, 0, nullptr, nullptr);
@@ -1201,14 +1562,6 @@ unsigned int OpenCL::GetMaxPhaseSize(num64 total_size, unsigned int max_size)
 
 bool OpenCL::Test()
 {
-	struct SPairToCheck
-	{
-		SPairToCheck() : M(0), targetSum(0) {}
-		SPairToCheck(num128 m, num128 sum) : M(m), targetSum(sum) {}
-
-		num128 M;
-		num128 targetSum;
-	};
 	std::vector<SPairToCheck> pairs;
 
 	IF_CONSTEXPR(LogLevel > 0)
@@ -1257,6 +1610,33 @@ bool OpenCL::Test()
 		}
 	}
 
+	return TestPairs(pairs);
+}
+
+// The arguments of the phase 2 kernel for the search (TestPairs points them to its own buffers and restores them)
+bool OpenCL::SetPhase2KernelArguments()
+{
+	CL_CHECKED_CALL(setKernelArguments, myCheckPairPhase2,
+		mySmallPrimesBuf,
+		myPhase2_numbers_buf,
+		0,
+		myPrimeInversesBuf,
+		myPowersOfP_128SumInverses_offsets_Buf,
+		myPowersOfP_128SumInverses_Buf,
+		myPrimeInverses_128_Buf,
+		mySumEstimates_128_Buf,
+		myPQ_Buf,
+		myPhase3_numbers_count_buf,
+		myPhase3_numbers_buf,
+		myAmicable_numbers_count_buf,
+		myAmicable_numbers_data_buf
+	);
+	return true;
+}
+
+// Checks the given pairs (M, sigma(M)) with the same kernels as all numbers (phases 1-3), all of them must be found
+bool OpenCL::TestPairs(std::vector<SPairToCheck>& pairs)
+{
 	const unsigned int total_numbers = static_cast<unsigned int>(pairs.size());
 	LOG(1, "Total numbers: " << total_numbers);
 	if (total_numbers == 0)
@@ -1280,6 +1660,16 @@ bool OpenCL::Test()
 	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, pairsToCheck, CL_TRUE, 0, sizeof(SPairToCheck) * pairs.size(), pairs.data(), 0, nullptr, nullptr);
 
 	CL_CHECKED_CALL_WITH_RESULT(buf.mem, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64) * 4 * pairs.size(), 0);
+	// the found numbers go to buf (one entry per pair) during the test
+	if (!SetFoundCapacity(static_cast<unsigned int>(pairs.size())))
+	{
+		return false;
+	}
+	struct RestoreCapacity
+	{
+		OpenCL* self;
+		~RestoreCapacity() { self->SetFoundCapacity(AmicableFoundMax); }
+	} restoreCapacity{ this };
 
 	cl_event event = nullptr;
 
@@ -1380,7 +1770,9 @@ bool OpenCL::Test()
 				mySmallPrimesBuf,
 				myPowersOfP_128SumInverses_offsets_Buf,
 				myPowersOfP_128SumInverses_Buf,
-				myPrimeInverses_128_Buf
+				myPrimeInverses_128_Buf,
+				myPhase3WideStatusBuf,
+				0U
 			);
 			CL_CHECKED_CALL(clEnqueueNDRangeKernel, myQueue, myCheckPairPhase3, 1, nullptr, &globalSizePhase3, &phase3_workGroupSize, 0, nullptr, (offset + globalSizePhase3 >= filtered_numbers3_count) ? &event : nullptr);
 		}
@@ -1395,6 +1787,12 @@ bool OpenCL::Test()
 	}
 
 	if (!GetAndResetCounter(myQueue, myAmicable_numbers_count_buf, amicable_numberscount))
+	{
+		return false;
+	}
+
+	// Restore the arguments of the phase 2 kernel (they point to the temporary buffer now)
+	if (!SetPhase2KernelArguments())
 	{
 		return false;
 	}
@@ -1765,6 +2163,36 @@ bool OpenCL::ProcessNumbersPhases2_3(unsigned int numbers_in_phase2)
 	{
 		Timer t;
 
+		// (kernel.cl: Phase2Prefilter) the numbers of the form r^2 s and the others with D < 3 N^(2/3)
+		{
+			const size_t globalSize = (static_cast<size_t>(numbers_in_phase2) + myWorkGroupSize - 1) / myWorkGroupSize * myWorkGroupSize;
+			CL_CHECKED_CALL(setKernelArguments, myPhase2Prefilter, myPhase2_numbers_buf, numbers_in_phase2, myAmicable_numbers_count_buf, myAmicable_numbers_data_buf);
+			cl_event ep = nullptr;
+			CL_CHECKED_CALL(clEnqueueNDRangeKernel, myQueue, myPhase2Prefilter, 1, nullptr, &globalSize, &myWorkGroupSize, 0, nullptr, g_SieveProfile ? &ep : nullptr);
+			if (ep) myPhase2ProfileEvents.emplace_back(0, ep);
+		}
+		if ((numbers_in_phase2 >= Phase2SortMinCount) && !SortPhase2Numbers(numbers_in_phase2))
+		{
+			return false;
+		}
+
+		// debugging: AMICABLE_DUMP_PHASE2=<file> writes the numbers of the first phase 2 run with at least 2^20 numbers (32 bytes each,
+		// CheckPairPhase2 input)
+		static bool phase2Dumped = false;
+		const char* dump2Path = getenv("AMICABLE_DUMP_PHASE2");
+		if (dump2Path && !phase2Dumped && (numbers_in_phase2 >= (1U << 20)))
+		{
+			phase2Dumped = true;
+			std::vector<num64> data(static_cast<size_t>(numbers_in_phase2) * 4);
+			CL_CHECKED_CALL(clEnqueueReadBuffer, myQueue, myPhase2_numbers_buf, CL_TRUE, 0, data.size() * sizeof(num64), data.data(), 0, nullptr, nullptr);
+			FILE* f = fopen(dump2Path, "wb");
+			if (f)
+			{
+				fwrite(data.data(), sizeof(num64), data.size(), f);
+				fclose(f);
+			}
+		}
+
 		if (numbers_in_phase2 < myPhase2MaxNumbersCount)
 		{
 			CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase2_numbers_buf, CL_TRUE, numbers_in_phase2 * sizeof(num64) * 4, std::min(static_cast<unsigned int>(myWorkGroupSize), myPhase2MaxNumbersCount - numbers_in_phase2) * sizeof(num64) * 4, ourZeroBuf, 0, nullptr, nullptr);
@@ -1786,80 +2214,61 @@ bool OpenCL::ProcessNumbersPhases2_3(unsigned int numbers_in_phase2)
 				globalSizePhase2 += myWorkGroupSize - (globalSizePhase2 & (myWorkGroupSize - 1));
 			}
 			CL_CHECKED_CALL(clSetKernelArg, myCheckPairPhase2, 2, sizeof(global_offset), &global_offset);
-			CL_CHECKED_CALL(clEnqueueNDRangeKernel, myQueue, myCheckPairPhase2, 1, nullptr, &globalSizePhase2, &myWorkGroupSize, 0, nullptr, (global_offset + static_cast<unsigned int>(globalSizePhase2) >= numbers_in_phase2) ? &event : nullptr);
+			const bool last = (global_offset + static_cast<unsigned int>(globalSizePhase2) >= numbers_in_phase2);
+			cl_event ek = nullptr;
+			CL_CHECKED_CALL(clEnqueueNDRangeKernel, myQueue, myCheckPairPhase2, 1, nullptr, &globalSizePhase2, &myWorkGroupSize, 0, nullptr, last ? &event : (g_SieveProfile ? &ek : nullptr));
+			if (ek) myPhase2ProfileEvents.emplace_back(3, ek);
+			if (last && g_SieveProfile)
+			{
+				clRetainEvent(event);
+				myPhase2ProfileEvents.emplace_back(3, event);
+			}
 		}
 
 		if (!WaitForQueue(myQueue, event) || !GetAndResetCounter(myQueue, myPhase3_numbers_count_buf, phase3_numbers_buf_count))
 		{
 			return false;
 		}
+		// (/sieve_profile: GPU time of the parts of phase 2)
+		for (const auto& pe : myPhase2ProfileEvents)
+		{
+			cl_ulong t0 = 0, t1 = 0;
+			if ((clGetEventProfilingInfo(pe.second, CL_PROFILING_COMMAND_START, sizeof(t0), &t0, nullptr) == CL_SUCCESS) &&
+				(clGetEventProfilingInfo(pe.second, CL_PROFILING_COMMAND_END, sizeof(t1), &t1, nullptr) == CL_SUCCESS))
+			{
+				mySieveStatPhase2Times[pe.first] += (t1 - t0) * 1e-9;
+			}
+			clReleaseEvent(pe.second);
+		}
+		myPhase2ProfileEvents.clear();
+		mySieveStatPhase2Wall += t.getElapsedTime();
 
 		const double phase2Time = t.getElapsedTime();
 		LOG(2, "Phase 2: processed " << numbers_in_phase2 << " numbers in " << phase2Time << " seconds, " << phase3_numbers_buf_count << " numbers left (" << ((phase3_numbers_buf_count * 100.0) / numbers_in_phase2) << "%)");
+
+		// debugging: AMICABLE_DUMP_PHASE3=<file> writes the first numbers that go to phase 3 (32 bytes each, CheckPairPhase3 input)
+		static bool phase3Dumped = false;
+		const char* dumpPath = getenv("AMICABLE_DUMP_PHASE3");
+		if (dumpPath && !phase3Dumped && (phase3_numbers_buf_count > 0))
+		{
+			phase3Dumped = true;
+			std::vector<num64> data(static_cast<size_t>(std::min(phase3_numbers_buf_count, 1U << 18)) * 4);
+			CL_CHECKED_CALL(clEnqueueReadBuffer, myQueue, myPhase3_numbers_buf, CL_TRUE, 0, data.size() * sizeof(num64), data.data(), 0, nullptr, nullptr);
+			FILE* f = fopen(dumpPath, "wb");
+			if (f)
+			{
+				fwrite(data.data(), sizeof(num64), data.size(), f);
+				fclose(f);
+			}
+		}
 	}
 
 	//
 	// Phase 3
 	//
-	if (phase3_numbers_buf_count > 0)
+	if ((phase3_numbers_buf_count > 0) && !RunPhase3(phase3_numbers_buf_count, 1))
 	{
-		cl_mem phase3_buffers[2] = { myPhase2_numbers_buf, myPhase3_numbers_buf };
-		const size_t phase3_workGroupSize = myWorkGroupSize;
-
-		unsigned int phase3_numbers_buf_count2 = phase3_numbers_buf_count;
-		for (int phase3_iteration = 1; phase3_numbers_buf_count2 > 0; ++phase3_iteration)
-		{
-			Timer t1;
-
-			if (phase3_numbers_buf_count2 < myPhase2MaxNumbersCount)
-			{
-				CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, phase3_buffers[phase3_iteration & 1], CL_TRUE, phase3_numbers_buf_count2 * sizeof(num64) * 4, std::min(static_cast<unsigned int>(phase3_workGroupSize), myPhase2MaxNumbersCount - phase3_numbers_buf_count2) * sizeof(num64) * 4, ourZeroBuf, 0, nullptr, nullptr);
-			}
-
-			const unsigned int max_size_phase3 = GetMaxPhaseSize(phase3_numbers_buf_count2, myPhase1MaxKernelSize / 16);
-			LOG(2, "Phase 3, iteration " << phase3_iteration << ": max kernel size = " << max_size_phase3 << " numbers");
-
-			size_t globalSizePhase3;
-			for (unsigned int k = 0, global_offset = 0; global_offset < phase3_numbers_buf_count2; global_offset += static_cast<unsigned int>(globalSizePhase3), ++k)
-			{
-				if (k)
-				{
-					CL_CHECKED_CALL(clFlush, myQueue);
-				}
-				globalSizePhase3 = std::min<num64>(phase3_numbers_buf_count2 - global_offset, max_size_phase3);
-				if (globalSizePhase3 & (myWorkGroupSize - 1))
-				{
-					globalSizePhase3 += myWorkGroupSize - (globalSizePhase3 & (myWorkGroupSize - 1));
-				}
-				CL_CHECKED_CALL(setKernelArguments, myCheckPairPhase3,
-					phase3_buffers[phase3_iteration & 1],
-					global_offset,
-					myPrimeInversesBuf,
-					myPrimeReciprocalsBuf,
-					myPhase3_numbers_count_buf,
-					phase3_buffers[(phase3_iteration - 1) & 1],
-					myAmicable_numbers_count_buf,
-					myAmicable_numbers_data_buf,
-					phase3_iteration << 12,
-					mySmallPrimesBuf,
-					myPowersOfP_128SumInverses_offsets_Buf,
-					myPowersOfP_128SumInverses_Buf,
-					myPrimeInverses_128_Buf
-				);
-				CL_CHECKED_CALL(clEnqueueNDRangeKernel, myQueue, myCheckPairPhase3, 1, nullptr, &globalSizePhase3, &phase3_workGroupSize, 0, nullptr, (global_offset + static_cast<unsigned int>(globalSizePhase3) >= phase3_numbers_buf_count2) ? &event : nullptr);
-			}
-
-			if (!WaitForQueue(myQueue, event) || !GetAndResetCounter(myQueue, myPhase3_numbers_count_buf, phase3_numbers_buf_count2))
-			{
-				return false;
-			}
-
-			const double phase3Time = t1.getElapsedTime();
-			LOG(2, "Phase 3, iteration " << phase3_iteration << ": processed " << phase3_numbers_buf_count << " numbers in " << phase3Time << " seconds, " << phase3_numbers_buf_count2 << " numbers left (" << ((phase3_numbers_buf_count2 * 100.0) / phase3_numbers_buf_count) << "%)");
-			phase3_numbers_buf_count = phase3_numbers_buf_count2;
-		}
-
-		LOG(2, "Phase 3 finished");
+		return false;
 	}
 
 	if (!ResetCounter(myQueue, myPhase2_numbers_count_buf))
@@ -1867,7 +2276,194 @@ bool OpenCL::ProcessNumbersPhases2_3(unsigned int numbers_in_phase2)
 		return false;
 	}
 
+	// (the backlog of phase 3 is processed when it is half full, and at the end of the sieve batch: FinishSieveBatch)
+	if (myPhase3BacklogEnabled && (myPhase3BacklogCount >= Phase3BacklogCapacity() / 2) && !FlushPhase3Backlog())
+	{
+		return false;
+	}
+
 	return true;
+}
+
+// Phase 3 for "phase3_numbers_buf_count" numbers in the input buffer of iteration "firstIteration" (iteration k reads phase3_buffers[k & 1], the
+// output of phase 2 is the input of iteration 1). In the sieve batches (myPhase3BacklogEnabled), the numbers that are left when there are
+// few of them go to the backlog: they need many more primes (up to N^(1/3) or 2 * N / D), and their launches left most of the GPU idle
+// (k4: iterations 4-7 took 40 s for 0.9% of the numbers of phase 3, a few thousand numbers per launch). The backlog runs them together.
+bool OpenCL::RunPhase3(unsigned int phase3_numbers_buf_count, int firstIteration)
+{
+	struct Phase3Time
+	{
+		Timer t;
+		double& total;
+		~Phase3Time() { total += t.getElapsedTime(); }
+	} phase3TotalTime{ Timer(), mySieveStatPhase3Wall };
+	if (firstIteration == 1)
+	{
+		mySieveStatPhase3Numbers += phase3_numbers_buf_count;
+	}
+	cl_mem phase3_buffers[2] = { myPhase2_numbers_buf, myPhase3_numbers_buf };
+	const size_t phase3_workGroupSize = myWorkGroupSize;
+
+	unsigned int phase3_numbers_buf_count2 = phase3_numbers_buf_count;
+	for (int phase3_iteration = firstIteration; phase3_numbers_buf_count2 > 0; ++phase3_iteration)
+	{
+		if (myPhase3BacklogEnabled && (phase3_iteration > firstIteration) && (phase3_numbers_buf_count2 < Phase3BacklogMinCount) &&
+			(myPhase3BacklogCount + phase3_numbers_buf_count2 <= Phase3BacklogCapacity()))
+		{
+			CL_CHECKED_CALL(clEnqueueCopyBuffer, myQueue, phase3_buffers[phase3_iteration & 1], myPhase3BacklogBuf, 0, myPhase3BacklogCount * sizeof(num64) * 4, phase3_numbers_buf_count2 * sizeof(num64) * 4, 0, nullptr, nullptr);
+			myPhase3BacklogIteration = (myPhase3BacklogCount == 0) ? phase3_iteration : std::min(myPhase3BacklogIteration, phase3_iteration);
+			myPhase3BacklogCount += phase3_numbers_buf_count2;
+			LOG(2, "Phase 3, iteration " << phase3_iteration << ": " << phase3_numbers_buf_count2 << " numbers moved to the backlog (" << myPhase3BacklogCount << " numbers)");
+			return true;
+		}
+
+		Timer t1;
+
+		if (phase3_numbers_buf_count2 < myPhase2MaxNumbersCount)
+		{
+			CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, phase3_buffers[phase3_iteration & 1], CL_FALSE, phase3_numbers_buf_count2 * sizeof(num64) * 4, std::min(static_cast<unsigned int>(phase3_workGroupSize), myPhase2MaxNumbersCount - phase3_numbers_buf_count2) * sizeof(num64) * 4, ourZeroBuf, 0, nullptr, nullptr);
+		}
+
+		const unsigned int max_size_phase3 = GetMaxPhaseSize(phase3_numbers_buf_count2, myPhase1MaxKernelSize / 16);
+		// trial division up to prime index 4096 * 2^(iteration - 1) (it was 4096 * iteration: up to ~160 iterations, each a launch and a
+		// blocking read, for the numbers whose cofactor has no small prime factors), never beyond the table of primes
+		const int phase3MaxI = static_cast<int>(std::min<num64>(num64(4096) << std::min(phase3_iteration - 1, 16), ReciprocalsTableSize128 - 64));
+		if ((phase3MaxI == static_cast<int>(ReciprocalsTableSize128 - 64)) && (phase3_iteration > 18))
+		{
+			LOG_ERROR("Phase 3: " << phase3_numbers_buf_count2 << " numbers need primes beyond the table");
+			return false;
+		}
+		LOG(2, "Phase 3, iteration " << phase3_iteration << ": max kernel size = " << max_size_phase3 << " numbers");
+
+		// the late iterations (few numbers with many primes each): CheckPairPhase3Wide (one warp per number) finds the first round of
+		// 1024 primes where CheckPairPhase3 has something to do, CheckPairPhase3 continues there (kernel.cl)
+		// (k4: phase 3 3.91 -> 1.08 s with the wide kernel from iteration 2, 1.73 s from iteration 4; AMICABLE_P3_WIDE_FROM=0 disables it)
+		static const int wideFrom = getenv("AMICABLE_P3_WIDE_FROM") ? static_cast<int>(StrToNumber(getenv("AMICABLE_P3_WIDE_FROM"))) : 2;
+		const cl_uint wideMode = ((wideFrom > 0) && (phase3_iteration >= wideFrom)) ? 1U : 0U;
+		if (wideMode)
+		{
+			const cl_uint ones = 0xFFFFFFFFU;
+			CL_CHECKED_CALL(clEnqueueFillBuffer, myQueue, myPhase3WideStatusBuf, &ones, sizeof(ones), 0, sizeof(cl_uint) * static_cast<size_t>(phase3_numbers_buf_count2), 0, nullptr, nullptr);
+			const cl_uint wideCount = phase3_numbers_buf_count2;
+			const cl_int tableLimit = static_cast<cl_int>(ReciprocalsTableSize128 - 64);
+			CL_CHECKED_CALL(setKernelArguments, myCheckPairPhase3Wide, phase3_buffers[phase3_iteration & 1], wideCount, phase3MaxI, tableLimit, mySmallPrimesBuf, myPrimeInversesBuf, myPrimeInverses_128_Buf, myPhase3WideStatusBuf);
+			const size_t wideGlobal = (static_cast<size_t>(wideCount) * 32 + myWorkGroupSize - 1) / myWorkGroupSize * myWorkGroupSize;
+			CL_CHECKED_CALL(clEnqueueNDRangeKernel, myQueue, myCheckPairPhase3Wide, 1, nullptr, &wideGlobal, &phase3_workGroupSize, 0, nullptr, nullptr);
+		}
+
+		size_t globalSizePhase3;
+		for (unsigned int k = 0, global_offset = 0; global_offset < phase3_numbers_buf_count2; global_offset += static_cast<unsigned int>(globalSizePhase3), ++k)
+		{
+			if (k)
+			{
+				CL_CHECKED_CALL(clFlush, myQueue);
+			}
+			globalSizePhase3 = std::min<num64>(phase3_numbers_buf_count2 - global_offset, max_size_phase3);
+			if (globalSizePhase3 & (myWorkGroupSize - 1))
+			{
+				globalSizePhase3 += myWorkGroupSize - (globalSizePhase3 & (myWorkGroupSize - 1));
+			}
+			CL_CHECKED_CALL(setKernelArguments, myCheckPairPhase3,
+				phase3_buffers[phase3_iteration & 1],
+				global_offset,
+				myPrimeInversesBuf,
+				myPrimeReciprocalsBuf,
+				myPhase3_numbers_count_buf,
+				phase3_buffers[(phase3_iteration - 1) & 1],
+				myAmicable_numbers_count_buf,
+				myAmicable_numbers_data_buf,
+				phase3MaxI,
+				mySmallPrimesBuf,
+				myPowersOfP_128SumInverses_offsets_Buf,
+				myPowersOfP_128SumInverses_Buf,
+				myPrimeInverses_128_Buf,
+				myPhase3WideStatusBuf,
+				wideMode
+			);
+			CL_CHECKED_CALL(clEnqueueNDRangeKernel, myQueue, myCheckPairPhase3, 1, nullptr, &globalSizePhase3, &phase3_workGroupSize, 0, nullptr, nullptr);
+		}
+
+		// The blocking read of the counter waits for the launches (in-order queue), the reset doesn't block (ourZeroBuf is static; the
+		// padding above doesn't either). WaitForQueue polls with sleeps of 0.5 ms: with it and three blocking calls, every iteration took
+		// ~1 ms more than its kernels (k4: ~1600 iterations, most of them with ~0.1 ms of GPU work).
+		CL_CHECKED_CALL(clEnqueueReadBuffer, myQueue, myPhase3_numbers_count_buf, CL_TRUE, 0, sizeof(phase3_numbers_buf_count2), &phase3_numbers_buf_count2, 0, nullptr, nullptr);
+		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase3_numbers_count_buf, CL_FALSE, 0, sizeof(phase3_numbers_buf_count2), ourZeroBuf, 0, nullptr, nullptr);
+
+		const double phase3Time = t1.getElapsedTime();
+		{
+			const int k = std::min(phase3_iteration, 19);
+			mySieveStatPhase3IterTime[k] += phase3Time;
+			mySieveStatPhase3IterNumbers[k] += phase3_numbers_buf_count;
+			++mySieveStatPhase3IterLaunches[k];
+		}
+		LOG(2, "Phase 3, iteration " << phase3_iteration << ": processed " << phase3_numbers_buf_count << " numbers in " << phase3Time << " seconds, " << phase3_numbers_buf_count2 << " numbers left (" << ((phase3_numbers_buf_count2 * 100.0) / phase3_numbers_buf_count) << "%)");
+		phase3_numbers_buf_count = phase3_numbers_buf_count2;
+	}
+
+	LOG(2, "Phase 3 finished");
+	return true;
+}
+
+// Sorts the numbers of phase 2 by the primes they need (kernel.cl: Phase2Bucket), in myPhase3_numbers_buf, and copies them back. Nothing is
+// sorted if almost all numbers are in one bucket (most work units: the sort would only cost time).
+bool OpenCL::SortPhase2Numbers(unsigned int count)
+{
+	cl_uint buckets[Phase2Buckets] = {};
+	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase2BucketsBuf, CL_TRUE, 0, sizeof(buckets), buckets, 0, nullptr, nullptr);
+	const size_t globalSize = (static_cast<size_t>(count) + myWorkGroupSize - 1) / myWorkGroupSize * myWorkGroupSize;
+	CL_CHECKED_CALL(setKernelArguments, myPhase2BucketCount, myPhase2_numbers_buf, count, myPhase2BucketsBuf);
+	cl_event ec = nullptr;
+	CL_CHECKED_CALL(clEnqueueNDRangeKernel, myQueue, myPhase2BucketCount, 1, nullptr, &globalSize, &myWorkGroupSize, 0, nullptr, g_SieveProfile ? &ec : nullptr);
+	if (ec) myPhase2ProfileEvents.emplace_back(1, ec);
+	CL_CHECKED_CALL(clEnqueueReadBuffer, myQueue, myPhase2BucketsBuf, CL_TRUE, 0, sizeof(buckets), buckets, 0, nullptr, nullptr);
+	cl_uint largest = 0;
+	cl_uint sum = 0;
+	for (cl_uint& b : buckets)
+	{
+		largest = std::max(largest, b);
+		const cl_uint n = b;
+		b = sum;
+		sum += n;
+	}
+	if (sum != count)
+	{
+		LOG_ERROR("Phase 2: " << sum << " numbers in the buckets, " << count << " expected");
+		return false;
+	}
+	if (largest >= count - count / 16)
+	{
+		return true;
+	}
+	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPhase2BucketsBuf, CL_TRUE, 0, sizeof(buckets), buckets, 0, nullptr, nullptr);
+	CL_CHECKED_CALL(setKernelArguments, myPhase2BucketScatter, myPhase2_numbers_buf, count, myPhase2BucketsBuf, myPhase3_numbers_buf);
+	cl_event es = nullptr;
+	cl_event ey = nullptr;
+	CL_CHECKED_CALL(clEnqueueNDRangeKernel, myQueue, myPhase2BucketScatter, 1, nullptr, &globalSize, &myWorkGroupSize, 0, nullptr, g_SieveProfile ? &es : nullptr);
+	CL_CHECKED_CALL(clEnqueueCopyBuffer, myQueue, myPhase3_numbers_buf, myPhase2_numbers_buf, 0, 0, static_cast<size_t>(count) * sizeof(num64) * 4, 0, nullptr, g_SieveProfile ? &ey : nullptr);
+	if (es) myPhase2ProfileEvents.emplace_back(2, es);
+	if (ey) myPhase2ProfileEvents.emplace_back(2, ey);
+	++mySieveStatPhase2Sorts;
+	return true;
+}
+
+// Runs phase 3 for the numbers in the backlog (the buffers of phases 2 and 3 must be free: no numbers waiting for phase 2)
+bool OpenCL::FlushPhase3Backlog()
+{
+	if (myPhase3BacklogCount == 0)
+	{
+		return true;
+	}
+	const unsigned int count = myPhase3BacklogCount;
+	const int iteration = myPhase3BacklogIteration;
+	myPhase3BacklogCount = 0;
+	// (the numbers start at the first iteration of the backlog: the others continue at their own primes, kernel.cl: CheckPairPhase3)
+	CL_CHECKED_CALL(clEnqueueCopyBuffer, myQueue, myPhase3BacklogBuf, (iteration & 1) ? myPhase3_numbers_buf : myPhase2_numbers_buf, 0, 0, count * sizeof(num64) * 4, 0, nullptr, nullptr);
+	LOG(2, "Phase 3 backlog: " << count << " numbers from iteration " << iteration);
+	const bool enabled = myPhase3BacklogEnabled;
+	myPhase3BacklogEnabled = false;
+	const bool result = RunPhase3(count, iteration);
+	myPhase3BacklogEnabled = enabled;
+	return result;
 }
 
 void OpenCL::CleanupRanges()
@@ -1885,6 +2481,12 @@ bool OpenCL::SaveFoundNumbers()
 		return false;
 	}
 
+	if (numbers_found > AmicableFoundMax)
+	{
+		// (kernel.cl: NumberFound) numbers were lost: the work unit must not be reported as done
+		LOG_ERROR("Too many numbers found (" << numbers_found << "), the buffer holds " << AmicableFoundMax);
+		return false;
+	}
 	if (numbers_found > 0)
 	{
 		myFoundPairs.resize(numbers_found);
@@ -1907,8 +2509,12 @@ bool OpenCL::SaveFoundNumbers()
 	return true;
 }
 
-bool OpenCL::SaveProgressForRanges(const RangeData& r, num64 offset)
+bool OpenCL::SaveProgressForRanges(const RangeData& r, num64 offset, num64 numbersProcessed)
 {
+	if (numbersProcessed == ~num64(0))
+	{
+		numbersProcessed = myNumbersProcessedTotal;
+	}
 	// This is only called when the queue is empty: there are no numbers in phases 1-3 on GPU and GPU is idle
 
 	if (!SaveFoundNumbers())
@@ -1924,7 +2530,7 @@ bool OpenCL::SaveProgressForRanges(const RangeData& r, num64 offset)
 		boinc_resolve_filename_s(CHECKPOINT_LOGICAL_NAME, checkpoint_name);
 
 		// First write how many numbers have been checked so far
-		s << myNumbersProcessedTotal << ' ' << offset << ' ';
+		s << numbersProcessed << ' ' << offset << ' ';
 
 		// Then current range
 		const Factor(&mainFactors)[MaxPrimeFactors] = r.factors;
@@ -1988,4 +2594,2232 @@ bool OpenCL::SaveProgressForLargePrimes(num64 firstPrime, num64 lastPrime, num64
 	}
 		
 	return true;
+}
+
+//-----------------------------------------------------------------------------------------------------------------------------------
+// Arithmetic-progression sieve for the first stage (see SieveGPU.h)
+//-----------------------------------------------------------------------------------------------------------------------------------
+
+bool OpenCL::InitSieve(cl_device_id /*device*/, num64 localMemSize, num64 maxWorkGroupSize, std::string& options)
+{
+	SieveGPUConfig cfg = g_SieveConfig;
+	// Devices with a smaller work-group limit (256 on many AMD and Intel GPUs): smaller work-groups, as for the other kernels, and
+	// segments of at most 32 positions per work-item (the scan). Before, the sieve refused to run there.
+	while ((cfg.wgSize > maxWorkGroupSize) && (cfg.wgSize > 32))
+	{
+		cfg.wgSize >>= 1;
+	}
+	while ((cfg.segJ * 8 > cfg.wgSize * 32) && (cfg.segJ > 64))
+	{
+		cfg.segJ >>= 1;
+	}
+	// The divisibility kill pays off only in the last tier (ranges with a narrow window, see ChooseTier): the ranges stage builds a
+	// second program with the kill for their chunks (the kill code in the hit loops slows down the other chunks even when it is
+	// not used), the large primes stage uses one program with the kill (it is only active in the last tier).
+	const bool twoPrograms = g_SieveKill && !myLargePrimesSieve;
+	cfg.killQMax = (g_SieveKill && !twoPrograms) ? SieveKillQMax : 0;
+	// with the kill, the undo list needs local memory: smaller survivor lists (the kill also halves the survivors)
+	cfg.survLocal = cfg.killQMax ? (SieveSurvLocal / 2) : SieveSurvLocal;
+	for (;;)
+	{
+		if (!mySieve.Init(cfg))
+		{
+			return false;
+		}
+
+		// leave 1 KB for the compiler
+		if (mySieve.localMemSize + 1024 <= localMemSize)
+		{
+			break;
+		}
+		if (cfg.segJ <= 128)
+		{
+			LOG_ERROR("Not enough local memory for the sieve: " << mySieve.localMemSize << " bytes needed, " << localMemSize << " bytes available");
+			return false;
+		}
+		cfg.segJ >>= 1;
+	}
+
+	// ExpectedSum (self-tests) applies the kill in the last tier
+	mySieve.killQMax = g_SieveKill ? SieveKillQMax : 0;
+
+	unsigned long shift;
+	_BitScanReverse64(&shift, cfg.segJ);
+
+	auto makeOptions = [&](unsigned int survLocal, unsigned int killQMax, unsigned int maxSlots) -> std::string
+	{
+		char buf[512];
+		sprintf_s(buf, " -D SIEVE_WG_SIZE=%u -D SIEVE_SEG_J=%u -D SIEVE_SEG_SHIFT=%u -D SIEVE_MAX_SLOTS=%u -D SIEVE_MAX_ROW_MODULI=%u -D SIEVE_RANGE_STRIDE=%u -D SIEVE_MARGIN=%u -D SIEVE_SURV_LOCAL=%u -D SIEVE_KILL_QMAX=%u -D SIEVE_UNDO_CAP=%u -D SIEVE_CHUNK_SEGMENTS=%u -D SIEVE_DEFERRED_MAX=%u -D SIEVE_KILL_TIER=%u",
+			mySieve.cfg.wgSize,
+			mySieve.cfg.segJ,
+			static_cast<unsigned int>(shift),
+			maxSlots,
+			std::max(1U, mySieve.maxRowModuli),
+			static_cast<unsigned int>(SieveRangeStride),
+			static_cast<unsigned int>(SieveMargin),
+			survLocal,
+			killQMax,
+			static_cast<unsigned int>(SieveUndoCap),
+			mySieve.cfg.chunkSegments,
+			mySurvivorCapacity,
+			mySieve.cfg.numTiers - 1
+		);
+		return buf;
+	};
+	// With two programs, the main one never runs chunks of the last tier: its task slots are those of the other tiers (one slot less
+	// means three registers less in the sieve loop of the kernel, which then has no spills there)
+	options = makeOptions(mySieve.cfg.survLocal, mySieve.cfg.killQMax, twoPrograms ? mySieve.maxSlotsMain : mySieve.maxSlots);
+	mySieveOptions = options;
+	// (the kill variant has the undo list but smaller survivor lists: it needs less local memory than the main program)
+	mySieveKillOptions = twoPrograms ? makeOptions(SieveSurvLocal / 2, SieveKillQMax, mySieve.maxSlots) : std::string();
+
+	std::cerr << "Sieve: work-group size " << mySieve.cfg.wgSize << ", segment " << mySieve.cfg.segJ << " x 8 positions x 6 sub-sieves, " << mySieve.cfg.chunkSegments << " segments per chunk, " << mySieve.localMemSize << " bytes of local memory, tiers:";
+	for (unsigned int t = 0; t < mySieve.cfg.numTiers; ++t)
+	{
+		std::cerr << " Q=" << mySieve.cfg.tierQ[t] << " (" << mySieve.tierInfo[t * 8 + 1] << " moduli, " << mySieve.tierInfo[t * 8 + 2] << " tasks per work-item, ranges >= " << mySieve.cfg.tierMinPrimes[t] << " primes)";
+	}
+	std::cerr << ", estimated load of the busiest warp " << std::setprecision(3) << mySieve.myMaxWarpLoad / mySieve.myAvgWarpLoad << " x average" << std::endl;
+
+	// A batch is processed with one wait on the host, so it should be big (but the tables of ranges and chunks are limited too)
+	mySieveMaxPositions = num64(1) << g_SieveBatchShift;
+	return true;
+}
+
+bool OpenCL::CreateSieveBuffers()
+{
+	struct TableBuf
+	{
+		cl_mem* buf;
+		const void* data;
+		size_t size;
+	};
+	const TableBuf tables[] = {
+		{ &mySievePrimeRecsBuf, mySieve.primeRecs.data(), mySieve.primeRecs.size() * sizeof(unsigned int) },
+		{ &mySieveModRecsBuf, mySieve.modRecs.data(), mySieve.modRecs.size() * sizeof(unsigned int) },
+		{ &mySieveModRecs2Buf, mySieve.modRecs2.data(), mySieve.modRecs2.size() * sizeof(unsigned int) },
+		{ &mySieveTtabBuf, mySieve.Ttab.data(), mySieve.Ttab.size() * sizeof(int) },
+		{ &mySieveTasksBuf, mySieve.tasks.data(), mySieve.tasks.size() * sizeof(unsigned int) },
+		{ &mySieveTierInfoBuf, mySieve.tierInfo.data(), mySieve.tierInfo.size() * sizeof(unsigned int) },
+		{ &mySieveWheelTabsBuf, mySieve.wheelTabs.data(), mySieve.wheelTabs.size() * sizeof(unsigned int) },
+		{ &mySieveModTaskIdxBuf, mySieve.modTaskIdx.data(), mySieve.modTaskIdx.size() * sizeof(unsigned int) },
+		{ &mySieveModTaskListBuf, mySieve.modTaskList.data(), mySieve.modTaskList.size() * sizeof(unsigned int) },
+	};
+	for (const TableBuf& t : tables)
+	{
+		CL_CHECKED_CALL_WITH_RESULT(*t.buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, t.size, 0);
+		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, *t.buf, CL_TRUE, 0, t.size, t.data, 0, nullptr, nullptr);
+	}
+
+	CL_CHECKED_CALL_WITH_RESULT(mySurvivorCountBuf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64), 0);
+	{
+		const num64 zero64 = 0;
+		CL_CHECKED_CALL_WITH_RESULT(mySieveDeferredCountBuf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64), 0);
+		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, mySieveDeferredCountBuf, CL_TRUE, 0, sizeof(zero64), &zero64, 0, nullptr, nullptr);
+		CL_CHECKED_CALL_WITH_RESULT(mySievePrimeCountBuf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64), 0);
+		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, mySievePrimeCountBuf, CL_TRUE, 0, sizeof(zero64), &zero64, 0, nullptr, nullptr);
+	}
+	CL_CHECKED_CALL_WITH_RESULT(mySurvivorsBuf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64) * (myLargePrimesSieve ? 2 : 1) * mySurvivorCapacity, 0);
+	const unsigned int zero = 0;
+
+	if (myLargePrimesSieve)
+	{
+		// Candidates are uploaded in batches, every batch is one buffer (no more than CL_DEVICE_MAX_MEM_ALLOC_SIZE)
+		CL_CHECKED_CALL_WITH_RESULT(mySieveRangesBuf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, sizeof(AmicableCandidate) * mySieveMaxCandidates + 16, 0);
+
+		std::vector<int> loExtra;
+		mySieve.LoExtraTable(loExtra);
+		CL_CHECKED_CALL_WITH_RESULT(mySieveChunksBuf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, loExtra.size() * sizeof(int), 0);
+		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, mySieveChunksBuf, CL_TRUE, 0, loExtra.size() * sizeof(int), loExtra.data(), 0, nullptr, nullptr);
+
+		// bitmap of the primes of one interval of p (8 rows of 2^LargePrimesBitmapShift bits)
+		CL_CHECKED_CALL_WITH_RESULT(myPrimeBitsBuf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, sizeof(cl_uint) * 8 * (static_cast<size_t>(1) << (LargePrimesBitmapShift - 5)), 0);
+
+		const cl_ulong4 lpParams = {};
+		const float limitF = static_cast<float>(Num128ToDouble(SearchLimit::value));
+		const cl_uint wordsPerRow = 0;
+		CL_CHECKED_CALL(setKernelArguments, mySieveRanges,
+			mySieveRangesBuf,
+			lpParams,
+			limitF,
+			mySieveChunksBuf,
+			myPrimeBitsBuf,
+			wordsPerRow,
+			zero,
+			mySievePrimeRecsBuf,
+			mySieveModRecsBuf,
+			mySieveModRecs2Buf,
+			mySieveTtabBuf,
+			mySieveTasksBuf,
+			mySieveTierInfoBuf,
+			mySieveWheelTabsBuf,
+			mySieveModTaskIdxBuf,
+			mySieveModTaskListBuf,
+			mySurvivorCountBuf,
+			mySurvivorsBuf,
+			mySurvivorCapacity
+		);
+	}
+	else
+	{
+	CL_CHECKED_CALL_WITH_RESULT(mySieveRangesBuf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, sizeof(num64) * SieveRangeStride * mySieveMaxRanges, 0);
+	CL_CHECKED_CALL_WITH_RESULT(mySieveChunksBuf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, sizeof(unsigned int) * 4 * mySieveMaxChunks, 0);
+
+	for (cl_kernel kernel : { mySieveRanges, mySieveRangesKill })
+	{
+		if (!kernel)
+		{
+			continue;
+		}
+		CL_CHECKED_CALL(setKernelArguments, kernel,
+			mySieveRangesBuf,
+			mySieveChunksBuf,
+			zero,
+			mySievePrimeRecsBuf,
+			mySieveModRecsBuf,
+			mySieveModRecs2Buf,
+			mySieveTtabBuf,
+			mySieveTasksBuf,
+			mySieveTierInfoBuf,
+			mySieveWheelTabsBuf,
+			mySieveModTaskIdxBuf,
+			mySieveModTaskListBuf,
+			mySurvivorCountBuf,
+			mySurvivorsBuf,
+			mySurvivorCapacity
+		);
+	}
+	}
+
+	CL_CHECKED_CALL_WITH_RESULT(mySieveStatsBuf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(cl_uint) * (SieveStatsHeader + SieveMaxLaunchesPerRound), 0);
+	CL_CHECKED_CALL(setKernelArguments, mySieveLaunchDone, mySurvivorCountBuf, mySieveStatsBuf, mySurvivorCapacity, 0U, myPhase2_numbers_count_buf, mySieveDeferredCountBuf, mySievePrimeCountBuf);
+
+	if (myLargePrimesSieve)
+	{
+		// the large primes variant of CheckSieveSurvivors: p is prime, no deferred list
+		CL_CHECKED_CALL(setKernelArguments, myCheckSieveSurvivors,
+			mySurvivorsBuf,
+			mySurvivorCountBuf,
+			mySurvivorCapacity,
+			mySieveRangesBuf,
+			mySmallPrimesBuf,
+			myPrimeInversesBuf,
+			myPQ_Buf,
+			myPowerOf2SumInverses_Buf,
+			myPowersOfP_128SumInverses_offsets_Buf,
+			myPowersOfP_128SumInverses_Buf,
+			myPrimeInverses_128_Buf,
+			mySumEstimates_128_Buf,
+			myPhase1_offset_to_resume_buf,
+			myPhase2_numbers_count_buf,
+			myPhase2_numbers_buf,
+			myAmicable_numbers_count_buf,
+			myAmicable_numbers_data_buf
+		);
+	}
+	else
+	{
+		CL_CHECKED_CALL_WITH_RESULT(mySieveDeferredListBuf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64) * mySurvivorCapacity, 0);
+		CL_CHECKED_CALL_WITH_RESULT(mySieveBandTableBuf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, sizeof(cl_uint) * SieveBandEntry * SieveMaxBandChunks * SieveMaxLaunchesPerRound, 0);
+		// (the band bitmap has the layout of the 30-wheel: 7 j of 30 for every j of 210, 8 positions each)
+		CL_CHECKED_CALL_WITH_RESULT(mySieveBandBitmapBuf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, static_cast<size_t>(SieveMaxBandChunks) * mySieve.cfg.chunkSegments * mySieve.cfg.segJ * 7 * 8 * sizeof(cl_uint), 0);
+		// first pass: all survivors (numbers that pass phase 1 are deferred), second pass: the deferred ones with a prime p
+		for (int pass = 0; pass < 2; ++pass)
+		{
+			const cl_uint defer = (pass == 0) ? 1U : 0U;
+			CL_CHECKED_CALL(setKernelArguments, (pass == 0) ? myCheckSieveSurvivors : myCheckSieveSurvivorsPrime,
+				mySurvivorsBuf,
+				(pass == 0) ? mySurvivorCountBuf : mySievePrimeCountBuf,
+				mySurvivorCapacity,
+				mySieveRangesBuf,
+				mySmallPrimesBuf,
+				myPrimeInversesBuf,
+				myPQ_Buf,
+				myPowerOf2SumInverses_Buf,
+				myPowersOfP_128SumInverses_offsets_Buf,
+				myPowersOfP_128SumInverses_Buf,
+				myPrimeInverses_128_Buf,
+				mySumEstimates_128_Buf,
+				myPhase1_offset_to_resume_buf,
+				myPhase2_numbers_count_buf,
+				myPhase2_numbers_buf,
+				myAmicable_numbers_count_buf,
+				myAmicable_numbers_data_buf,
+				mySieveDeferredCountBuf,
+				mySieveDeferredListBuf,
+				defer,
+				mySieveBandTableBuf,
+				0U,
+				0U,
+				mySieveBandBitmapBuf
+			);
+		}
+		CL_CHECKED_CALL(setKernelArguments, mySieveBand, mySieveRangesBuf, mySieveBandTableBuf, 0U, 0U, 0U, 0U, mySmallPrimesBuf, mySieveBandBitmapBuf);
+		// the base-2 strong pseudoprimes below 2^32 (Spsp2Table.h) for the primality test of p (kernel.cl: SieveIsPrimeList)
+		const cl_uint spsp2Count = static_cast<cl_uint>(sizeof(g_Spsp2Below2_32) / sizeof(g_Spsp2Below2_32[0]));
+		CL_CHECKED_CALL_WITH_RESULT(mySpsp2Buf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, sizeof(g_Spsp2Below2_32), 0);
+		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, mySpsp2Buf, CL_TRUE, 0, sizeof(g_Spsp2Below2_32), g_Spsp2Below2_32, 0, nullptr, nullptr);
+		CL_CHECKED_CALL(setKernelArguments, mySieveTestDeferred,
+			mySieveDeferredCountBuf,
+			mySieveDeferredListBuf,
+			mySurvivorsBuf,
+			mySievePrimeCountBuf,
+			mySpsp2Buf,
+			spsp2Count
+		);
+	}
+
+	mySieveBatch.ranges.reserve(static_cast<size_t>(mySieveMaxRanges) * SieveRangeStride);
+	mySieveBatch.chunks.reserve(static_cast<size_t>(mySieveMaxChunks) * 4);
+	return true;
+}
+
+// Range of p for M0 = r.value: the same limits as in AddRange (largest prime power 1)
+bool OpenCL::GetPrimeLimit(const RangeData& r, num64& p_lo, num64& p_hi) const
+{
+	num128 prime_limit = (SearchLimit::value - 1) / r.value;
+	if (prime_limit > SearchLimit::MainPrimeTableBound)
+	{
+		prime_limit = SearchLimit::MainPrimeTableBound;
+	}
+
+	if (r.sum - r.value < r.value)
+	{
+		const num128 prime_limit2 = (r.sum - 1) / (r.value * 2 - r.sum);
+		if (prime_limit > prime_limit2)
+		{
+			prime_limit = prime_limit2;
+		}
+	}
+
+	p_lo = r.start_prime;
+	p_hi = LowWord(prime_limit);
+	return (p_lo <= p_hi);
+}
+
+bool OpenCL::AddSieveRange(const RangeData& r)
+{
+	const num64 tStart = ReadCycleCounter();
+	struct CycleCount
+	{
+		num64 t0;
+		~CycleCount() { g_HostCycles[0] += ReadCycleCounter() - t0; }
+	} cycleCount{ tStart };
+	num64 p_lo, p_hi;
+	if (!GetPrimeLimit(r, p_lo, p_hi))
+	{
+		return true;
+	}
+
+	const num64 te0 = ReadCycleCounter();
+	const double numPrimes = SieveGPUTables::EstimatePrimes(p_lo, p_hi);
+	g_HostCycles[4] += ReadCycleCounter() - te0;
+
+	// necessary conditions (SieveReduction): ranges without possible amicable numbers are skipped and not counted (the task
+	// generator doesn't count them in /task_size either)
+	double rangeW = -1.0;
+	{
+		num64 primes[MaxPrimeFactors];
+		unsigned int exponents[MaxPrimeFactors];
+		const unsigned int n = static_cast<unsigned int>(r.last_factor_index + 1);
+		for (unsigned int i = 0; i < n; ++i)
+		{
+			primes[i] = r.factors[i].p.Get();
+			exponents[i] = r.factors[i].k;
+		}
+		SieveReduction red;
+		const num64 tr0 = ReadCycleCounter();
+		mySieve.ComputeReduction(r.value, r.sum, primes, exponents, n, p_lo, p_hi, num64(1) << 62, red);
+		g_HostCycles[1] += ReadCycleCounter() - tr0;
+		const double positions = static_cast<double>(mySieve.NumPositions(p_lo, p_hi));
+		myRedStat[0] += positions;
+		if (red.impossible)
+		{
+			myRedStat[1] += positions;
+			if (g_SieveReduce)
+			{
+				++mySieveStatSkipped;
+				return true;
+			}
+			myNumbersProcessedTotal += static_cast<num64>(numPrimes + 0.5);
+		}
+		else
+		{
+			rangeW = red.W;
+			const double wb[8] = { 1e-4, 1e-3, 1e-2, 0.03, 0.1, 0.3, 1.0, 1e300 };
+			int wi = 0;
+			while (red.W >= wb[wi])
+			{
+				++wi;
+			}
+			myRedHistW[wi] += positions;
+
+			// Development aid: AMICABLE_DUMP_RANGES=<file> writes every range (factorization of M0, p_lo, p_hi, W) for analysis
+			static FILE* rangeDump = getenv("AMICABLE_DUMP_RANGES") ? fopen(getenv("AMICABLE_DUMP_RANGES"), "w") : nullptr;
+			if (rangeDump)
+			{
+				for (unsigned int i = 0; i < n; ++i)
+				{
+					fprintf(rangeDump, "%s%llu^%u", i ? "*" : "", primes[i], exponents[i]);
+				}
+				fprintf(rangeDump, " %llu %llu %.6e\n", p_lo, p_hi, red.W);
+			}
+			const double L = red.Lfull ? static_cast<double>(red.Lfull) : 1e30;
+			myRedStat[2] += positions / L;
+			myRedStat[3] += positions / (L * static_cast<double>(red.L235));
+			unsigned long b = 0;
+			if (red.Lfull > 1)
+			{
+				_BitScanReverse64(&b, red.Lfull);
+				b += 1;
+			}
+			myRedHist[(red.Lfull == 0) ? 63 : b] += positions;
+			myNumbersProcessedTotal += static_cast<num64>(numPrimes + 0.5);
+		}
+	}
+
+	// Development aid: "/analyze <rate>" samples positions at this rate and counts survivors of every tier, with and without the
+	// divisibility conditions (host only)
+	if (g_AnalyzeRate > 0)
+	{
+		static num64 rnd = 0x9E3779B97F4A7C15ULL;
+		auto next = [&]() { rnd ^= rnd << 13; rnd ^= rnd >> 7; rnd ^= rnd << 17; return rnd; };
+		const num64 P0 = (p_lo / 30) * 30;
+		const num64 numJ = (p_hi - P0) / 30 + 1;
+		const double expected = static_cast<double>(numJ * 8) * g_AnalyzeRate;
+		num64 n = static_cast<num64>(expected);
+		if (static_cast<double>(next() >> 11) * (1.0 / 9007199254740992.0) < expected - static_cast<double>(n))
+		{
+			++n;
+		}
+		if (n > 0)
+		{
+			num64 recs[SieveMaxTiers][SieveRangeStride];
+			for (unsigned int t = 0; t < mySieve.cfg.numTiers; ++t)
+			{
+				if (!mySieve.PrepareRange(r, p_lo, p_hi, t, false, recs[t]))
+				{
+					return false;
+				}
+			}
+			for (num64 k = 0; k < n; ++k)
+			{
+				const num64 p = P0 + 30 * (next() % numJ) + SieveW30Host[next() % 8];
+				if ((p < p_lo) || (p > p_hi))
+				{
+					continue;
+				}
+				++myAnalyzeSamples;
+				for (unsigned int t = 0; t < mySieve.cfg.numTiers; ++t)
+				{
+					if (SieveGPUTables::InsideWindow(recs[t], p, mySieve.ExpectedSum(recs[t], p)))
+					{
+						++myAnalyzeCounts[t][0];
+						if (mySieve.DivisibilityOK(r.value, r.sum, p, mySieve.cfg.tierQ[t]))
+						{
+							++myAnalyzeCounts[t][1];
+						}
+						// variants: exponent 1 only, q <= 255 / q <= Q, with and without the power of 2
+						const num128 gg = Gcd128Host(r.value, r.sum);
+						if (mySieve.DivisibilityOK2(r.value, r.sum, gg, p, std::min(16381U, mySieve.cfg.tierQ[t]), 3)) ++myAnalyzeCounts[t][2];
+						if (mySieve.DivisibilityOK2(r.value, r.sum, gg, p, std::min(16381U, mySieve.cfg.tierQ[t]), 4)) ++myAnalyzeCounts[t][3];
+						if (mySieve.DivisibilityOK2(r.value, r.sum, gg, p, mySieve.cfg.tierQ[t], 1)) ++myAnalyzeCounts[t][4];
+						if (mySieve.DivisibilityOK2(r.value, r.sum, gg, p, mySieve.cfg.tierQ[t], 2)) ++myAnalyzeCounts[t][5];
+					}
+				}
+			}
+		}
+		return true;
+	}
+
+	num64 record[SieveRangeStride];
+	const num64 tp0 = ReadCycleCounter();
+	const bool prepared = mySieve.PrepareRange(r, p_lo, p_hi, mySieve.ChooseTier(static_cast<num64>(numPrimes), rangeW), true, record);
+	g_HostCycles[2] += ReadCycleCounter() - tp0;
+	if (!prepared)
+	{
+		LOG_ERROR("Failed to prepare a range for the sieve");
+		return false;
+	}
+
+	++mySieveStatRanges;
+	{
+		num64 primes[MaxPrimeFactors];
+		const unsigned int n = static_cast<unsigned int>(r.last_factor_index + 1);
+		for (unsigned int i = 0; i < n; ++i)
+		{
+			primes[i] = r.factors[i].p.Get();
+		}
+		SetBandParameters(record, rangeW, p_hi, primes, n);
+	}
+	const num64 ta0 = ReadCycleCounter();
+	const bool added = AddSieveRangeRecord(record, p_lo, p_hi, rangeW);
+	g_HostCycles[5] += ReadCycleCounter() - ta0;
+	return added;
+}
+
+namespace
+{
+	// Expected survivors per position by the height W of the window above the known part of N (rough upper estimates from the
+	// typical work units: small W means a window that contains every N whose cofactor has no small prime factors). The launches are
+	// sized with them (times a factor measured in every round), so that a region with many survivors doesn't overflow the buffers.
+	const unsigned int SieveNumWClasses = 7;
+	const double SieveSurvivorRateByW[SieveNumWClasses] = { 0.5, 0.3, 0.01, 0.005, 0.003, 0.002, 0.001 };
+
+	unsigned int SieveWClass(double W)
+	{
+		if (W < 0.0)
+		{
+			return SieveNumWClasses - 1;
+		}
+		const double bounds[SieveNumWClasses - 1] = { 1e-4, 1e-3, 3e-3, 1e-2, 3e-2, 0.1 };
+		unsigned int c = 0;
+		while ((c < SieveNumWClasses - 1) && (W >= bounds[c]))
+		{
+			++c;
+		}
+		return c;
+	}
+}
+
+// Development aid (AMICABLE_TEST_BAND): the bitmap of SieveBand for the band chunks of a launch, compared with the host (num128 arithmetic)
+bool OpenCL::TestBandBitmap(const SieveBatch* batch, const cl_uint* entries, cl_uint count, cl_uint positions)
+{
+	std::vector<cl_uint> gpu(positions);
+	CL_CHECKED_CALL(clEnqueueReadBuffer, myQueue, mySieveBandBitmapBuf, CL_TRUE, 0, static_cast<size_t>(positions) * sizeof(cl_uint), gpu.data(), 0, nullptr, nullptr);
+	std::vector<cl_uint> host(positions, 0xFFFFFFFFU);
+	auto inverse = [](num64 a, num64 m) -> num64
+	{
+		long long t = 0, nt = 1;
+		long long r = static_cast<long long>(m), nr = static_cast<long long>(a % m);
+		while (nr != 0)
+		{
+			const long long q = r / nr;
+			const long long t2 = t - q * nt; t = nt; nt = t2;
+			const long long r2 = r - q * nr; r = nr; nr = r2;
+		}
+		return static_cast<num64>((t < 0) ? (t + static_cast<long long>(m)) : t);
+	};
+	num64 hits = 0;
+	for (cl_uint e = 0; e < count; ++e)
+	{
+		const cl_uint* be = entries + static_cast<size_t>(e) * SieveBandEntry;
+		const num64* rec = batch->ranges.data() + static_cast<size_t>(be[0]) * SieveRangeStride;
+		const num128 A1 = CombineNum128(rec[0], rec[1]);
+		const num128 B1 = CombineNum128(rec[2], rec[3]);
+		const num64 P0 = rec[8];
+		for (cl_uint i = be[4]; i < be[5]; ++i)
+		{
+			const num64 r = mySmallPrimesHost[i];
+			const num64 am = LowWord(A1 % num128(r));
+			if (am == 0)
+			{
+				continue;
+			}
+			const num64 bmod = LowWord(B1 % num128(r));
+			const num64 inv = inverse((30 * am) % r, r);
+			for (unsigned int c = 0; c < 8; ++c)
+			{
+				const num64 w = (0x1D1713110D0B0701ULL >> (c * 8)) & 0xFF;
+				const num64 t = (LowWord((num128(am) * ((P0 + w) % r)) % num128(r)) + bmod) % r;
+				const num64 jc = LowWord((num128((r - t) % r) * inv) % num128(r));
+				const num64 js = be[1] % r;
+				for (num64 d = (jc + r - js) % r; d < be[2]; d += r)
+				{
+					cl_uint& v = host[be[3] + d * 8 + c];
+					v = std::min<cl_uint>(v, i);
+					++hits;
+				}
+			}
+		}
+	}
+	num64 mismatches = 0;
+	num64 found = 0;
+	for (cl_uint k = 0; k < positions; ++k)
+	{
+		found += (gpu[k] != 0xFFFFFFFFU);
+		if (gpu[k] != host[k])
+		{
+			if (mismatches < 5)
+			{
+				std::cerr << "Band test: position " << k << ": GPU " << gpu[k] << ", host " << host[k] << std::endl;
+			}
+			++mismatches;
+		}
+	}
+	std::cerr << "Band test: " << count << " chunks, " << positions << " positions, " << hits << " hits, " << found << " positions with a band factor, " << mismatches << " mismatches" << std::endl;
+	return mismatches == 0;
+}
+
+// The index in smallPrimes of the smallest prime factor q > 53 of g = gcd(A, B) = A / A1 (they are primes of M0) in the band [begin, end)
+// (end if there is none): phase 1 doesn't always remove these primes from N, and the band sieve doesn't see them (it sieves A1 p + B1)
+static unsigned int BandGMin(const num64* record, const num64* primes, unsigned int numPrimes, const std::vector<unsigned int>& smallPrimes, unsigned int begin, unsigned int end)
+{
+	const num128 A = CombineNum128(record[6], record[7]) - CombineNum128(record[4], record[5]);
+	const num128 A1 = CombineNum128(record[0], record[1]);
+	const num128 g = A / A1;
+	unsigned int result = end;
+	for (unsigned int k = 0; k < numPrimes; ++k)
+	{
+		const num64 q = primes[k];
+		if ((q > 53) && (q < 0xFFFFFFFFULL) && ((g % num128(q)) == 0))
+		{
+			const unsigned int idx = static_cast<unsigned int>(std::lower_bound(smallPrimes.begin(), smallPrimes.end(), static_cast<unsigned int>(q)) - smallPrimes.begin());
+			if ((idx >= begin) && (idx < result))
+			{
+				result = idx;
+			}
+		}
+	}
+	return result;
+}
+
+// TestSieveKnownPairs: band parameters with L0 just below N / D of the pair's own number (the cofactor of n after the primes <= 53 or
+// <= 1619 of phase 1, D = sigma(N) - N - 1), so that the band sieve has to find the smallest prime factor of N for the pair to be found
+// (kernel.cl: DecideByBand rejects the numbers without a factor in their band)
+void OpenCL::SetTestBandParameters(num64* record, const KnownPair& pair) const
+{
+	record[21] = 0;
+	record[22] = 0;
+	if (!mySieveBand || mySmallPrimesHost.empty())
+	{
+		return;
+	}
+	double Lmin = 1e300;
+	for (const unsigned int P : { 53U, 1619U })
+	{
+		num128 N = pair.n;
+		num128 S = 1;
+		for (size_t k = 0; (k < mySmallPrimesHost.size()) && (mySmallPrimesHost[k] <= P); ++k)
+		{
+			const num64 q = mySmallPrimesHost[k];
+			num128 qe = 1;
+			num128 s = 1;
+			while ((N % num128(q)) == 0)
+			{
+				N /= num128(q);
+				qe *= num128(q);
+				s += qe;
+			}
+			S *= s;
+		}
+		const num128 T = (pair.m + pair.n) / S;
+		if (T <= N + 1)
+		{
+			return;
+		}
+		Lmin = std::min(Lmin, Num128ToDouble(N) / Num128ToDouble(T - N - 1));
+	}
+	const double maxPrime = static_cast<double>(mySmallPrimesHost.back());
+	if (!(Lmin >= 4.0) || (Lmin * 4.0 > maxPrime))
+	{
+		return;
+	}
+	const num64 L0 = static_cast<num64>(Lmin * 0.999);
+	unsigned int T = 2;
+	while ((T < 8) && (static_cast<double>(L0 << (T + 1)) <= maxPrime))
+	{
+		++T;
+	}
+	const unsigned int begin = static_cast<unsigned int>(std::upper_bound(mySmallPrimesHost.begin(), mySmallPrimesHost.end(), static_cast<unsigned int>(L0)) - mySmallPrimesHost.begin());
+	const unsigned int end = static_cast<unsigned int>(std::upper_bound(mySmallPrimesHost.begin(), mySmallPrimesHost.end(), static_cast<unsigned int>(L0 << T)) - mySmallPrimesHost.begin());
+	// (the band primes must be above the primes of phase 1: a band prime that divides A1 p + B1 then divides N)
+	if ((L0 > 1619) && (end > begin) && (begin > 0) && (end < mySmallPrimesHost.size()))
+	{
+		record[21] = L0 | (static_cast<num64>(BandGMin(record, pair.primes, pair.numFactors, mySmallPrimesHost, begin, end)) << 32);
+		record[22] = begin | (static_cast<num64>(end) << 32);
+		++mySieveStatBandTestRanges;
+	}
+}
+
+// Band sieve parameters of a range record (kernel_sieve.cl: SieveBand, kernel.cl: DecideByBand). Every number of the range has
+// N / D >= 1 / (e^W - 1) (W is the largest ln(T/N) - ln(sigma(K)/K)), so the band starts at L0 = 0.999 / (e^W - 1) (>= 1e4 for
+// W < 1e-4; it may contain primes of the sieve, then the band has their positions too), and it has the octaves up to the bands K L + K + 2 <= 1.7 N^(1/3) + 8 that the numbers can need
+// (DecideAtMost2Factors decides the numbers with D < 1.88 N^(2/3)), at most SieveBandMaxOctaves (most numbers have L ~ L0; the
+// others go to phase 2 as before) and only within the table of primes. The choice only matters for the speed (DecideByBand checks
+// that the band of each number is covered).
+void OpenCL::SetBandParameters(num64* record, double W, num64 p_hi, const num64* primes, unsigned int numPrimes) const
+{
+	record[21] = 0;
+	record[22] = 0;
+	if (!g_SieveBand || !mySieveBand || !(W > 0.0) || (W >= SieveBandMaxW) || mySmallPrimesHost.empty())
+	{
+		return;
+	}
+	const double L0d = 0.999 / expm1(W);
+	const double maxPrime = static_cast<double>(mySmallPrimesHost.back());
+	if (L0d * 2.0 > maxPrime)
+	{
+		return;
+	}
+	const num64 L0 = static_cast<num64>(L0d);
+	const double Nmax = Num128ToDouble(CombineNum128(record[0], record[1])) * static_cast<double>(p_hi) + Num128ToDouble(CombineNum128(record[2], record[3]));
+	const double U = 1.7 * cbrt(Nmax) + 8.0;
+	unsigned int T = 1;
+	while ((T < SieveBandMaxOctaves) && (static_cast<double>(L0 << T) < U) && (static_cast<double>(L0 << (T + 1)) <= maxPrime))
+	{
+		++T;
+	}
+	const num64 top = L0 << T;
+	const unsigned int begin = static_cast<unsigned int>(std::upper_bound(mySmallPrimesHost.begin(), mySmallPrimesHost.end(), static_cast<unsigned int>(L0)) - mySmallPrimesHost.begin());
+	const unsigned int end = static_cast<unsigned int>(std::upper_bound(mySmallPrimesHost.begin(), mySmallPrimesHost.end(), static_cast<unsigned int>(top)) - mySmallPrimesHost.begin());
+	if ((end <= begin) || (begin == 0) || (end >= mySmallPrimesHost.size()))
+	{
+		return;
+	}
+	record[21] = L0 | (static_cast<num64>(BandGMin(record, primes, numPrimes, mySmallPrimesHost, begin, end)) << 32);
+	record[22] = begin | (static_cast<num64>(end) << 32);
+}
+
+bool OpenCL::AddSieveRangeRecord(const num64* record, num64 p_lo, num64 p_hi, double W)
+{
+	const num64 P0 = record[8];
+	const num64 numJ = (p_hi - P0) / SieveWheel + 1;
+	const num64 numSegments = (numJ + mySieve.cfg.segJ - 1) / mySieve.cfg.segJ;
+	const num64 positionsPerSegment = static_cast<num64>(mySieve.cfg.segJ) * SievePositionsPerJ;
+
+	num64 segment = 0;
+	bool first = true;
+	while (first || (segment < numSegments))
+	{
+		if ((mySieveBatch.ranges.size() / SieveRangeStride + 1 >= mySieveMaxRanges) ||
+			(mySieveBatch.chunks.size() / 4 + 1 >= mySieveMaxChunks) ||
+			(mySieveBatch.positions >= mySieveMaxPositions))
+		{
+			if (!SubmitSieveBatch(false, 0))
+			{
+				return false;
+			}
+		}
+
+		const num64 rangeIndex = mySieveBatch.ranges.size() / SieveRangeStride;
+		mySieveBatch.ranges.insert(mySieveBatch.ranges.end(), record, record + SieveRangeStride);
+
+		if (first)
+		{
+			// p = 2, 3, 5, 7 are not in the sieve (only p coprime to 210 are), check them directly
+			const num64 smallPrimes[4] = { 2, 3, 5, 7 };
+			for (num64 p : smallPrimes)
+			{
+				if ((p_lo <= p) && (p <= p_hi))
+				{
+					mySieveBatch.extra.push_back((p << SieveRangeIndexBits) | rangeIndex);
+				}
+			}
+			first = false;
+		}
+
+		while ((segment < numSegments) && (mySieveBatch.chunks.size() / 4 + 1 < mySieveMaxChunks) && (mySieveBatch.positions < mySieveMaxPositions))
+		{
+			const num64 n = std::min<num64>(mySieve.cfg.chunkSegments, numSegments - segment);
+			mySieveBatch.chunks.push_back(static_cast<unsigned int>(rangeIndex));
+			mySieveBatch.chunks.push_back(static_cast<unsigned int>(segment * mySieve.cfg.segJ));
+			mySieveBatch.chunks.push_back(static_cast<unsigned int>(n));
+			mySieveBatch.chunks.push_back(SieveWClass(W));
+			mySieveBatch.positions += n * positionsPerSegment;
+			segment += n;
+		}
+	}
+	return true;
+}
+
+// Runs the sieve on chunks [chunkBegin, chunkEnd) of the current batch. Every launch of the sieve is followed by the survivor check
+// and SieveLaunchDone on the device, so the host only waits once per round. If the survivors of a launch don't fit in the survivor
+// buffer, only that launch is run again (with smaller launches). Chunks have positionsPerChunk positions each (large primes), or (0) the
+// numbers of segments in mySieveBatch.chunks (ranges). numExtra survivors were written to the start of the survivor buffer by the host.
+bool OpenCL::RunSieveLaunches(unsigned int chunkBegin, unsigned int chunkEnd, unsigned int killChunks, num64 positionsPerChunk, unsigned int numExtra, const SieveBatch* batch, num64& survivors, bool& overflow)
+{
+	survivors = 0;
+	overflow = false;
+
+	const size_t localSize = mySieve.cfg.wgSize;
+	const size_t checkLocalSize = myWorkGroupSize;
+	// Development aid: AMICABLE_CHECK_SIZE overrides the global size of CheckSieveSurvivors
+	static const size_t checkSizeOverride = getenv("AMICABLE_CHECK_SIZE") ? static_cast<size_t>(StrToNumber(getenv("AMICABLE_CHECK_SIZE"))) : 0;
+	const size_t checkGlobalSize = checkSizeOverride ? checkSizeOverride : mySieveCheckGlobalSize;
+	std::vector<std::pair<unsigned int, unsigned int>> todo(1, std::make_pair(chunkBegin, chunkEnd));
+	std::vector<std::pair<unsigned int, unsigned int>> launches;
+	std::vector<cl_uint> stats;
+	std::vector<cl_event> sieveEvents, checkEvents, bandEvents, deferEvents, check2Events;
+	bool firstRound = true;
+	// numbers in the phase 2 buffer (it is empty at the start of a batch: FinishSieveBatch processes it)
+	cl_uint phase2Fill = 0;
+	auto chunkPositions = [this, positionsPerChunk, batch](unsigned int c) -> num64
+	{
+		return positionsPerChunk ? positionsPerChunk : (static_cast<num64>(batch->chunks[c * 4 + 2]) * mySieve.cfg.segJ * SievePositionsPerJ);
+	};
+	// group of a chunk for the estimates (0: W < 1e-3, 1: the others and the large primes stage)
+	auto chunkGroup = [batch](unsigned int c) -> unsigned int
+	{
+		return (batch && (batch->chunks[c * 4 + 3] < 2)) ? 0U : 1U;
+	};
+	// expected survivors of a chunk without the measured factor mySieveRateScale (ranges: by the W class of the range, large primes:
+	// the measured rate)
+	auto chunkSurvivors = [this, &chunkPositions, batch](unsigned int c) -> double
+	{
+		const double positions = static_cast<double>(chunkPositions(c));
+		return batch ? (positions * SieveSurvivorRateByW[std::min(batch->chunks[c * 4 + 3], SieveNumWClasses - 1)]) : (positions * mySieveSurvivorRate);
+	};
+	auto chunkScale = [this, batch, &chunkGroup](unsigned int c) -> double
+	{
+		return batch ? mySieveRateScale[chunkGroup(c)] : 1.0;
+	};
+	// chunks of band ranges (SetBandParameters): at most SieveMaxBandChunks per launch (the bitmap)
+	auto chunkBand = [batch](unsigned int c) -> unsigned int
+	{
+		return (batch && (batch->ranges[static_cast<size_t>(batch->chunks[c * 4]) * SieveRangeStride + 21] != 0)) ? 1U : 0U;
+	};
+	while (!todo.empty())
+	{
+		// Every launch has its own survivor buffer: it must not get more survivors than the buffer holds (1.5 times the expected number)
+		// or more than 2^31 positions (the survivor counter must not wrap around). The launches of a round share the phase 2 buffer: the
+		// round must not produce more numbers for phase 2 than the free part of it holds (1.5 times the expected number), else the
+		// buffer is processed first.
+		// (expected survivors with the measured factors per launch, expected phase 2 numbers per round)
+		const double maxLaunchSurvivors = static_cast<double>(mySurvivorCapacity) / 1.5;
+		if (phase2Fill > myPhase2MaxNumbersCount / 2)
+		{
+			mySieveStatPhase2 += phase2Fill;
+			if (!ProcessNumbersPhases2_3(phase2Fill))
+			{
+				return false;
+			}
+			phase2Fill = 0;
+			mySieveRoundPositions2 = 0;
+		}
+		const double roundBudget = (static_cast<double>(myPhase2MaxNumbersCount) - phase2Fill) / 1.5;
+		auto chunkPhase2 = [this, batch, &chunkGroup](unsigned int c, double survivors) -> double
+		{
+			return survivors * (batch ? mySievePhase2PerSurvivor[chunkGroup(c)] : (mySievePhase2Rate / mySieveSurvivorRate));
+		};
+		launches.clear();
+		std::vector<std::pair<unsigned int, unsigned int>> later;
+		double roundPositions = 0.0;
+		double roundPhase2 = 0.0;      // expected
+		for (const auto& r : todo)
+		{
+			unsigned int c = r.first;
+			while (c < r.second)
+			{
+				if ((launches.size() >= SieveMaxLaunchesPerRound) || (!launches.empty() && (roundPhase2 >= roundBudget)))
+				{
+					later.emplace_back(c, r.second);
+					break;
+				}
+				// at most 2^31 positions per launch (the survivor counter must not wrap around), one kernel and one group per launch
+				unsigned int n = 0;
+				unsigned int nb = 0;
+				num64 positions = 0;
+				double expected = 0.0;
+				while ((c + n < r.second) && ((n == 0) || ((positions < (num64(1) << 31)) && (expected + chunkSurvivors(c + n) * chunkScale(c + n) < maxLaunchSurvivors) &&
+					(roundPhase2 + chunkPhase2(c, expected + chunkSurvivors(c + n) * chunkScale(c + n)) < roundBudget) && ((c + n < killChunks) == (c < killChunks)) &&
+					(chunkGroup(c + n) == chunkGroup(c)) && (nb + chunkBand(c + n) <= SieveMaxBandChunks))))
+				{
+					positions += chunkPositions(c + n);
+					expected += chunkSurvivors(c + n) * chunkScale(c + n);
+					nb += chunkBand(c + n);
+					++n;
+				}
+				launches.emplace_back(c, c + n);
+				roundPositions += static_cast<double>(positions);
+				roundPhase2 += chunkPhase2(c, expected);
+				c += n;
+			}
+		}
+		if (launches.empty() && firstRound && numExtra)
+		{
+			// only the extra survivors (p = 2, 3, 5)
+			launches.emplace_back(chunkBegin, chunkBegin);
+		}
+		todo.clear();
+		if (launches.empty())
+		{
+			todo.swap(later);
+			continue;
+		}
+
+		// band table of the round: the band chunks of every launch (first entry, count, primes [begin, end), bytes of the bitmap)
+		std::vector<cl_uint> bandTable;
+		std::vector<std::array<cl_uint, 5>> bandLaunch(launches.size(), std::array<cl_uint, 5>{});
+		if (mySieveBand && batch)
+		{
+			for (size_t i = 0; i < launches.size(); ++i)
+			{
+				std::array<cl_uint, 5>& bl = bandLaunch[i];
+				bl[0] = static_cast<cl_uint>(bandTable.size() / SieveBandEntry);
+				bl[2] = ~0U;
+				for (unsigned int c = launches[i].first; c < launches[i].second; ++c)
+				{
+					const num64* rec = batch->ranges.data() + static_cast<size_t>(batch->chunks[c * 4]) * SieveRangeStride;
+					if (rec[21] == 0)
+					{
+						continue;
+					}
+					// (the band table and bitmap have the layout of the 30-wheel: first j and number of j in units of 30)
+					const cl_uint jCount = batch->chunks[c * 4 + 2] * mySieve.cfg.segJ * 7;
+					const cl_uint entry[SieveBandEntry] = { batch->chunks[c * 4], batch->chunks[c * 4 + 1] * 7, jCount, bl[4], static_cast<cl_uint>(rec[22]), static_cast<cl_uint>(rec[22] >> 32), static_cast<cl_uint>(rec[21] >> 32), 0 };
+					bandTable.insert(bandTable.end(), entry, entry + SieveBandEntry);
+					bl[4] += jCount * 8;
+					bl[2] = std::min(bl[2], entry[4]);
+					bl[3] = std::max(bl[3], entry[5]);
+					++bl[1];
+				}
+				mySieveStatBandChunks += bl[1];
+			}
+			if (!bandTable.empty())
+			{
+				CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, mySieveBandTableBuf, CL_TRUE, 0, bandTable.size() * sizeof(cl_uint), bandTable.data(), 0, nullptr, nullptr);
+			}
+		}
+
+		// statistics (survivors, overflow flags of the launches) and the survivor counter (which starts with the extra survivors)
+		stats.assign(SieveStatsHeader + launches.size(), 0);
+		const cl_uint startCount = firstRound ? numExtra : 0;
+		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, mySieveStatsBuf, CL_FALSE, 0, stats.size() * sizeof(cl_uint), stats.data(), 0, nullptr, nullptr);
+		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, mySurvivorCountBuf, CL_TRUE, 0, sizeof(startCount), &startCount, 0, nullptr, nullptr);
+
+		for (size_t i = 0; i < launches.size(); ++i)
+		{
+			const unsigned int c = launches[i].first;
+			const unsigned int n = launches[i].second - c;
+			cl_event e1 = nullptr;
+			cl_event e2 = nullptr;
+			++mySieveStatLaunches;
+			for (unsigned int k = c; k < c + n; ++k)
+			{
+				mySieveStatLaunchedPositions += positionsPerChunk ? positionsPerChunk : (static_cast<num64>(batch->chunks[k * 4 + 2]) * mySieve.cfg.segJ * SievePositionsPerJ);
+			}
+			if (n > 0)
+			{
+				const size_t globalSize = static_cast<size_t>(n) * localSize;
+				const cl_kernel kernel = ((c < killChunks) && mySieveRangesKill) ? mySieveRangesKill : mySieveRanges;
+				CL_CHECKED_CALL(clSetKernelArg, kernel, mySieveChunkOffsetArg, sizeof(c), &c);
+				CL_CHECKED_CALL(clEnqueueNDRangeKernel, myQueue, kernel, 1, nullptr, &globalSize, &localSize, 0, nullptr, g_SieveProfile ? &e1 : nullptr);
+			}
+			if (mySieveBand)
+			{
+				const std::array<cl_uint, 5>& bl = bandLaunch[i];
+				if (bl[1] > 0)
+				{
+					const cl_uint none = 0xFFFFFFFFU;
+					CL_CHECKED_CALL(clEnqueueFillBuffer, myQueue, mySieveBandBitmapBuf, &none, sizeof(none), 0, static_cast<size_t>(bl[4]) * sizeof(cl_uint), 0, nullptr, nullptr);
+					CL_CHECKED_CALL(setKernelArgumentsWithOffset, mySieveBand, 2, bl[0], bl[1], bl[2], bl[3]);
+					const size_t bandLocal = 256;
+					const size_t bandGlobal = (static_cast<size_t>(bl[3] - bl[2]) + bandLocal - 1) / bandLocal * bandLocal;
+					cl_event e5 = nullptr;
+					CL_CHECKED_CALL(clEnqueueNDRangeKernel, myQueue, mySieveBand, 1, nullptr, &bandGlobal, &bandLocal, 0, nullptr, g_SieveProfile ? &e5 : nullptr);
+					if (e5) bandEvents.push_back(e5);
+					// Development aid: AMICABLE_TEST_BAND=<n> compares the bitmaps of the first n launches with band chunks with the host
+					static int bandTests = getenv("AMICABLE_TEST_BAND") ? static_cast<int>(StrToNumber(getenv("AMICABLE_TEST_BAND"))) : 0;
+					if (bandTests > 0)
+					{
+						--bandTests;
+						if (!TestBandBitmap(batch, bandTable.data() + static_cast<size_t>(bl[0]) * SieveBandEntry, bl[1], bl[4]))
+						{
+							return false;
+						}
+					}
+				}
+				for (cl_kernel kc : { myCheckSieveSurvivors, myCheckSieveSurvivorsPrime })
+				{
+					CL_CHECKED_CALL(setKernelArgumentsWithOffset, kc, 21, bl[0], bl[1]);
+				}
+			}
+			CL_CHECKED_CALL(clEnqueueNDRangeKernel, myQueue, myCheckSieveSurvivors, 1, nullptr, &checkGlobalSize, &checkLocalSize, 0, nullptr, g_SieveProfile ? &e2 : nullptr);
+			if (mySieveTestDeferred)
+			{
+				cl_event e3 = nullptr;
+				cl_event e4 = nullptr;
+				CL_CHECKED_CALL(clEnqueueNDRangeKernel, myQueue, mySieveTestDeferred, 1, nullptr, &checkGlobalSize, &checkLocalSize, 0, nullptr, g_SieveProfile ? &e3 : nullptr);
+				CL_CHECKED_CALL(clEnqueueNDRangeKernel, myQueue, myCheckSieveSurvivorsPrime, 1, nullptr, &checkGlobalSize, &checkLocalSize, 0, nullptr, g_SieveProfile ? &e4 : nullptr);
+				if (e3) deferEvents.push_back(e3);
+				if (e4) check2Events.push_back(e4);
+			}
+			const cl_uint launchIndex = static_cast<cl_uint>(i);
+			CL_CHECKED_CALL(clSetKernelArg, mySieveLaunchDone, 3, sizeof(launchIndex), &launchIndex);
+			CL_CHECKED_CALL(clEnqueueTask, myQueue, mySieveLaunchDone, 0, nullptr, nullptr);
+			CL_CHECKED_CALL(clFlush, myQueue);
+			if (e1) sieveEvents.push_back(e1);
+			if (e2) checkEvents.push_back(e2);
+		}
+
+		++mySieveStatRounds;
+		cl_event event = nullptr;
+		CL_CHECKED_CALL(clEnqueueReadBuffer, myQueue, mySieveStatsBuf, CL_FALSE, 0, stats.size() * sizeof(cl_uint), stats.data(), 0, nullptr, &event);
+		if (!WaitForQueue(myQueue, event))
+		{
+			return false;
+		}
+		clReleaseEvent(event);
+
+			// survivors of the launches that didn't overflow; the overflowed launches are run again (their survivors that were checked
+			// are checked again, found numbers are deduplicated at the end)
+			const num64 roundMeasured = (static_cast<num64>(stats[1]) << 32) + stats[0];
+			survivors += roundMeasured;
+			unsigned int numOverflows[3] = {};
+			num64 donePositions = 0;
+			num64 minOverflowPositions = ~num64(0);
+			// per group: survivors and their estimate (without the factor) of the launches that didn't overflow, and the largest factor
+			// needed by an overflowed launch
+			double groupMeasured[2] = {};
+			double groupExpected[2] = {};
+			double groupOverflowScale[2] = {};
+			double groupChecked[2] = {};   // survivors checked by all launches (those that overflowed the survivor buffer: its capacity)
+			for (size_t i = 0; i < launches.size(); ++i)
+			{
+				const cl_uint flag = stats[SieveStatsHeader + i] & 3;
+				const cl_uint launchSurvivors = stats[SieveStatsHeader + i] >> 2;
+				num64 positions = 0;
+				double expected = 0.0;
+				for (unsigned int c = launches[i].first; c < launches[i].second; ++c)
+				{
+					positions += chunkPositions(c);
+					expected += chunkSurvivors(c);
+				}
+				const unsigned int group = (launches[i].second > launches[i].first) ? chunkGroup(launches[i].first) : 1;
+				groupChecked[group] += std::min<double>(launchSurvivors, mySurvivorCapacity);
+				if (flag)
+				{
+					todo.push_back(launches[i]);
+					++numOverflows[flag];
+					if (flag == 1)
+					{
+						minOverflowPositions = std::min(minOverflowPositions, std::max<num64>(positions, 1));
+						groupOverflowScale[group] = std::max(groupOverflowScale[group], 2.0 * static_cast<double>(launchSurvivors) / std::max(expected, 1.0));
+					}
+				}
+				else
+				{
+					donePositions += positions;
+					groupMeasured[group] += launchSurvivors;
+					groupExpected[group] += expected;
+				}
+			}
+
+			// Measured survivors relative to the estimate: after an overflow at least twice what overflowed the buffer
+			if (numOverflows[1])
+			{
+				LOG_ERROR("Sieve: survivor buffer overflow in " << numOverflows[1] << " of " << launches.size() << " launches, running them again");
+					mySieveSurvivorRate = std::max(mySieveSurvivorRate * 2.0, 2.0 * static_cast<double>(mySurvivorCapacity) / static_cast<double>(minOverflowPositions));
+					++mySieveStatOverflows;
+				}
+				else if (donePositions >= (num64(1) << 24))
+				{
+					const double measured = static_cast<double>(roundMeasured) / static_cast<double>(donePositions);
+					mySieveSurvivorRate = std::max(std::max(measured, mySieveSurvivorRate * 0.5), 1e-6);
+				}
+				for (unsigned int group = 0; group < 2; ++group)
+				{
+					if (groupOverflowScale[group] > 0.0)
+					{
+						// (the counter of an overflowed launch holds all its survivors)
+						mySieveRateScale[group] = std::max(mySieveRateScale[group] * 2.0, groupOverflowScale[group]);
+					}
+					else if (groupExpected[group] > 1e5)
+					{
+						mySieveRateScale[group] = std::max(std::max(groupMeasured[group] / groupExpected[group], mySieveRateScale[group] * 0.5), 1e-3);
+					}
+				}
+
+			// Numbers for phase 2 (shared by the launches of a round): process them when the buffer is half full or overflowed (the
+			// overflowed launches run again)
+			cl_uint phase2Count = 0;
+			CL_CHECKED_CALL(clEnqueueReadBuffer, myQueue, myPhase2_numbers_count_buf, CL_TRUE, 0, sizeof(phase2Count), &phase2Count, 0, nullptr, nullptr);
+			const cl_uint phase2New = std::min<cl_uint>(phase2Count, myPhase2MaxNumbersCount) - std::min<cl_uint>(phase2Fill, myPhase2MaxNumbersCount);
+			if (roundPositions >= 16777216.0)
+			{
+				const double measured = static_cast<double>(phase2New) / roundPositions;
+				mySievePhase2Rate = numOverflows[2] ? std::max(mySievePhase2Rate * 2.0, measured * 2.0) : std::max(std::max(measured, mySievePhase2Rate * 0.5), 1e-9);
+			}
+			else if (numOverflows[2])
+			{
+				mySievePhase2Rate *= 2.0;
+			}
+			// phase 2 numbers per checked survivor: measured for the group of the round (both groups if the round had both)
+			{
+				const double checked = groupChecked[0] + groupChecked[1];
+				const double measured = (checked > 0.0) ? (static_cast<double>(phase2New) / checked) : 0.0;
+				for (unsigned int group = 0; group < 2; ++group)
+				{
+					if ((groupChecked[group] <= 0.0) && !numOverflows[2])
+					{
+						continue;
+					}
+					double& ratio = mySievePhase2PerSurvivor[group];
+					if (numOverflows[2])
+					{
+						ratio = std::max(ratio * 2.0, measured * 2.0);
+					}
+					else if (checked >= 1e5)
+					{
+						ratio = std::max(std::max(measured, ratio * 0.5), 1e-4);
+					}
+				}
+			}
+			if (numOverflows[2])
+			{
+				++mySieveStatOverflows;
+			}
+			phase2Fill = std::min<cl_uint>(phase2Count, myPhase2MaxNumbersCount);
+			if (numOverflows[2] || (phase2Fill > myPhase2MaxNumbersCount / 2))
+			{
+				mySieveStatPhase2 += phase2Fill;
+				if (!ProcessNumbersPhases2_3(phase2Fill))
+				{
+					return false;
+				}
+				phase2Fill = 0;
+				mySieveRoundPositions2 = 0;
+			}
+			else
+			{
+				mySieveRoundPositions2 += donePositions;
+			}
+			todo.insert(todo.end(), later.begin(), later.end());
+			firstRound = false;
+		}
+
+	// (other callers of the checks have no band table)
+	if (mySieveBand)
+	{
+		for (cl_kernel kc : { myCheckSieveSurvivors, myCheckSieveSurvivorsPrime })
+		{
+			CL_CHECKED_CALL(setKernelArgumentsWithOffset, kc, 21, 0U, 0U);
+		}
+	}
+
+	// /sieve_profile: GPU time of the sieve, of the survivor checks (the first pass, SieveTestDeferred and the pass with a prime p: all three
+	// in mySieveStatCheckKernelTime) and of the band sieve
+	const std::vector<cl_event>* eventLists[5] = { &sieveEvents, &checkEvents, &bandEvents, &deferEvents, &check2Events };
+	double* eventTimes[5] = { &mySieveStatSieveKernelTime, &mySieveStatCheckKernelTime, &mySieveStatBandKernelTime, &mySieveStatCheckTimes[1], &mySieveStatCheckTimes[2] };
+	for (int k = 0; k < 5; ++k)
+	{
+		for (cl_event e : *eventLists[k])
+		{
+			cl_ulong t0 = 0, t1 = 0;
+			if ((clGetEventProfilingInfo(e, CL_PROFILING_COMMAND_START, sizeof(t0), &t0, nullptr) == CL_SUCCESS) &&
+				(clGetEventProfilingInfo(e, CL_PROFILING_COMMAND_END, sizeof(t1), &t1, nullptr) == CL_SUCCESS))
+			{
+				*eventTimes[k] += (t1 - t0) * 1e-9;
+				if (k == 1)
+				{
+					mySieveStatCheckTimes[0] += (t1 - t0) * 1e-9;
+				}
+				else if (k >= 3)
+				{
+					mySieveStatCheckKernelTime += (t1 - t0) * 1e-9;
+				}
+			}
+			clReleaseEvent(e);
+		}
+	}
+	return true;
+}
+
+// Finishes phases 2 and 3 for the numbers left by the survivor checks. Returns false in "redo" if phase 2 overflowed (some numbers were
+// not saved, so the caller must run the batch again).
+bool OpenCL::FinishSieveBatch(bool& redo)
+{
+	redo = false;
+	mySieveRoundPositions2 = 0;
+	unsigned int counters[2] = {};
+	CL_CHECKED_CALL(clEnqueueReadBuffer, myQueue, myPhase2_numbers_count_buf, CL_TRUE, 0, sizeof(counters), counters, 0, nullptr, nullptr);
+	unsigned int n = counters[0];
+	mySieveStatPhase2 += n;
+	if (n > myPhase2MaxNumbersCount)
+	{
+		redo = true;
+		n = myPhase2MaxNumbersCount;
+	}
+	if (n > 0)
+	{
+		if (!ProcessNumbersPhases2_3(n))
+		{
+			return false;
+		}
+	}
+	else if (!ResetCounter(myQueue, myPhase2_numbers_count_buf))
+	{
+		return false;
+	}
+	// (the progress of the batch is saved after this)
+	return FlushPhase3Backlog();
+}
+
+bool OpenCL::ProcessSieveBatch(SieveBatch& batch)
+{
+	const unsigned int numChunks = static_cast<unsigned int>(batch.chunks.size() / 4);
+	if ((numChunks == 0) && batch.extra.empty())
+	{
+		return true;
+	}
+
+	if (g_SieveDryRun)
+	{
+		// profiling of the host part: no GPU work
+		mySieveStatPositions += batch.positions;
+		mySieveStatChunks += numChunks;
+		++mySieveStatBatches;
+		batch.ranges.clear();
+		batch.chunks.clear();
+		batch.extra.clear();
+		batch.positions = 0;
+		return true;
+	}
+
+	Timer t;
+
+	// Development aid: AMICABLE_DUMP_BATCH=<file> writes the sieve tables and batch number AMICABLE_DUMP_BATCH_INDEX (default 0) to a
+	// file, for running the kernels outside the app (profilers without OpenCL support)
+	if (const char* dumpName = getenv("AMICABLE_DUMP_BATCH"))
+	{
+		const char* idx = getenv("AMICABLE_DUMP_BATCH_INDEX");
+		if (mySieveStatBatches == (idx ? StrToNumber(idx) : 0))
+		{
+			FILE* f = fopen(dumpName, "wb");
+			auto put = [f](const void* data, size_t elementSize, size_t count)
+			{
+				const num64 n = count;
+				fwrite(&n, sizeof(n), 1, f);
+				fwrite(&elementSize, sizeof(num64), 1, f);
+				fwrite(data, elementSize, count, f);
+			};
+			put(mySieve.primeRecs.data(), 4, mySieve.primeRecs.size());
+			put(mySieve.modRecs.data(), 4, mySieve.modRecs.size());
+			put(mySieve.modRecs2.data(), 4, mySieve.modRecs2.size());
+			put(mySieve.Ttab.data(), 4, mySieve.Ttab.size());
+			put(mySieve.tasks.data(), 4, mySieve.tasks.size());
+			put(mySieve.tierInfo.data(), 4, mySieve.tierInfo.size());
+			put(mySieve.wheelTabs.data(), 4, mySieve.wheelTabs.size());
+			put(mySieve.modTaskIdx.data(), 4, mySieve.modTaskIdx.size());
+			put(mySieve.modTaskList.data(), 4, mySieve.modTaskList.size());
+			put(batch.ranges.data(), 8, batch.ranges.size());
+			put(batch.chunks.data(), 4, batch.chunks.size());
+			put(myBuildOptions.c_str(), 1, myBuildOptions.size());
+			// tables of CheckSieveSurvivors (read back from the GPU)
+			auto putBuf = [&](cl_mem b)
+			{
+				size_t size = 0;
+				if (b)
+				{
+					clGetMemObjectInfo(b, CL_MEM_SIZE, sizeof(size), &size, nullptr);
+				}
+				std::vector<unsigned char> h(size);
+				if (size)
+				{
+					clEnqueueReadBuffer(myQueue, b, CL_TRUE, 0, size, h.data(), 0, nullptr, nullptr);
+				}
+				put(h.data(), 1, size);
+			};
+			putBuf(mySmallPrimesBuf);
+			putBuf(myPrimeInversesBuf);
+			putBuf(myPQ_Buf);
+			putBuf(myPowerOf2SumInverses_Buf);
+			putBuf(myPowersOfP_128SumInverses_offsets_Buf);
+			putBuf(myPowersOfP_128SumInverses_Buf);
+			putBuf(myPrimeInverses_128_Buf);
+			putBuf(mySumEstimates_128_Buf);
+			putBuf(myPrimeReciprocalsBuf);
+			fclose(f);
+			std::cerr << "Dumped sieve batch " << mySieveStatBatches << " (" << numChunks << " chunks) to " << dumpName << std::endl;
+		}
+	}
+
+	// chunks of the last tier first (they use the sieve with the kill)
+	unsigned int killChunks = 0;
+	if (mySieveRangesKill)
+	{
+		std::vector<unsigned int> reordered;
+		reordered.reserve(batch.chunks.size());
+		for (int pass = 0; pass < 2; ++pass)
+		{
+			for (size_t c = 0; c < batch.chunks.size(); c += 4)
+			{
+				const unsigned int tier = static_cast<unsigned int>(batch.ranges[static_cast<size_t>(batch.chunks[c]) * SieveRangeStride + 12] >> 32) & 0xFFU;
+				if ((tier + 1 == mySieve.cfg.numTiers) == (pass == 0))
+				{
+					reordered.insert(reordered.end(), batch.chunks.begin() + static_cast<std::ptrdiff_t>(c), batch.chunks.begin() + static_cast<std::ptrdiff_t>(c + 4));
+				}
+			}
+			if (pass == 0)
+			{
+				killChunks = static_cast<unsigned int>(reordered.size() / 4);
+			}
+		}
+		batch.chunks.swap(reordered);
+	}
+
+	if (!batch.ranges.empty())
+	{
+		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, mySieveRangesBuf, CL_FALSE, 0, batch.ranges.size() * sizeof(num64), batch.ranges.data(), 0, nullptr, nullptr);
+	}
+	if (numChunks > 0)
+	{
+		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, mySieveChunksBuf, CL_FALSE, 0, batch.chunks.size() * sizeof(unsigned int), batch.chunks.data(), 0, nullptr, nullptr);
+	}
+
+	num64 survivors = 0;
+	// (phase 3: RunPhase3, FinishSieveBatch processes the backlog)
+	myPhase3BacklogEnabled = (myPhase3BacklogBuf != nullptr);
+	struct DisableBacklog
+	{
+		bool& enabled;
+		~DisableBacklog() { enabled = false; }
+	} disableBacklog{ myPhase3BacklogEnabled };
+	for (;;)
+	{
+		// p = 2, 3, 5 are checked directly (they are not in the sieve)
+		const unsigned int numExtra = static_cast<unsigned int>(batch.extra.size());
+		if (numExtra > 0)
+		{
+			CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, mySurvivorsBuf, CL_FALSE, 0, numExtra * sizeof(num64), batch.extra.data(), 0, nullptr, nullptr);
+		}
+
+		bool overflow = false;
+		if (!RunSieveLaunches(0, numChunks, killChunks, 0, numExtra, &batch, survivors, overflow))
+		{
+			return false;
+		}
+
+		bool redo = false;
+		if (!FinishSieveBatch(redo))
+		{
+			return false;
+		}
+
+		if (!overflow && !redo)
+		{
+			break;
+		}
+
+		// Too many survivors in one launch (or too many numbers for phase 2): run the whole batch again with shorter launches.
+		// Numbers found twice are removed at the end.
+		LOG_ERROR("Sieve batch overflow, running it again" << (redo ? " (phase 2)" : ""));
+		mySieveSurvivorRate *= 4.0;
+	}
+
+	mySieveStatPositions += batch.positions;
+	mySieveStatSurvivors += survivors;
+	mySieveStatChunks += numChunks;
+	++mySieveStatBatches;
+
+	batch.ranges.clear();
+	batch.chunks.clear();
+	batch.extra.clear();
+	batch.positions = 0;
+
+	mySieveStatTime += t.getElapsedTime();
+	return true;
+}
+
+bool OpenCL::WaitSieveBatch()
+{
+	if (!mySieveWorkerRunning)
+	{
+		return true;
+	}
+	{
+		std::unique_lock<std::mutex> lock(mySieveWorkerMutex);
+		mySieveWorkerCV.wait(lock, [this]() { return mySieveJobDone; });
+	}
+	mySieveWorkerRunning = false;
+	return mySieveWorkerResult;
+}
+
+void OpenCL::SieveWorkerLoop()
+{
+	std::unique_lock<std::mutex> lock(mySieveWorkerMutex);
+	for (;;)
+	{
+		mySieveWorkerCV.wait(lock, [this]() { return mySieveJobPending || mySieveWorkerStop; });
+		if (!mySieveJobPending)
+		{
+			// (stop: only between batches, a submitted batch is always finished first)
+			return;
+		}
+		mySieveJobPending = false;
+		lock.unlock();
+		const bool result = ProcessSieveBatch(mySieveBatchRun);
+		lock.lock();
+		mySieveWorkerResult = result;
+		mySieveJobDone = true;
+		mySieveWorkerCV.notify_all();
+	}
+}
+
+bool OpenCL::SubmitSieveBatch(bool checkpoint, num64 offset)
+{
+	if (!WaitSieveBatch())
+	{
+		return false;
+	}
+	// all ranges before the first range of the new batch are done (the GPU is idle now)
+	if (checkpoint && mySieveBatchHasFirst && mySieveBatchFirstRange && !SaveProgressForRanges(*mySieveBatchFirstRange, offset, mySieveBatchStartNumbers))
+	{
+		return false;
+	}
+	mySieveBatchHasFirst = false;
+	std::swap(mySieveBatchRun, mySieveBatch);
+	if (!mySieveWorker.joinable())
+	{
+		mySieveWorker = std::thread(&OpenCL::SieveWorkerLoop, this);
+	}
+	{
+		std::lock_guard<std::mutex> lock(mySieveWorkerMutex);
+		mySieveJobPending = true;
+		mySieveJobDone = false;
+	}
+	mySieveWorkerCV.notify_all();
+	mySieveWorkerRunning = true;
+	return true;
+}
+
+//-----------------------------------------------------------------------------------------------------------------------------------
+// Sieve self-tests ("/test")
+//-----------------------------------------------------------------------------------------------------------------------------------
+
+bool OpenCL::RunSieveTests()
+{
+	if (!myUseSieve)
+	{
+		LOG_ERROR("Sieve tests need the sieve to be enabled");
+		return false;
+	}
+
+	Timer t;
+	std::vector<KnownPair> pairs;
+	std::vector<num128> allAmicable;
+	const unsigned int stride = g_TestStride;
+	if (!LoadKnownPairs(stride, pairs, &allAmicable))
+	{
+		LOG_ERROR("No known pairs loaded (c2_*.txt files are needed)");
+		return false;
+	}
+
+	// Necessary conditions of the ranges (host only); "/test_reduction" runs only this test
+	bool ok = TestSieveReduction(mySieve, pairs);
+	std::cerr << "Reduction test: " << t.getElapsedTime() << " seconds" << std::endl;
+	if (g_TestReductionOnly || !ok)
+	{
+		std::cerr << (ok ? "All sieve tests passed" : "Sieve tests FAILED") << " (" << t.getElapsedTime() << " seconds)" << std::endl;
+		return ok;
+	}
+
+	// All known pairs below the search limit (not only the first stage) through the kernels for phases 1-3
+	{
+		Timer t1;
+		std::vector<SPairToCheck> batch;
+		num64 numChecked = 0;
+		std::vector<KnownPair> all;
+		std::vector<num128> allM;
+		const char* files[] = { "c2_3.txt", "c2_4.txt", "c2_5.txt", "c2_6.txt", "c2_7.txt", "c2_8.txt", "c2_9.txt", "c2_10.txt", "c2_11.txt", "c2_12.txt", "c2_13.txt", "c2_14.txt", "c2_15.txt", "c2_16.txt", "c2_17.txt", "c2_18.txt", "c2_19.txt", "c2_20.txt", "c2_20_1.txt", "c2_20_2.txt", "c2_21.txt", "c2_21_1.txt", "c2_21_2.txt", "c2_21_3.txt", "c2_21_4.txt", "c2_22.txt" };
+		num64 k = 0;
+		for (const char* name : files)
+		{
+			std::ifstream f(name);
+			std::string line1, line2, line3, line4;
+			while (ok && std::getline(f, line1) && std::getline(f, line2) && std::getline(f, line3))
+			{
+				std::getline(f, line4);
+				const num128 m = atoi128(line2.c_str());
+				if (m >= SearchLimit::value)
+				{
+					break;
+				}
+				if ((k++ % stride) != 0)
+				{
+					continue;
+				}
+				batch.emplace_back(m, m + atoi128(line3.c_str()));
+				if (batch.size() >= (1U << 20))
+				{
+					std::sort(batch.begin(), batch.end(), [](const SPairToCheck& a, const SPairToCheck& b) { return a.M < b.M; });
+					numChecked += batch.size();
+					ok = TestPairs(batch);
+					batch.clear();
+				}
+			}
+		}
+		if (ok && !batch.empty())
+		{
+			std::sort(batch.begin(), batch.end(), [](const SPairToCheck& a, const SPairToCheck& b) { return a.M < b.M; });
+			numChecked += batch.size();
+			ok = TestPairs(batch);
+		}
+		std::cerr << "Phases 1-3 test: " << numChecked << " pairs " << (ok ? "found" : "NOT found") << " (" << t1.getElapsedTime() << " seconds)" << std::endl;
+	}
+
+	if (myLargePrimesSieve)
+	{
+		Timer t1;
+		ok = ok && TestSieveLargePrimes(stride, allAmicable);
+		std::cerr << "Large primes test: " << t1.getElapsedTime() << " seconds" << std::endl;
+		std::cerr << (ok ? "All sieve tests passed" : "Sieve tests FAILED") << " (" << t.getElapsedTime() << " seconds)" << std::endl;
+		return ok;
+	}
+
+	ok = ok && TestSieveGPUWindow(mySieve, pairs);
+	std::cerr << "Window test: " << t.getElapsedTime() << " seconds" << std::endl;
+
+	if (ok)
+	{
+		Timer t1;
+		ok = TestSieveSums(pairs);
+		std::cerr << "Sum test: " << t1.getElapsedTime() << " seconds" << std::endl;
+	}
+
+	if (ok)
+	{
+		Timer t1;
+		ok = TestSieveKnownPairs(pairs, allAmicable);
+		std::cerr << "Known pairs test: " << t1.getElapsedTime() << " seconds" << std::endl;
+	}
+
+	std::cerr << (ok ? "All sieve tests passed" : "Sieve tests FAILED") << " (" << t.getElapsedTime() << " seconds)" << std::endl;
+	return ok;
+}
+
+// Runs the sieve with "-D SIEVE_DUMP" on short ranges around known pairs and compares the sum of every position with the host
+bool OpenCL::TestSieveSums(const std::vector<KnownPair>& pairs)
+{
+	struct TmpProgram
+	{
+		~TmpProgram() { if (k) clReleaseKernel(k); if (p) clReleaseProgram(p); if (dump) clReleaseMemObject(dump); }
+		cl_program p = nullptr;
+		cl_kernel k = nullptr;
+		cl_mem dump = nullptr;
+	} tmp;
+
+	const char* sources[2] = { kernel_cl, kernel_sieve_cl };
+	CL_CHECKED_CALL_WITH_RESULT(tmp.p, clCreateProgramWithSource, myGPUContext, 2, sources, nullptr);
+	const std::string options = myBuildOptions + " -D SIEVE_DUMP";
+	if (clBuildProgram(tmp.p, 0, nullptr, options.c_str(), nullptr, nullptr) != CL_SUCCESS)
+	{
+		LOG_ERROR("Failed to build the sieve test program");
+		return false;
+	}
+	CL_CHECKED_CALL_WITH_RESULT(tmp.k, clCreateKernel, tmp.p, "SieveRanges");
+	// the sieve with the kill (ranges of the last tier)
+	struct TmpKernel
+	{
+		~TmpKernel() { if (k) clReleaseKernel(k); if (p) clReleaseProgram(p); }
+		cl_program p = nullptr;
+		cl_kernel k = nullptr;
+	} tmpKill;
+	if (!myBuildOptionsKill.empty())
+	{
+		CL_CHECKED_CALL_WITH_RESULT(tmpKill.p, clCreateProgramWithSource, myGPUContext, 2, sources, nullptr);
+		const std::string killOptions = myBuildOptionsKill + " -D SIEVE_DUMP";
+		if (clBuildProgram(tmpKill.p, 0, nullptr, killOptions.c_str(), nullptr, nullptr) != CL_SUCCESS)
+		{
+			LOG_ERROR("Failed to build the sieve test program (kill)");
+			return false;
+		}
+		CL_CHECKED_CALL_WITH_RESULT(tmpKill.k, clCreateKernel, tmpKill.p, "SieveRanges");
+	}
+
+	// one segment per test range: the sums of all 6 sub-sieves (kernel_sieve.cl, SIEVE_DUMP)
+	const unsigned int segPos = mySieve.cfg.segJ * SievePositionsPerJ;
+	const unsigned int maxTestRanges = 1024;
+	CL_CHECKED_CALL_WITH_RESULT(tmp.dump, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, (static_cast<size_t>(maxTestRanges) * segPos + maxTestRanges * 2) * sizeof(int), 0);
+
+	const unsigned int zero = 0;
+	const unsigned int capacity = 0;
+	for (cl_kernel kernel : { tmp.k, tmpKill.k })
+	{
+		if (kernel)
+		{
+			CL_CHECKED_CALL(setKernelArguments, kernel, mySieveRangesBuf, mySieveChunksBuf, zero, mySievePrimeRecsBuf, mySieveModRecsBuf, mySieveModRecs2Buf, mySieveTtabBuf, mySieveTasksBuf, mySieveTierInfoBuf, mySieveWheelTabsBuf, mySieveModTaskIdxBuf, mySieveModTaskListBuf, mySurvivorCountBuf, tmp.dump, capacity);
+		}
+	}
+
+	// one segment per test range: p in [P0, P0 + 210 * segJ) around the known p. Every 16th range fills the segment, the others have the
+	// width of a segment of the 30-wheel (the last segment of a chunk ends at p_hi: SieveRanges sieves only its first j there; the check
+	// of every position on the host is the slow part of the test)
+	const num64 halfWidthFull = static_cast<num64>(mySieve.cfg.segJ) * (SieveWheel / 2) - SieveWheel;
+	const num64 halfWidthNarrow = static_cast<num64>(mySieve.cfg.segJ) * 15 - 30;
+
+	// a sample of the pairs, plus up to 1024 pairs where a prime factor of g has wheel moduli (their increments are overridden)
+	std::vector<size_t> selected;
+	{
+		const size_t step = std::max<size_t>(1, pairs.size() / 4096);
+		for (size_t i = 0; i < pairs.size(); i += step)
+		{
+			selected.push_back(i);
+		}
+		size_t numOverrides = 0;
+		for (size_t i = 0; (i < pairs.size()) && (numOverrides < 1024); ++i)
+		{
+			const KnownPair& pair = pairs[i];
+			num64 rec[SieveRangeStride];
+			if (!mySieve.PrepareRange(pair.M0, pair.sumM0, pair.primes, pair.exponents, pair.numFactors, pair.p, pair.p, mySieve.cfg.numTiers - 1, false, rec))
+			{
+				continue;
+			}
+			const unsigned int ngf = static_cast<unsigned int>(rec[12] >> 56);
+			for (unsigned int f = 0; f < ngf; ++f)
+			{
+				const unsigned int q = static_cast<unsigned int>(rec[13 + f / 2] >> ((f & 1) * 32)) & 0xFFFFFFU;
+				if (q * 4 >= mySieve.cfg.segJ * 3)
+				{
+					selected.push_back(i);
+					++numOverrides;
+					break;
+				}
+			}
+		}
+		std::cerr << "TestSieveSums: " << numOverrides << " ranges with overridden increments" << std::endl;
+	}
+
+	num64 numPositions = 0;
+	num64 numRanges = 0;
+	std::vector<int> dump;
+	std::vector<num64> records;
+	std::vector<unsigned int> chunks;
+	std::vector<std::pair<num64, num64>> limits;
+	for (size_t first = 0; first < selected.size(); first += maxTestRanges)
+	{
+		records.clear();
+		chunks.clear();
+		limits.clear();
+		for (size_t k = first; (k < selected.size()) && (k < first + maxTestRanges); ++k)
+		{
+			const size_t i = selected[k];
+			const KnownPair& pair = pairs[i];
+			const num64 halfWidth = ((k % 16) == 0) ? halfWidthFull : halfWidthNarrow;
+			num64 p_lo = (pair.p > halfWidth) ? (pair.p - halfWidth) : 2;
+			if (p_lo <= pair.primes[pair.numFactors - 1])
+			{
+				p_lo = pair.primes[pair.numFactors - 1] + 1;
+			}
+			const num64 p_hi = p_lo + halfWidth * 2;
+			num64 rec[SieveRangeStride];
+			if (!mySieve.PrepareRange(pair.M0, pair.sumM0, pair.primes, pair.exponents, pair.numFactors, p_lo, p_hi, static_cast<unsigned int>(i % mySieve.cfg.numTiers), false, rec))
+			{
+				LOG_ERROR("PrepareRange failed for " << pair.m);
+				return false;
+			}
+			const unsigned int ri = static_cast<unsigned int>(records.size() / SieveRangeStride);
+			records.insert(records.end(), rec, rec + SieveRangeStride);
+			chunks.push_back(ri);
+			chunks.push_back(0);
+			chunks.push_back(1);
+			chunks.push_back(0);
+			limits.emplace_back(p_lo, p_hi);
+		}
+
+		const unsigned int n = static_cast<unsigned int>(limits.size());
+		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, mySieveRangesBuf, CL_TRUE, 0, records.size() * sizeof(num64), records.data(), 0, nullptr, nullptr);
+		CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, mySieveChunksBuf, CL_TRUE, 0, chunks.size() * sizeof(unsigned int), chunks.data(), 0, nullptr, nullptr);
+		const size_t localSize = mySieve.cfg.wgSize;
+		const size_t globalSize = static_cast<size_t>(n) * localSize;
+		CL_CHECKED_CALL(clEnqueueNDRangeKernel, myQueue, tmp.k, 1, nullptr, &globalSize, &localSize, 0, nullptr, nullptr);
+		CL_CHECKED_CALL(clFinish, myQueue);
+		dump.resize(static_cast<size_t>(n) * segPos + n * 2);
+		CL_CHECKED_CALL(clEnqueueReadBuffer, myQueue, tmp.dump, CL_TRUE, 0, dump.size() * sizeof(int), dump.data(), 0, nullptr, nullptr);
+		// ranges of the last tier: the sums of the sieve with the kill
+		if (tmpKill.k)
+		{
+			std::vector<int> dumpKill(dump.size());
+			CL_CHECKED_CALL(clEnqueueNDRangeKernel, myQueue, tmpKill.k, 1, nullptr, &globalSize, &localSize, 0, nullptr, nullptr);
+			CL_CHECKED_CALL(clFinish, myQueue);
+			CL_CHECKED_CALL(clEnqueueReadBuffer, myQueue, tmp.dump, CL_TRUE, 0, dumpKill.size() * sizeof(int), dumpKill.data(), 0, nullptr, nullptr);
+			for (unsigned int r = 0; r < n; ++r)
+			{
+				const unsigned int tier = static_cast<unsigned int>(records[static_cast<size_t>(r) * SieveRangeStride + 12] >> 32) & 0xFFU;
+				if (tier + 1 == mySieve.cfg.numTiers)
+				{
+					std::copy(dumpKill.begin() + static_cast<std::ptrdiff_t>(r) * segPos, dumpKill.begin() + static_cast<std::ptrdiff_t>(r + 1) * segPos, dump.begin() + static_cast<std::ptrdiff_t>(r) * segPos);
+				}
+			}
+		}
+
+		for (unsigned int r = 0; r < n; ++r)
+		{
+			const num64* rec = records.data() + static_cast<size_t>(r) * SieveRangeStride;
+			const num64 P0 = rec[8];
+			for (unsigned int idx = 0; idx < segPos; idx += 1)
+			{
+				// sub-sieve s7 = p mod 7, row c: p = P0 + 210 j + w(c) with w(c) == W30[c] (mod 30), w(c) == s7 (mod 7)
+				static const unsigned int W30[8] = { 1, 7, 11, 13, 17, 19, 23, 29 };
+				const unsigned int s7 = idx / (mySieve.cfg.segJ * 8) + 1;
+				const unsigned int c = (idx / mySieve.cfg.segJ) % 8;
+				const unsigned int j = idx % mySieve.cfg.segJ;
+				const num64 p = P0 + SieveWheel * j + W30[c] + 30 * (((s7 + 7 - W30[c] % 7) * 4) % 7);
+				if ((p < limits[r].first) || (p > limits[r].second))
+				{
+					continue;
+				}
+				++numPositions;
+				const int expected = mySieve.ExpectedSum(rec, p);
+				const int actual = dump[static_cast<size_t>(r) * segPos + idx];
+				if (actual != expected)
+				{
+					LOG_ERROR("Sieve sum mismatch: M0 = " << CombineNum128(rec[4], rec[5]) << ", p = " << p << ", tier " << ((rec[12] >> 32) & 0xFF) << ", GPU " << actual << ", expected " << expected);
+					return false;
+				}
+			}
+
+			// window of the segment: must contain the window of every p in it
+			const int lo = dump[static_cast<size_t>(n) * segPos + r * 2];
+			const int hi = dump[static_cast<size_t>(n) * segPos + r * 2 + 1];
+			for (num64 p : { limits[r].first, limits[r].second })
+			{
+				const int lnr_fx = static_cast<int>(static_cast<unsigned int>(rec[11]));
+				float rm1;
+				const unsigned int bits = static_cast<unsigned int>(rec[12]);
+				memcpy(&rm1, &bits, sizeof(rm1));
+				const double corr = log1p(static_cast<double>(rm1) / (static_cast<double>(p) + 1.0)) * SIEVE_FX;
+				const int exact = lnr_fx - static_cast<int>(corr);
+				if ((exact - static_cast<int>(static_cast<unsigned int>(rec[11] >> 32)) + 64 < lo) || (exact - 64 > hi))
+				{
+					LOG_ERROR("Sieve window mismatch: M0 = " << CombineNum128(rec[4], rec[5]) << ", p = " << p << ", window [" << lo << ", " << hi << "], exact log(T/N) " << exact);
+					return false;
+				}
+			}
+		}
+		numRanges += n;
+	}
+
+	std::cerr << "TestSieveSums: " << numRanges << " ranges, " << numPositions << " positions, all sums are correct" << std::endl;
+	return numPositions > 0;
+}
+
+// Runs the complete sieve pipeline on short ranges around known pairs, all of them must be found
+bool OpenCL::TestSieveKnownPairs(const std::vector<KnownPair>& pairs, const std::vector<num128>& allAmicable, bool verbose)
+{
+	const num64 halfWidth = 50000;
+	const size_t batchSize = 2048;
+	num64 numFound = 0;
+	std::vector<SFoundPair> found;
+	std::vector<num128> foundM;
+	for (size_t first = 0; first < pairs.size(); first += batchSize)
+	{
+		const size_t last = std::min(pairs.size(), first + batchSize);
+		for (size_t i = first; i < last; ++i)
+		{
+			const KnownPair& pair = pairs[i];
+			num64 p_lo = (pair.p > halfWidth) ? (pair.p - halfWidth) : 2;
+			if (p_lo <= pair.primes[pair.numFactors - 1])
+			{
+				p_lo = pair.primes[pair.numFactors - 1] + 1;
+			}
+			num128 limit = (SearchLimit::value - 1) / pair.M0;
+			if (limit > SearchLimit::MainPrimeTableBound)
+			{
+				limit = SearchLimit::MainPrimeTableBound;
+			}
+			num64 p_hi = pair.p + halfWidth;
+			if (p_hi > LowWord(limit))
+			{
+				p_hi = LowWord(limit);
+			}
+			num64 rec[SieveRangeStride];
+			const bool prepared = mySieve.PrepareRange(pair.M0, pair.sumM0, pair.primes, pair.exponents, pair.numFactors, p_lo, p_hi, static_cast<unsigned int>(i % mySieve.cfg.numTiers), false, rec);
+			if (prepared)
+			{
+				SetTestBandParameters(rec, pair);
+			}
+			if (!prepared || !AddSieveRangeRecord(rec, p_lo, p_hi))
+			{
+				LOG_ERROR("Failed to add a test range for " << pair.m);
+				return false;
+			}
+		}
+		if (!ProcessSieveBatch())
+		{
+			return false;
+		}
+
+		unsigned int numbers_found = 0;
+		if (!GetAndResetCounter(myQueue, myAmicable_numbers_count_buf, numbers_found))
+		{
+			return false;
+		}
+		if (numbers_found > 8192)
+		{
+			LOG_ERROR("Too many numbers found");
+			return false;
+		}
+		found.resize(numbers_found);
+		if (numbers_found > 0)
+		{
+			CL_CHECKED_CALL(clEnqueueReadBuffer, myQueue, myAmicable_numbers_data_buf, CL_TRUE, 0, sizeof(num64) * 4 * numbers_found, found.data(), 0, nullptr, nullptr);
+		}
+		foundM.clear();
+		for (const SFoundPair& k : found)
+		{
+			if ((k.N == 0) || IsPrime(k.N))
+			{
+				const num128 M = CombineNum128(k.M, k.M_high);
+				if (verbose && !std::binary_search(allAmicable.begin(), allAmicable.end(), M))
+				{
+					// not in the c2_*.txt files: report it (the lists above 10^21 are not complete)
+					std::cerr << "Sieve test found " << M << " which is not in the known pairs, check it" << std::endl;
+				}
+				foundM.push_back(M);
+			}
+		}
+		std::sort(foundM.begin(), foundM.end());
+		for (size_t i = first; i < last; ++i)
+		{
+			if (!std::binary_search(foundM.begin(), foundM.end(), pairs[i].m))
+			{
+				LOG_ERROR("Sieve test missed amicable number " << pairs[i].m << " (tier " << (i % mySieve.cfg.numTiers) << ")");
+				return false;
+			}
+			++numFound;
+		}
+	}
+
+	if (verbose)
+	{
+		std::cerr << "TestSieveKnownPairs: all " << numFound << " pairs found (" << mySieveStatPositions << " positions, " << mySieveStatSurvivors << " survivors, " << mySieveStatBandTestRanges << " ranges with the band sieve)" << std::endl;
+	}
+	return numFound > 0;
+}
+
+//-----------------------------------------------------------------------------------------------------------------------------------
+// Large primes stage with the sieve: every candidate c (m = c * p) is a range like in the first stage, with M0 = c and p in [P1, P2].
+// The GPU derives the range parameters from the candidate itself (there are billions of candidates).
+//-----------------------------------------------------------------------------------------------------------------------------------
+
+bool OpenCL::SieveCandidates(const AmicableCandidate* candidates, unsigned int count, num64 P1, num64 P2, unsigned int tier, num64& survivorsTotal)
+{
+	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, mySieveRangesBuf, CL_FALSE, 0, sizeof(AmicableCandidate) * count, candidates, 0, nullptr, nullptr);
+
+	const num64 P0 = (P1 / SieveWheel) * SieveWheel;
+	const num64 numSegments = ((P2 - P0) / SieveWheel) / mySieve.cfg.segJ + 1;
+	const num64 chunksPerCandidate = (numSegments + mySieve.cfg.chunkSegments - 1) / mySieve.cfg.chunkSegments;
+	if (chunksPerCandidate * count >= (num64(1) << 31))
+	{
+		LOG_ERROR("Too many chunks per batch");
+		return false;
+	}
+
+	cl_ulong4 lpParams;
+	lpParams.s[0] = P1;
+	lpParams.s[1] = P2;
+	lpParams.s[2] = P0;
+	lpParams.s[3] = chunksPerCandidate | (static_cast<num64>(tier) << 32) | (static_cast<num64>(mySieve.cfg.chunkSegments) << 40);
+	CL_CHECKED_CALL(clSetKernelArg, mySieveRanges, 1, sizeof(lpParams), &lpParams);
+	if ((P1 != myPrimeBitsP1) || (P2 != myPrimeBitsP2))
+	{
+		LOG_ERROR("The bitmap of primes doesn't match the interval");
+		return false;
+	}
+
+	const num64 positionsPerChunk = std::min<num64>(static_cast<num64>(mySieve.cfg.chunkSegments), numSegments) * mySieve.cfg.segJ * SievePositionsPerJ;
+	for (;;)
+	{
+		num64 survivors = 0;
+		bool overflow = false;
+		if (!RunSieveLaunches(0, static_cast<unsigned int>(count * chunksPerCandidate), 0, positionsPerChunk, 0, nullptr, survivors, overflow))
+		{
+			return false;
+		}
+
+		bool redo = false;
+		if (!FinishSieveBatch(redo))
+		{
+			return false;
+		}
+		if (!overflow && !redo)
+		{
+			survivorsTotal += survivors;
+			break;
+		}
+		LOG_ERROR("Sieve batch overflow, running it again" << (redo ? " (phase 2)" : ""));
+		mySieveSurvivorRate *= 4.0;
+	}
+	return true;
+}
+
+// Bitmap of the primes in [P1, P2] (P2 - P1 < 30 * (2^LargePrimesBitmapShift - 8)): row c, bit j <=> P0 + 30 * j + W30[c] is prime,
+// P0 = P1 rounded down to a multiple of 210 (as in SieveCandidates and the kernel; the bitmap keeps the layout of the 30-wheel)
+bool OpenCL::UploadPrimeBitmap(num64 P1, num64 P2)
+{
+	const num64 P0 = (P1 / SieveWheel) * SieveWheel;
+	const num64 numJ = (P2 - P0) / 30 + 1;
+	if ((P1 < 7) || (P2 < P1) || (numJ > (num64(1) << LargePrimesBitmapShift)))
+	{
+		LOG_ERROR("Invalid interval for the bitmap of primes");
+		return false;
+	}
+	const unsigned int wordsPerRow = static_cast<unsigned int>((numJ + 31) / 32);
+	myPrimeBits.assign(static_cast<size_t>(wordsPerRow) * 8, 0);
+
+	struct SetBits
+	{
+		cl_uint* bits;
+		num64 P0;
+		unsigned int wordsPerRow;
+		FORCEINLINE void operator()(num64 p)
+		{
+			static const signed char cls[30] = { -1, 0, -1, -1, -1, -1, -1, 1, -1, -1, -1, 2, -1, 3, -1, -1, -1, 4, -1, 5, -1, -1, -1, 6, -1, -1, -1, -1, -1, 7 };
+			const num64 d = p - P0;
+			const num64 j = d / 30;
+			const int c = cls[d - j * 30];
+			if (c >= 0)
+			{
+				bits[static_cast<size_t>(c) * wordsPerRow + (j >> 5)] |= 1U << (j & 31);
+			}
+		}
+	} setBits = { myPrimeBits.data(), P0, wordsPerRow };
+
+	primesieve::PrimeSieve sieve;
+	sieve.sieveTemplated(P1, P2, setBits);
+
+	CL_CHECKED_CALL(clEnqueueWriteBuffer, myQueue, myPrimeBitsBuf, CL_TRUE, 0, myPrimeBits.size() * sizeof(cl_uint), myPrimeBits.data(), 0, nullptr, nullptr);
+	CL_CHECKED_CALL(clSetKernelArg, mySieveRanges, 5, sizeof(wordsPerRow), &wordsPerRow);
+	myPrimeBitsP1 = P1;
+	myPrimeBitsP2 = P2;
+	return true;
+}
+
+bool OpenCL::RunLargePrimesSieve(num64 startPrime, num64 primeLimit)
+{
+	if ((primeLimit < startPrime) || (startPrime < 7))
+	{
+		return SaveFoundNumbers();
+	}
+	if (startPrime < 11)
+	{
+		// the sieve has no positions for p = 7 (only p coprime to 210)
+		LOG_ERROR("The large primes sieve needs p >= 11");
+		return false;
+	}
+
+	// The interval of p is split into parts with a bitmap of primes on the GPU for each of them
+	// (P0 is up to 209 below P1: the bitmap has 2^LargePrimesBitmapShift j of 30)
+	const num64 partSize = ((num64(1) << LargePrimesBitmapShift) - 8) * 30;
+
+	// Resume from a checkpoint: "numbers startPrime primeLimit part_start candidate_offset S#"
+	num64 partStart = startPrime;
+	num64 start = 0;
+	{
+		std::string checkpoint_name;
+		boinc_resolve_filename_s(CHECKPOINT_LOGICAL_NAME, checkpoint_name);
+		FILE* checkpoint = boinc_fopen(checkpoint_name.c_str(), "r");
+		if (checkpoint)
+		{
+			char buf[256];
+			if (fgets(buf, sizeof(buf), checkpoint) && strstr(buf, "S#"))
+			{
+				std::stringstream s;
+				s << buf;
+				num64 numbers = 0, firstPrime = 0, lastPrime = 0, part = 0, offset = 0;
+				s >> numbers >> firstPrime >> lastPrime >> part >> offset;
+				if ((firstPrime == startPrime) && (lastPrime == primeLimit) && (part >= startPrime) && (part <= primeLimit))
+				{
+					myNumbersProcessedTotal = numbers;
+					partStart = part;
+					start = offset;
+				}
+			}
+			fclose(checkpoint);
+		}
+	}
+
+	Timer t;
+	num64 survivorsTotal = 0;
+	for (; partStart <= primeLimit; partStart = (primeLimit - partStart > partSize) ? (partStart + partSize + 1) : (primeLimit + 1), start = 0)
+	{
+		const num64 P1 = partStart;
+		const num64 P2 = (primeLimit - partStart > partSize) ? (partStart + partSize) : primeLimit;
+
+		// candidates c with c * P1 < SearchLimit::value
+		const num64 maxC = LowWord((SearchLimit::value - 1) / P1);
+		size_t numCandidates;
+		{
+			size_t a = 0;
+			size_t b = CandidatesData.size();
+			while (a < b)
+			{
+				const size_t c = (a + b) / 2;
+				if (CandidatesData[c].get_value() <= maxC)
+				{
+					a = c + 1;
+				}
+				else
+				{
+					b = c;
+				}
+			}
+			numCandidates = a;
+		}
+
+		const double primesPerCandidate = SieveGPUTables::EstimatePrimes(P1, P2);
+		const unsigned int tier = mySieve.ChooseTier(static_cast<num64>(primesPerCandidate));
+		const num64 positionsPerCandidate = mySieve.NumPositions(P1, P2);
+		std::cerr << "Large primes sieve: p in [" << P1 << ", " << P2 << "], " << numCandidates << " candidates, tier " << tier << " (Q = " << mySieve.cfg.tierQ[tier] << ")" << std::endl;
+
+		if (!UploadPrimeBitmap(P1, P2))
+		{
+			return false;
+		}
+
+		while (start < numCandidates)
+		{
+			num64 count = std::min<num64>(numCandidates - start, mySieveMaxCandidates);
+			const num64 byPositions = std::max<num64>(1, mySieveMaxPositions / std::max<num64>(1, positionsPerCandidate));
+			count = std::min(count, byPositions);
+
+			const num64 survivorsBefore = survivorsTotal;
+			if (!SieveCandidates(CandidatesData.data() + start, static_cast<unsigned int>(count), P1, P2, tier, survivorsTotal))
+			{
+				return false;
+			}
+
+			// Adapt the size of the launches to the observed number of survivors
+			const num64 positions = count * positionsPerCandidate;
+			if (positions >= (num64(1) << 24))
+			{
+				const double rate = static_cast<double>(survivorsTotal - survivorsBefore) / positions;
+				mySieveSurvivorRate = std::max(std::max(rate, mySieveSurvivorRate * 0.9), 1e-5);
+			}
+			mySieveStatPositions += positions;
+			mySieveStatChunks += count;
+			++mySieveStatBatches;
+
+			start += count;
+			myNumbersProcessedTotal += static_cast<num64>(count * primesPerCandidate + 0.5);
+			const double progress = static_cast<double>(myNumbersProcessedTotal) / RangeGen::total_numbers_to_check;
+			boinc_fraction_done((progress < 1.0) ? progress : 1.0);
+
+			if (!SaveFoundNumbers())
+			{
+				return false;
+			}
+			if (boinc_time_to_checkpoint())
+			{
+				std::stringstream s;
+				std::string checkpoint_name;
+				boinc_resolve_filename_s(CHECKPOINT_LOGICAL_NAME, checkpoint_name);
+				s << myNumbersProcessedTotal << ' ' << startPrime << ' ' << primeLimit << ' ' << P1 << ' ' << start << " S#";
+				const std::string data = s.str();
+				FILE* f = boinc_fopen(checkpoint_name.c_str(), "wb");
+				if (f)
+				{
+					fwrite(data.c_str(), sizeof(char), data.length(), f);
+					fclose(f);
+				}
+				boinc_checkpoint_completed();
+			}
+		}
+	}
+
+	mySieveStatSurvivors += survivorsTotal;
+	mySieveStatTime += t.getElapsedTime();
+	return SaveFoundNumbers();
+}
+
+// Large primes stage: known pairs m = c * p with p > SearchLimit::LinearLimit must be found by the sieve on a short interval around p
+// One pair m = c p of the large primes stage: the candidate c alone, p in [p - W, p + W] (W covers several chunks with one segment
+// each); allAmicable (if not null): numbers found that are not in it are reported
+bool OpenCL::TestSieveLargePrimesPair(const num128 m, num64 c, num64 sc, num64 p, unsigned int tier, const std::vector<num128>* allAmicable, num64& survivorsTotal)
+{
+	const AmicableCandidate cand(c, sc);
+	const num64 W = 200000;
+	if (!UploadPrimeBitmap(p - W, p + W) || !SieveCandidates(&cand, 1, p - W, p + W, tier, survivorsTotal))
+	{
+		return false;
+	}
+
+	unsigned int numbers_found = 0;
+	if (!GetAndResetCounter(myQueue, myAmicable_numbers_count_buf, numbers_found))
+	{
+		return false;
+	}
+	std::vector<SFoundPair> found(numbers_found);
+	if (numbers_found > 0)
+	{
+		CL_CHECKED_CALL(clEnqueueReadBuffer, myQueue, myAmicable_numbers_data_buf, CL_TRUE, 0, sizeof(num64) * 4 * numbers_found, found.data(), 0, nullptr, nullptr);
+	}
+	bool ok = false;
+	for (const SFoundPair& k : found)
+	{
+		if ((k.N == 0) || IsPrime(k.N))
+		{
+			const num128 M = CombineNum128(k.M, k.M_high);
+			if (allAmicable && !std::binary_search(allAmicable->begin(), allAmicable->end(), M))
+			{
+				// not in the c2_*.txt files: report it (the lists above 10^21 are not complete)
+				std::cerr << "Large primes sieve test found " << M << " which is not in the known pairs, check it" << std::endl;
+			}
+			ok = ok || (M == m);
+		}
+	}
+	if (!ok)
+	{
+		LOG_ERROR("Large primes sieve test missed " << m << " (tier " << tier << ")");
+	}
+	return ok;
+}
+
+// The sieve part of the startup self-test: the sieve kernels as this device's compiler built them (a compiler or driver that breaks
+// them would lose amicable numbers without any error). Sieve runs around known pairs that are part of the app (self_test_sieve.inl,
+// no c2 files needed): the first-stage pairs through every tier (the last one with the divisibility kill), some of them only through
+// the band sieve (TestSieveKnownPairs puts the band just below their own N/D), numbers of 64 and 128 bits, p above and below 2^32;
+// with /lpr the pairs of the large primes stage. All of them must be found. The statistics are reset afterwards.
+bool OpenCL::TestSieveStartup()
+{
+#include "self_test_sieve.inl"
+	// (the batches run phase 2: its arguments are set after the self-tests, or by TestPairs if it had pairs)
+	if (!SetPhase2KernelArguments())
+	{
+		return false;
+	}
+	bool ok = true;
+	if (myLargePrimesSieve)
+	{
+		num64 survivors = 0;
+		for (size_t i = 0; ok && (i < ARRAYSIZE(sieve_test_pairs_lp)); ++i)
+		{
+			KnownPair pair;
+			bool bad = false;
+			if (!ParseKnownPair(sieve_test_pairs_lp[i][0], sieve_test_pairs_lp[i][1], pair, bad, true) || HighWord(pair.M0) || HighWord(pair.sumM0))
+			{
+				LOG_ERROR("Bad self-test pair " << sieve_test_pairs_lp[i][0]);
+				return false;
+			}
+			ok = TestSieveLargePrimesPair(pair.m, LowWord(pair.M0), LowWord(pair.sumM0), pair.p, static_cast<unsigned int>(i % mySieve.cfg.numTiers), nullptr, survivors);
+		}
+	}
+	else
+	{
+		std::vector<KnownPair> pairs;
+		for (size_t i = 0; i < ARRAYSIZE(sieve_test_pairs); ++i)
+		{
+			KnownPair pair;
+			bool bad = false;
+			if (!ParseKnownPair(sieve_test_pairs[i][0], sieve_test_pairs[i][1], pair, bad))
+			{
+				LOG_ERROR("Bad self-test pair " << sieve_test_pairs[i][0]);
+				return false;
+			}
+			pairs.push_back(pair);
+		}
+		const std::vector<num128> none;
+		ok = TestSieveKnownPairs(pairs, none, false);
+		LOG(1, "Sieve self-test: " << pairs.size() << " pairs, " << mySieveStatBandTestRanges << " of them through the band");
+	}
+
+	// (the statistics of the work unit)
+	mySieveStatPositions = 0;
+	mySieveStatSurvivors = 0;
+	mySieveStatRanges = 0;
+	mySieveStatChunks = 0;
+	mySieveStatBatches = 0;
+	mySieveStatOverflows = 0;
+	mySieveStatTime = 0.0;
+	mySieveStatSieveKernelTime = 0.0;
+	mySieveStatCheckKernelTime = 0.0;
+	mySieveStatBandTestRanges = 0;
+	return ok;
+}
+
+bool OpenCL::TestSieveLargePrimes(unsigned int stride, const std::vector<num128>& allAmicable)
+{
+	const char* files[] = { "c2_3.txt", "c2_4.txt", "c2_5.txt", "c2_6.txt", "c2_7.txt", "c2_8.txt", "c2_9.txt", "c2_10.txt", "c2_11.txt", "c2_12.txt", "c2_13.txt", "c2_14.txt", "c2_15.txt", "c2_16.txt", "c2_17.txt", "c2_18.txt", "c2_19.txt", "c2_20.txt", "c2_20_1.txt", "c2_20_2.txt", "c2_21.txt", "c2_21_1.txt", "c2_21_2.txt", "c2_21_3.txt", "c2_21_4.txt", "c2_22.txt" };
+	num64 numPairs = 0;
+	num64 numTested = 0;
+	num64 survivorsTotal = 0;
+	std::vector<SFoundPair> found;
+	for (const char* name : files)
+	{
+		std::ifstream f(name);
+		std::string line1, line2, line3, line4;
+		while (std::getline(f, line1) && std::getline(f, line2) && std::getline(f, line3))
+		{
+			std::getline(f, line4);
+			const num128 m = atoi128(line2.c_str());
+			if (m >= SearchLimit::value)
+			{
+				break;
+			}
+
+			// largest prime factor of m with exponent 1
+			const char* s = strchr(line2.c_str(), '=');
+			if (!s)
+			{
+				continue;
+			}
+			num64 p = 0;
+			bool single = false;
+			num128 c = 1, sc = 1;
+			std::vector<std::pair<num64, unsigned int>> factors;
+			for (++s; (*s >= '0') && (*s <= '9');)
+			{
+				num64 q = 0;
+				while ((*s >= '0') && (*s <= '9'))
+				{
+					q = q * 10 + static_cast<num64>(*s - '0');
+					++s;
+				}
+				unsigned int e = 1;
+				if (*s == '^')
+				{
+					e = static_cast<unsigned int>(StrToNumber(++s));
+					while ((*s >= '0') && (*s <= '9'))
+					{
+						++s;
+					}
+				}
+				factors.emplace_back(q, e);
+				if (*s == '*')
+				{
+					++s;
+				}
+				else
+				{
+					break;
+				}
+			}
+			for (const auto& fe : factors)
+			{
+				if (fe.first > p)
+				{
+					p = fe.first;
+					single = (fe.second == 1);
+				}
+			}
+			if (!single || (p <= SearchLimit::LinearLimit) || ((m % 6) == 0))
+			{
+				continue;
+			}
+			if ((numPairs++ % stride) != 0)
+			{
+				continue;
+			}
+			for (const auto& fe : factors)
+			{
+				if (fe.first == p)
+				{
+					continue;
+				}
+				num128 pk = 1, sp = 1;
+				for (unsigned int k = 0; k < fe.second; ++k)
+				{
+					pk *= fe.first;
+					sp += pk;
+				}
+				c *= pk;
+				sc *= sp;
+			}
+			if ((c * p != m) || HighWord(c) || HighWord(sc))
+			{
+				continue;
+			}
+
+			const unsigned int tier = static_cast<unsigned int>(numTested % mySieve.cfg.numTiers);
+			if (!TestSieveLargePrimesPair(m, LowWord(c), LowWord(sc), p, tier, &allAmicable, survivorsTotal))
+			{
+				return false;
+			}
+			++numTested;
+		}
+	}
+
+	std::cerr << "TestSieveLargePrimes: all " << numTested << " of " << numPairs << " large primes pairs found (" << survivorsTotal << " survivors)" << std::endl;
+	return numTested > 0;
 }

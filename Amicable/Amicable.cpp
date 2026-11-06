@@ -3,6 +3,8 @@
 #include "RangeGen.h"
 #include "Amicable_OpenCL.h"
 
+double boinc_process_cpu_time_correction = 0.0;
+
 PRAGMA_WARNING(push, 1)
 PRAGMA_WARNING(disable : 4091 4917 4625 4626 5026 5027)
 #include <boinc_api.h>
@@ -15,6 +17,101 @@ void AppInvalidParameterHandler(const wchar_t* /*expression*/, const wchar_t* /*
 	DebugBreak();
 }
 #endif
+
+// Largest prime that can occur in the factorization of M0 for the ranges between startFrom and stopAt (RangeGen order):
+// all of them start with the common prefix of the two factorizations, and every other prime factor f satisfies
+// prefix * f * (next prime after f) < SearchLimit::value. The table must also hold every prime of the two factorizations
+// themselves (and the next prime after it): the primes of the prefix, and those that RangeGen parses although no range has them
+// (/from 2^3*29*31*367*49606367 /to 2^3*29*31*367*49606367*49606387 read past the end of the table)
+static num64 GetRangesPrimeBound(const char* startFrom, const char* stopAt)
+{
+	auto parse = [](const char* s, std::vector<std::pair<num64, num64>>& factors)
+	{
+		while (*s)
+		{
+			num64 p = 0;
+			while ((*s >= '0') && (*s <= '9'))
+			{
+				p = p * 10 + static_cast<num64>(*s - '0');
+				++s;
+			}
+			num64 k = 1;
+			if (*s == '^')
+			{
+				++s;
+				k = 0;
+				while ((*s >= '0') && (*s <= '9'))
+				{
+					k = k * 10 + static_cast<num64>(*s - '0');
+					++s;
+				}
+			}
+			if (p < 2)
+			{
+				return false;
+			}
+			factors.emplace_back(p, k);
+			if (*s == '*')
+			{
+				++s;
+			}
+			else if (*s)
+			{
+				return false;
+			}
+		}
+		return true;
+	};
+
+	std::vector<std::pair<num64, num64>> a, b;
+	if (!parse(startFrom, a) || !parse(stopAt, b))
+	{
+		return 0;
+	}
+
+	num128 prefix = 1;
+	for (size_t i = 0; (i < a.size()) && (i < b.size()) && (a[i] == b[i]); ++i)
+	{
+		for (num64 k = 0; k < a[i].second; ++k)
+		{
+			prefix *= a[i].first;
+		}
+	}
+
+	num64 bound = IntegerSquareRoot((SearchLimit::value - 1) / prefix) + 1000000;
+	for (const std::vector<std::pair<num64, num64>>* v : { &a, &b })
+	{
+		for (const std::pair<num64, num64>& f : *v)
+		{
+			if (bound < f.first + 1000000)
+			{
+				bound = f.first + 1000000;
+			}
+		}
+	}
+	return (bound < SearchLimit::MainPrimeTableBound) ? bound : 0;
+}
+
+static void ParseList(const char* s, unsigned int* values, unsigned int maxCount, unsigned int& count)
+{
+	count = 0;
+	while (*s && (count < maxCount))
+	{
+		values[count++] = static_cast<unsigned int>(StrToNumber(s));
+		while ((*s >= '0') && (*s <= '9'))
+		{
+			++s;
+		}
+		if (*s == ',')
+		{
+			++s;
+		}
+		else
+		{
+			break;
+		}
+	}
+}
 
 int main(int argc, char* argv[])
 {
@@ -44,6 +141,7 @@ int main(int argc, char* argv[])
 	unsigned int largestPrimePower = 1;
 	num64 startPrime = 0;
 	num64 primeLimit = 0;
+	bool testLargePrimes = false;
 
 	// Parse command line parameters
 	for (int i = 1; i < argc; ++i)
@@ -81,10 +179,120 @@ int main(int argc, char* argv[])
 		{
 			RangeGen::total_numbers_to_check = atof(argv[++i]);
 		}
+
+		// The original algorithm (trial division of every number) instead of the sieve
+		if (strcmp(argv[i], "/nosieve") == 0)
+		{
+			g_UseSieve = false;
+		}
+
+		// Self-tests of the sieve, optionally followed by the sampling stride of the known pairs (1 = all pairs)
+		// "/test_lp" tests the large primes stage
+		if ((strcmp(argv[i], "/test") == 0) || (strcmp(argv[i], "/test_lp") == 0) || (strcmp(argv[i], "/test_reduction") == 0))
+		{
+			g_RunTests = true;
+			testLargePrimes = (strcmp(argv[i], "/test_lp") == 0);
+			g_TestReductionOnly = (strcmp(argv[i], "/test_reduction") == 0);
+			if ((i + 1 < argc) && (argv[i + 1][0] >= '0') && (argv[i + 1][0] <= '9'))
+			{
+				g_TestStride = static_cast<unsigned int>(StrToNumber(argv[++i]));
+			}
+		}
+
+		// Profiling of the host part of the sieve (no GPU work, no results)
+		// Without the necessary conditions of SieveReduction (for comparison)
+		if (strcmp(argv[i], "/noreduce") == 0)
+		{
+			g_SieveReduce = false;
+		}
+		// Without the divisibility kill of the wheel primes (for comparison)
+		if (strcmp(argv[i], "/nokill") == 0)
+		{
+			g_SieveKill = false;
+		}
+		if ((strcmp(argv[i], "/analyze") == 0) && (i + 1 < argc))
+		{
+			g_AnalyzeRate = atof(argv[++i]);
+			g_SieveDryRun = true;
+		}
+		if ((strcmp(argv[i], "/explore") == 0) && (i + 1 < argc))
+		{
+			g_ExploreNumbers = static_cast<num64>(atof(argv[++i]));
+		}
+		if (strcmp(argv[i], "/sieve_dry_run") == 0)
+		{
+			g_SieveDryRun = true;
+		}
+
+		// Positions per batch of ranges (log2): every batch ends with a wait on the host and a possible checkpoint
+		if ((strcmp(argv[i], "/sieve_batch") == 0) && (i + 1 < argc))
+		{
+			g_SieveBatchShift = static_cast<unsigned int>(std::min<num64>(40, std::max<num64>(16, StrToNumber(argv[++i]))));
+		}
+
+		// GPU time of the sieve kernels (OpenCL profiling)
+		if (strcmp(argv[i], "/sieve_profile") == 0)
+		{
+			g_SieveProfile = true;
+		}
+
+		// Sieve tuning
+		if ((strcmp(argv[i], "/sieve_wg") == 0) && (i + 1 < argc))
+		{
+			g_SieveConfig.wgSize = static_cast<unsigned int>(StrToNumber(argv[++i]));
+		}
+		if ((strcmp(argv[i], "/sieve_seg") == 0) && (i + 1 < argc))
+		{
+			g_SieveConfig.segJ = static_cast<unsigned int>(StrToNumber(argv[++i]));
+		}
+		if ((strcmp(argv[i], "/sieve_chunk") == 0) && (i + 1 < argc))
+		{
+			g_SieveConfig.chunkSegments = static_cast<unsigned int>(StrToNumber(argv[++i]));
+		}
+		if ((strcmp(argv[i], "/sieve_hits") == 0) && (i + 1 < argc))
+		{
+			g_SieveConfig.hitsPerTask = static_cast<unsigned int>(StrToNumber(argv[++i]));
+		}
+		if ((strcmp(argv[i], "/sieve_wheel") == 0) && (i + 1 < argc))
+		{
+			g_SieveConfig.wheelThreshold = static_cast<unsigned int>(StrToNumber(argv[++i]));
+		}
+		if ((strcmp(argv[i], "/sieve_high_w") == 0) && (i + 1 < argc))
+		{
+			g_SieveConfig.highTierW = atof(argv[++i]);
+		}
+		if ((strcmp(argv[i], "/sieve_q") == 0) && (i + 1 < argc))
+		{
+			ParseList(argv[++i], g_SieveConfig.tierQ, SieveMaxTiers, g_SieveConfig.numTiers);
+		}
+		if ((strcmp(argv[i], "/sieve_tier_min") == 0) && (i + 1 < argc))
+		{
+			unsigned int values[SieveMaxTiers] = {};
+			unsigned int n = 0;
+			ParseList(argv[++i], values, SieveMaxTiers, n);
+			for (unsigned int k = 0; k < n; ++k)
+			{
+				g_SieveConfig.tierMinPrimes[k] = values[k];
+			}
+		}
+	}
+
+	if (g_RunTests)
+	{
+		// The tests only need small prime tables (and no candidates: the large primes test creates its own)
+		startFrom = nullptr;
+		stopAt = nullptr;
+		startPrime = testLargePrimes ? 10000000000000000000ULL : 0;
+		primeLimit = startPrime;
+		g_RangesPrimeTableBound = 10000000;
+	}
+	else if (g_UseSieve && (largestPrimePower == 1) && !(startPrime && primeLimit) && startFrom && stopAt)
+	{
+		g_RangesPrimeTableBound = GetRangesPrimeBound(startFrom, stopAt);
 	}
 
 	std::cerr << "Initializing prime tables..." << std::flush;
-	PrimeTablesInit(startPrime, primeLimit, stopAt);
+	PrimeTablesInit(startPrime, primeLimit, g_RunTests ? "" : stopAt);
 	std::cerr << "done" << std::endl << std::flush;
 
 	APP_INIT_DATA aid;
