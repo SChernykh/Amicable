@@ -3564,6 +3564,12 @@ bool OpenCL::RunSieveLaunches(unsigned int chunkBegin, unsigned int chunkEnd, un
 			double groupExpected[2] = {};
 			double groupOverflowScale[2] = {};
 			double groupChecked[2] = {};   // survivors checked by all launches (those that overflowed the survivor buffer: its capacity)
+			// Numbers for phase 2 that the estimates predicted for the launches that didn't overflow (what sized the round). The estimates
+			// are lowered after a round with enough survivors (or positions) measured, or with at least 1e5 predicted numbers: when they
+			// are too high, the rounds they size are too small for the first condition (12574 rounds of 0.18 survivors in a batch of
+			// 65535 tiny ranges after a dense range had raised them), so they would never come down again.
+			double groupPredicted2[2] = {};
+			unsigned int groupLaunches[2] = {};
 			for (size_t i = 0; i < launches.size(); ++i)
 			{
 				const cl_uint flag = stats[SieveStatsHeader + i] & 3;
@@ -3576,6 +3582,7 @@ bool OpenCL::RunSieveLaunches(unsigned int chunkBegin, unsigned int chunkEnd, un
 					expected += chunkSurvivors(c);
 				}
 				const unsigned int group = (launches[i].second > launches[i].first) ? chunkGroup(launches[i].first) : 1;
+				++groupLaunches[group];
 				groupChecked[group] += std::min<double>(launchSurvivors, mySurvivorCapacity);
 				if (flag)
 				{
@@ -3586,12 +3593,24 @@ bool OpenCL::RunSieveLaunches(unsigned int chunkBegin, unsigned int chunkEnd, un
 						minOverflowPositions = std::min(minOverflowPositions, std::max<num64>(positions, 1));
 						groupOverflowScale[group] = std::max(groupOverflowScale[group], 2.0 * static_cast<double>(launchSurvivors) / std::max(expected, 1.0));
 					}
+					else
+					{
+						// (phase 2 overflowed: all survivors of the launch were counted and checked, so they measure the survivor estimate.
+						// Without them a dense range kept its estimate and the factor for phase 2 doubled instead, 13 times in one batch,
+						// each time sieving the same launches again)
+						groupMeasured[group] += launchSurvivors;
+						groupExpected[group] += expected;
+					}
 				}
 				else
 				{
 					donePositions += positions;
 					groupMeasured[group] += launchSurvivors;
 					groupExpected[group] += expected;
+					if (launches[i].second > launches[i].first)
+					{
+						groupPredicted2[group] += chunkPhase2(launches[i].first, expected * chunkScale(launches[i].first));
+					}
 				}
 			}
 
@@ -3602,7 +3621,7 @@ bool OpenCL::RunSieveLaunches(unsigned int chunkBegin, unsigned int chunkEnd, un
 					mySieveSurvivorRate = std::max(mySieveSurvivorRate * 2.0, 2.0 * static_cast<double>(mySurvivorCapacity) / static_cast<double>(minOverflowPositions));
 					++mySieveStatOverflows;
 				}
-				else if (donePositions >= (num64(1) << 24))
+				else if ((donePositions >= (num64(1) << 24)) || (static_cast<double>(donePositions) * mySieveSurvivorRate >= 1e5))
 				{
 					const double measured = static_cast<double>(roundMeasured) / static_cast<double>(donePositions);
 					mySieveSurvivorRate = std::max(std::max(measured, mySieveSurvivorRate * 0.5), 1e-6);
@@ -3614,9 +3633,9 @@ bool OpenCL::RunSieveLaunches(unsigned int chunkBegin, unsigned int chunkEnd, un
 						// (the counter of an overflowed launch holds all its survivors)
 						mySieveRateScale[group] = std::max(mySieveRateScale[group] * 2.0, groupOverflowScale[group]);
 					}
-					else if (groupExpected[group] > 1e5)
+					else if ((groupExpected[group] > 1e5) || (groupPredicted2[group] >= 1e5))
 					{
-						mySieveRateScale[group] = std::max(std::max(groupMeasured[group] / groupExpected[group], mySieveRateScale[group] * 0.5), 1e-3);
+						mySieveRateScale[group] = std::max(std::max(groupMeasured[group] / std::max(groupExpected[group], 1e-30), mySieveRateScale[group] * 0.5), 1e-3);
 					}
 				}
 
@@ -3625,7 +3644,7 @@ bool OpenCL::RunSieveLaunches(unsigned int chunkBegin, unsigned int chunkEnd, un
 			cl_uint phase2Count = 0;
 			CL_CHECKED_CALL(clEnqueueReadBuffer, myQueue, myPhase2_numbers_count_buf, CL_TRUE, 0, sizeof(phase2Count), &phase2Count, 0, nullptr, nullptr);
 			const cl_uint phase2New = std::min<cl_uint>(phase2Count, myPhase2MaxNumbersCount) - std::min<cl_uint>(phase2Fill, myPhase2MaxNumbersCount);
-			if (roundPositions >= 16777216.0)
+			if ((roundPositions >= 16777216.0) || ((roundPositions > 0.0) && (roundPositions * mySievePhase2Rate >= 1e5)))
 			{
 				const double measured = static_cast<double>(phase2New) / roundPositions;
 				mySievePhase2Rate = numOverflows[2] ? std::max(mySievePhase2Rate * 2.0, measured * 2.0) : std::max(std::max(measured, mySievePhase2Rate * 0.5), 1e-9);
@@ -3640,7 +3659,8 @@ bool OpenCL::RunSieveLaunches(unsigned int chunkBegin, unsigned int chunkEnd, un
 				const double measured = (checked > 0.0) ? (static_cast<double>(phase2New) / checked) : 0.0;
 				for (unsigned int group = 0; group < 2; ++group)
 				{
-					if ((groupChecked[group] <= 0.0) && !numOverflows[2])
+					// (only the groups of the round's launches)
+					if ((groupLaunches[group] == 0) || ((groupChecked[group] <= 0.0) && (groupPredicted2[group] < 1e5) && !numOverflows[2]))
 					{
 						continue;
 					}
@@ -3649,7 +3669,7 @@ bool OpenCL::RunSieveLaunches(unsigned int chunkBegin, unsigned int chunkEnd, un
 					{
 						ratio = std::max(ratio * 2.0, measured * 2.0);
 					}
-					else if (checked >= 1e5)
+					else if ((checked >= 1e5) || (groupPredicted2[group] >= 1e5))
 					{
 						ratio = std::max(std::max(measured, ratio * 0.5), 1e-4);
 					}
