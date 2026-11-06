@@ -4,6 +4,9 @@
 #include "RangeGen.h"
 #include "PGO_Helper.h"
 #include "Tests.h"
+#include "RangeSieve.h"
+
+double boinc_process_cpu_time_correction = 0.0;
 
 PRAGMA_WARNING(push, 1)
 PRAGMA_WARNING(disable : 4091 4917 4625 4626 5026 5027)
@@ -60,6 +63,11 @@ int main(int argc, char* argv[])
 			g_PrintNumbers = false;
 		}
 
+		if (strcmp(argv[i], "/nosieve") == 0)
+		{
+			g_UseRangeSieve = false;
+		}
+
 		if (strcmp(argv[i], "/instrument") == 0)
 		{
 			// Quickly generate profile data for all hot (most used) code paths
@@ -101,6 +109,13 @@ int main(int argc, char* argv[])
 				std::cerr << "primesieve test failed" << std::endl;
 				return 4;
 			}
+			std::cout << "done" << std::endl << "Testing range sieve...";
+			flush(std::cout);
+			if (!TestRangeSieve())
+			{
+				std::cerr << "Range sieve test failed" << std::endl;
+				return 5;
+			}
 			std::cout << "done" << std::endl << "All tests passed" << std::endl;
 			return 0;
 		}
@@ -138,6 +153,52 @@ int main(int argc, char* argv[])
 		{
 			RangeGen::total_numbers_to_check = atof(argv[++i]);
 		}
+
+		// testing: the vector code of the range sieve scan (0 = SSE2, 1 = AVX2, 2 = AVX-512; at most what the CPU supports)
+		if ((strcmp(argv[i], "/sieve_scan") == 0) && (i + 1 < argc))
+		{
+			g_RangeSieveScanLevel = atoi(argv[++i]);
+		}
+
+		// testing: the band sieve of the near-degenerate ranges (0 = off)
+		if ((strcmp(argv[i], "/sieve_band") == 0) && (i + 1 < argc))
+		{
+			g_RangeSieveBand = atoi(argv[++i]);
+		}
+		if ((strcmp(argv[i], "/sieve_band_min") == 0) && (i + 1 < argc))
+		{
+			g_RangeSieveBandMinSpanLog2 = atoi(argv[++i]);
+		}
+
+		// testing: the layout of the range sieve (30 or 210)
+		if ((strcmp(argv[i], "/sieve_layout") == 0) && (i + 1 < argc))
+		{
+			g_RangeSieveLayout = atoi(argv[++i]);
+		}
+
+		// testing: force the depth tier of the range sieve (0..5)
+		if ((strcmp(argv[i], "/sieve_tier") == 0) && (i + 1 < argc))
+		{
+			g_RangeSieveTierOverride = atoi(argv[++i]);
+		}
+
+		// testing: the deepest tier for each class of the window height W (8 comma-separated values)
+		if ((strcmp(argv[i], "/sieve_wtiers") == 0) && (i + 1 < argc))
+		{
+			const char* s = argv[++i];
+			for (unsigned int k = 0; (k < 8) && *s; ++k)
+			{
+				g_RangeSieveMaxTierByW[k] = atoi(s);
+				while (*s && (*s != ','))
+				{
+					++s;
+				}
+				if (*s == ',')
+				{
+					++s;
+				}
+			}
+		}
 	}
 
 	PrimeTablesInit(startPrime, primeLimit, stopAt);
@@ -156,6 +217,10 @@ int main(int argc, char* argv[])
 
 	g_outputFile = boinc_fopen(resolved_name.c_str(), "ab+");
 	RangeGen::Run(static_cast<num64>(ceil(aid.ncpus)), startFrom, stopAt, largestPrimePower, startPrime, primeLimit);
+	RangeSievePrintStats();
+#ifdef RANGE_SIEVE_VERIFY
+	std::cerr << "Range sieve verification: " << g_RangeSieveVerifyCount << " sums checked, " << g_RangeSieveVerifyErrors << " mismatches" << std::endl;
+#endif
 
 	// Now sort all numbers found so far
 	rewind(g_outputFile);

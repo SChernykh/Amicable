@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "num128.h"
+#include <cmath>
 
 const num128 NUM128_MAX = CombineNum128(num64(-1), num64(-1));
 
@@ -53,6 +54,22 @@ num64 IntegerSquareRoot(const num128& n)
 		return 0;
 	}
 
+	if (HighWord(n) < (num64(1) << 40))
+	{
+		// n < 2^104: the square root in doubles is within 2 of the result (a relative error of a few 2^-53, the result is < 2^52)
+		num64 r = static_cast<num64>(sqrt(Num128ToDouble(n)));
+		while (num128(r) * r > n)
+		{
+			--r;
+		}
+		while (num128(r + 1) * (r + 1) <= n)
+		{
+			++r;
+		}
+		return r;
+	}
+
+	// (bit by bit)
 	num64 result = 1;
 	DWORD highest_bit_index;
 	if (HighWord(n))

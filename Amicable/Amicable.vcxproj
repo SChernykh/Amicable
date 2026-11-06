@@ -123,6 +123,7 @@
     <ClInclude Include="Platform_MSVC_Windows.h" />
     <ClInclude Include="PrimeTables.h" />
     <ClInclude Include="RangeGen.h" />
+    <ClInclude Include="RangeSieve.h" />
     <ClInclude Include="sprp64.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="Tests.h" />
@@ -154,6 +155,9 @@
       <AssemblerOutput Condition="'$(Configuration)|$(Platform)'=='Release|x64'">All</AssemblerOutput>
     </ClCompile>
     <ClCompile Include="RangeGen.cpp">
+      <AssemblerOutput Condition="'$(Configuration)|$(Platform)'=='Release|x64'">All</AssemblerOutput>
+    </ClCompile>
+    <ClCompile Include="RangeSieve.cpp">
       <AssemblerOutput Condition="'$(Configuration)|$(Platform)'=='Release|x64'">All</AssemblerOutput>
     </ClCompile>
     <ClCompile Include="stdafx.cpp">

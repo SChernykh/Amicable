@@ -25,6 +25,17 @@ FORCEINLINE void _BitScanReverse64(unsigned long* index, unsigned long long mask
 	*index = static_cast<unsigned long>(63 - __builtin_clzll(mask));
 }
 
+// (the 32-bit forms are used by the SIMD loops of Engine.cpp and RangeSieve.cpp)
+FORCEINLINE void _BitScanForward(unsigned long* index, unsigned int mask)
+{
+	*index = static_cast<unsigned long>(__builtin_ctz(mask));
+}
+
+FORCEINLINE void _BitScanReverse(unsigned long* index, unsigned int mask)
+{
+	*index = static_cast<unsigned long>(31 - __builtin_clz(mask));
+}
+
 FORCEINLINE void _BitScanForward64(unsigned long* index, unsigned long long mask)
 {
 	*index = static_cast<unsigned long>(__builtin_ctzll(mask));
@@ -36,6 +47,9 @@ FORCEINLINE num64 _rotr64(num64 value, int shift)
 }
 
 #include <pthread.h>
+#if defined(__x86_64__) || defined(__i386__)
+#include <x86intrin.h> // (__rdtsc and the other intrinsics, <intrin.h> on MSVC)
+#endif
 #include <string.h>
 #include <sys/mman.h>
 #include <fenv.h>

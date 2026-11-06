@@ -45,6 +45,14 @@ public:
 		LargePrimesSplitSize = 1 << LargePrimesSplitShift,
 	};
 
+	// Long ranges of the first stage (the range sieve of SearchRange: p up to 10^11 for one M0, tens of seconds on one thread) are
+	// shared: the thread that gets one checks it in chunks of SharedRangeChunk numbers, and threads without other work take chunks
+	// too. A thread takes a chunk only when its read-ahead buffer is empty, and sets its checkpoint state to the shared range
+	// under the lock, so the checkpoint (the most lagging thread) never passes a range with unfinished chunks.
+	// Returns false if the range is not shared (too short, or too many shared ranges): the caller checks it then.
+	static bool ShareRange(const RangeData& r, num64 p_lo, num64 p_hi, unsigned int is_over_abundant_mask, num64 num_primes);
+	static const num64 SharedRangeChunk = 20 * 210 * 8192; // 34.4M numbers: whole segments of both layouts of the range sieve
+
 private:
 	FORCEINLINE RangeGen() { InitializeCriticalSection(&lock); }
 	FORCEINLINE ~RangeGen() { DeleteCriticalSection(&lock);}
@@ -79,6 +87,23 @@ private:
 	static void CheckpointThread(WorkerThreadParams* params, num64 numWorkerThreads);
 	static void WorkerThread(WorkerThreadParams* params);
 
+	struct SharedRange
+	{
+		RangeData range;
+		unsigned int is_over_abundant_mask;
+		bool inUse;
+		num64 id;
+		num64 p_next;
+		num64 p_hi;
+		double primesPerNumber; // for the sieve tier of a chunk
+		int tier;               // sieve tier of the next chunks (-1: by the length and window height), see SearchSharedChunk
+	};
+	enum { MaxSharedRanges = 64 };
+
+	// With the lock held: takes the next chunk of a shared range if there is one
+	static bool TakeSharedChunk(RangeData& r, unsigned int& is_over_abundant_mask, num64& p_lo, num64& p_hi, num64& num_primes, unsigned int& slot, num64& id, int& tier);
+	static void SearchSharedChunk(const RangeData& r, unsigned int is_over_abundant_mask, num64 p_lo, num64 p_hi, num64 num_primes, unsigned int slot, num64 id, int tier);
+
 private:
 	static CRITICAL_SECTION lock;
 	static CACHE_ALIGNED StackFrame search_stack[MaxPrimeFactors];
@@ -89,6 +114,12 @@ private:
 	static volatile num64 SharedCounterForSearch[2];
 	static num64 total_numbers_checked;
 	static volatile bool allDone;
+
+	// (under the lock)
+	static SharedRange sharedRanges[MaxSharedRanges];
+	static num64 sharedRangeNextId;
+	static num64 numWorkerThreadsTotal;
+	static num64 numIdleThreads;
 
 	static RangeGen RangeGen_instance;
 };

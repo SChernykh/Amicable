@@ -2,6 +2,7 @@
 #include "PrimeTables.h"
 #include <algorithm>
 #include "sprp64.h"
+#include "RangeSieve.h"
 
 CACHE_ALIGNED SReciprocal privPrimeReciprocals[ReciprocalsTableSize];
 CACHE_ALIGNED byte* privNextPrimeShifts = (byte*) AllocateSystemMemory(ReciprocalsTableSize, false);
@@ -39,9 +40,10 @@ namespace primesieve
 	class MainPrimeTableInitializer final : public PrimeGenerator
 	{
 	public:
-		MainPrimeTableInitializer(PrimeSieve& ps, const PreSieve& preSieve)
+		// (output: the bytes of MainPrimeTable for the block of 210 numbers where the sieve of ps starts, see CalculateMainPrimeTable)
+		MainPrimeTableInitializer(PrimeSieve& ps, const PreSieve& preSieve, byte* output)
 			: PrimeGenerator(ps, preSieve)
-			, m_outputData(MainPrimeTable)
+			, m_outputData(output)
 			, m_leftOverLength(0)
 		{}
 
@@ -151,35 +153,96 @@ static NOINLINE void CalculateMainPrimeTable(num64 maxPrime)
 	}
 	MainPrimeTable[0] = 1;
 
-	primesieve::PrimeSieve s;
-	s.setStart(0);
-	s.setStop(upperBound);
-
-	primesieve::PreSieve preSieve(0, upperBound);
-	primesieve::MainPrimeTableInitializer primeGen(s, preSieve);
-
-	if (primeGen.getSqrtStop() > preSieve.getMaxPrime())
+	// The table is sieved in chunks of whole blocks of 210 numbers, one primesieve run per chunk, all chunks in parallel (one run for the
+	// whole table took ~10 s of the ~11.5 s start of the app at 10^22, with all other threads idle). Block b of the table (6 bytes, see
+	// generatePrimes) holds b * 210 + {1, 11, ..., 209}; the sieve of a chunk [a, c) starts at a + 7 (its first byte holds a + 7 .. a + 31,
+	// as for a = 0) and stops at c + 1 (its last byte holds c + 1, bit 0 of the next block). The last 8-byte store of a chunk also writes
+	// the first 2 bytes of the next chunk, and the first store of a chunk reads bit 0 of its block, which the previous chunk writes: the
+	// first block of every chunk but the first is computed again once all chunks are done.
+	const num64 numBlocks = upperBound / PrimeTableParameters::Modulo;
+	unsigned int numThreads = std::max(1U, std::thread::hardware_concurrency());
+	if (numThreads > 64)
 	{
-		primesieve::SievingPrimes sp(primeGen, preSieve);
-		sp.generate();
+		numThreads = 64;
+	}
+	if (numBlocks < (num64(1) << 20))
+	{
+		numThreads = 1;
+	}
+	std::vector<num64> chunkStart(numThreads + 1);
+	for (unsigned int t = 0; t <= numThreads; ++t)
+	{
+		chunkStart[t] = (numBlocks * t / numThreads) * PrimeTableParameters::Modulo;
+	}
+	auto sieveChunk = [&chunkStart, numThreads, upperBound](unsigned int t)
+	{
+		const num64 a = chunkStart[t];
+		const num64 c = chunkStart[t + 1];
+		primesieve::PrimeSieve s;
+		s.setStart(a + 7);
+		s.setStop((t + 1 == numThreads) ? upperBound : (c + 1));
+
+		primesieve::PreSieve preSieve(a + 7, s.getStop());
+		primesieve::MainPrimeTableInitializer primeGen(s, preSieve, MainPrimeTable + (a / PrimeTableParameters::Modulo) * (PrimeTableParameters::NumOffsets / ByteParams::Bits));
+
+		if (primeGen.getSqrtStop() > preSieve.getMaxPrime())
+		{
+			primesieve::SievingPrimes sp(primeGen, preSieve);
+			sp.generate();
+		}
+
+		primeGen.sieve();
+	};
+	if (numThreads == 1)
+	{
+		sieveChunk(0);
+	}
+	else
+	{
+		std::vector<std::thread> threads;
+		for (unsigned int t = 0; t < numThreads; ++t)
+		{
+			threads.emplace_back(sieveChunk, t);
+		}
+		for (std::thread& th : threads)
+		{
+			th.join();
+		}
+		for (unsigned int t = 1; t < numThreads; ++t)
+		{
+			const num64 block = chunkStart[t] / PrimeTableParameters::Modulo;
+			for (unsigned int i = 0; i < PrimeTableParameters::NumOffsets; ++i)
+			{
+				const num64 n = block * PrimeTableParameters::Modulo + NumbersCoprimeToModulo[i];
+				const num64 k = block * PrimeTableParameters::NumOffsets + i;
+				byte& bits = MainPrimeTable[k / ByteParams::Bits];
+				const byte mask = static_cast<byte>(1U << (k % ByteParams::Bits));
+				bits = efficient_mr64(n) ? static_cast<byte>(bits | mask) : static_cast<byte>(bits & ~mask);
+			}
+		}
 	}
 
-	primeGen.sieve();
-
 #ifdef VALIDATE_MAIN_PRIME_TABLE
+	// (development aid: the table compared with one made from the primes of a plain primesieve run)
 	MainPrimeTable2[0] = 1;
 
 	MainPrimeTableInitializer p;
 	primesieve::PrimeSieve sieve;
 	sieve.sieveTemplated(0, upperBound, p);
 
-	for (uint32_t i = 0; i < MainPrimeTableSize; ++i)
+	num64 mismatches = 0;
+	for (size_t i = 0; i < arraySize - 8; ++i)
 	{
 		if (MainPrimeTable[i] != MainPrimeTable2[i])
 		{
-			__debugbreak();
+			if (mismatches < 10)
+			{
+				std::cerr << "MainPrimeTable mismatch at byte " << i << ": " << int(MainPrimeTable[i]) << " instead of " << int(MainPrimeTable2[i]) << std::endl;
+			}
+			++mismatches;
 		}
 	}
+	std::cerr << "MainPrimeTable validation: " << mismatches << " mismatches in " << (arraySize - 8) << " bytes (" << numThreads << " chunks)" << std::endl;
 #endif
 }
 
@@ -298,11 +361,17 @@ NOINLINE num64 GetMaxSumRatio(const PrimeIterator& p, const num128 limit)
 #if PACKED_AMICABLE_CANDIDATE_DATA
 AmicableCandidate::AmicableCandidate(num64 _value, num64 _sum, unsigned char _is_over_abundant_mask)
 {
+	if ((_value | _sum) >> 40)
+	{
+		std::cerr << "Amicable candidate " << _value << " (sum of divisors " << _sum << ") doesn't fit in AmicableCandidate" << std::endl;
+		abort();
+	}
+
 	value_low = static_cast<unsigned int>(_value);
-	value_high = static_cast<unsigned short>(_value >> 32);
+	value_high = static_cast<unsigned char>(_value >> 32);
 
 	sum_low = static_cast<unsigned int>(_sum);
-	sum_high = static_cast<unsigned short>(_sum >> 32);
+	sum_high = static_cast<unsigned char>(_sum >> 32);
 
 	is_over_abundant_mask = _is_over_abundant_mask;
 }
@@ -402,7 +471,9 @@ NOINLINE void SearchCandidates(Factor* factors, const num64 value, const num64 s
 
 NOINLINE void GenerateCandidates()
 {
-	privCandidatesData.reserve(std::min<num64>(252101336, g_LargestCandidate / 30));
+	// 2420786330 is the exact number of candidates when g_LargestCandidate = 10^22 / 10^11 (2.42 billion * 11 bytes = 26.6 GB),
+	// reserving it avoids reallocations that would temporarily need even more memory
+	privCandidatesData.reserve(std::min<num64>(2420786330ULL, g_LargestCandidate / 30));
 
 	Factor factors[MaxPrimeFactors];
 	SearchCandidates(factors, 1, 1, 0);
@@ -494,7 +565,7 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 		privPowersOf2_128DivisibilityData[i].second = NUM128_MAX / value;
 	}
 
-	const size_t inverse_ptr128_size = 2017787;
+	const size_t inverse_ptr128_size = 4126457;
 	InverseData128* inverse_ptr128_buf = reinterpret_cast<InverseData128*>(AllocateSystemMemory(inverse_ptr128_size * sizeof(InverseData128), false));
 	InverseData128* inverse_ptr128 = inverse_ptr128_buf;
 	InverseData128* inverse_ptr128_end = inverse_ptr128_buf + inverse_ptr128_size;
@@ -663,4 +734,6 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 		privSumEstimatesBeginP[j] = (j + 1 < SumEstimatesSize) ? privSumEstimates[j + 1][IS_NUM_ELIGIBLE_BEGIN / 8].P : num64(-1);
 		privSumEstimatesBeginQ[j] = privSumEstimates[j][IS_NUM_ELIGIBLE_BEGIN / 8].Q;
 	}
+
+	RangeSieveInit();
 }

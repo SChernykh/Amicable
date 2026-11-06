@@ -9,10 +9,10 @@ enum PrimeTablesParams : num64
 	// We can use this table for factorization when p^3 <= N < 2^64
 	ReciprocalsTableSize = 192725,
 
-	// There are exactly 664579 primes below 10^(21/3)
-	// We can use this table for factorization when p^3 <= N < 10^21
-	// Set it to 664592 because it's divisible by 16
-	ReciprocalsTableSize128 = 664592,
+	// There are exactly 1362201 primes below 10^(22/3)
+	// We can use this table for factorization when p^3 <= N < 10^22
+	// Set it to 1362208 because it's divisible by 16 (the table starts from 3, so it needs 1362200 entries)
+	ReciprocalsTableSize128 = 1362208,
 
 	MainPrimeTableSize = 2857142958,
 };
@@ -86,15 +86,17 @@ struct AmicableCandidate
 		return value_low < r.value_low;
 	}
 
+	// value and sum are 40-bit numbers: candidates go up to SearchLimit::value / SearchLimit::LinearLimit (10^11 for 10^22),
+	// their sums of divisors are a few times larger
 	unsigned int value_low;
 	unsigned int sum_low;
-	unsigned short value_high : 4;
-	unsigned short sum_high : 4;
-	unsigned short is_over_abundant_mask : 8;
+	unsigned char value_high;
+	unsigned char sum_high;
+	unsigned char is_over_abundant_mask;
 };
 #pragma pack(pop)
 
-static_assert(sizeof(AmicableCandidate) == sizeof(unsigned int) * 2 + sizeof(unsigned short), "AmicableCandidate size is incorrect");
+static_assert(sizeof(AmicableCandidate) == sizeof(unsigned int) * 2 + 3, "AmicableCandidate size is incorrect");
 #else
 struct AmicableCandidate
 {
@@ -157,8 +159,8 @@ extern CACHE_ALIGNED num64 privSumEstimates128[ReciprocalsTableSize128 / 16];
 
 #define SumEstimates128 ((const num64*)(privSumEstimates128))
 
-// Can be zero if search limit is <= 10^20
-#define SumEstimates128Shift 3
+// The smallest value that passes the overflow check in PrimeTablesInit: 0 if search limit is <= 10^20, 3 for 10^21, 7 for 10^22
+#define SumEstimates128Shift 7
 
 FORCEINLINE num64 Mod385(const num64 n)
 {

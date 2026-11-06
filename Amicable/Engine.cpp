@@ -2,6 +2,12 @@
 #include "PrimeTables.h"
 #include "Engine.h"
 #include "RangeGen.h"
+#include "RangeSieve.h"
+#if AMICABLE_X64
+#include <immintrin.h>
+#endif
+#include <limits>
+#include <atomic>
 
 //#pragma optimize("", off)
 //#undef FORCEINLINE
@@ -371,9 +377,15 @@ unsigned int GetNumFoundPairsInThisThread()
 bool g_PrintNumbers = true;
 FILE* g_outputFile = nullptr;
 
+std::vector<num128>* g_FoundNumbersLog = nullptr;
+
 NOINLINE void NumberFound(const num128 n1)
 {
 	++NumFoundPairs;
+	if (g_FoundNumbersLog)
+	{
+		g_FoundNumbersLog->push_back(n1);
+	}
 	if (g_PrintNumbers)
 	{
 		char buf[40];
@@ -412,42 +424,13 @@ FORCEINLINE num64 Root4(const num64 n)
 	return static_cast<num64>(static_cast<__int64>(sqrt(sqrt(n))));
 }
 
-FORCEINLINE void CheckPairInternal(const num128& n1, const num64 targetSum, num64 n2TargetSum, num64 n2, num64 sum)
+// The trial division of CheckPairInternal after its first CompileTimePrimesCount primes, from the prime p with index
+// numPrimesCheckedSoFar (as in PrimeInverses3: 1 is 3): n2 has no prime factors below p, sum is sigma of the part of the number
+// divided out so far, n2TargetSum = targetSum / sum (exact), indexForMaximumSumOfDivisorsN as set by IsNumEligible
+FORCEINLINE void CheckPairInternalTail(const num128& n1, const num64 targetSum, num64 n2TargetSum, num64 n2, num64 sum, num64 p, num64 numPrimesCheckedSoFar, num64 indexForMaximumSumOfDivisorsN)
 {
-	num64 indexForMaximumSumOfDivisorsN;
-	if (!CheckDivisibility<1>(n2, sum, targetSum, n2TargetSum, indexForMaximumSumOfDivisorsN))
-		return;
-
-	if (n2 < CompileTimePrimes<CompileTimePrimesCount>::value * CompileTimePrimes<CompileTimePrimesCount>::value)
-	{
-		if (n2 > 1)
-			sum *= n2 + 1;
-
-		if (sum == targetSum)
-			NumberFound(n1);
-
-		return;
-	}
-
-	num64 numPrimesCheckedSoFar = CompileTimePrimesCount;
-
-	if (!IsNumEligible<CompileTimePrimesCount>(n2, sum, targetSum, indexForMaximumSumOfDivisorsN))
-		return;
-
-	// We must have sum == targetSum in the end
-	// sum is constructed by multiplying it by (p^(e+1) - 1) for each found prime factor p^e
-	// p^(e+1) - 1 is an integer num64
-	//
-	// no matter how we split the sum, in "partial_sum1 * partial_sum2 == targetSum" both partial sums must be integer
-	//
-	// so if targetSum is not divisible by sum, we'll have this: sum * x == targetSum where x is not integer
-	// which means we can stop right now
-	n2TargetSum = targetSum / sum;
-	if ((targetSum % sum) != 0)
-		return;
 	num64 n2_sqrt4 = Root4(n2);
 
-	num64 p = CompileTimePrimes<CompileTimePrimesCount>::value;
 	while (p <= n2_sqrt4)
 	{
 		num64 h;
@@ -700,6 +683,43 @@ FORCEINLINE void CheckPairInternal(const num128& n1, const num64 targetSum, num6
 		NumberFound(n1);
 }
 
+FORCEINLINE void CheckPairInternal(const num128& n1, const num64 targetSum, num64 n2TargetSum, num64 n2, num64 sum)
+{
+	num64 indexForMaximumSumOfDivisorsN;
+	if (!CheckDivisibility<1>(n2, sum, targetSum, n2TargetSum, indexForMaximumSumOfDivisorsN))
+		return;
+
+	if (n2 < CompileTimePrimes<CompileTimePrimesCount>::value * CompileTimePrimes<CompileTimePrimesCount>::value)
+	{
+		if (n2 > 1)
+			sum *= n2 + 1;
+
+		if (sum == targetSum)
+			NumberFound(n1);
+
+		return;
+	}
+
+	const num64 numPrimesCheckedSoFar = CompileTimePrimesCount;
+
+	if (!IsNumEligible<CompileTimePrimesCount>(n2, sum, targetSum, indexForMaximumSumOfDivisorsN))
+		return;
+
+	// We must have sum == targetSum in the end
+	// sum is constructed by multiplying it by (p^(e+1) - 1) for each found prime factor p^e
+	// p^(e+1) - 1 is an integer num64
+	//
+	// no matter how we split the sum, in "partial_sum1 * partial_sum2 == targetSum" both partial sums must be integer
+	//
+	// so if targetSum is not divisible by sum, we'll have this: sum * x == targetSum where x is not integer
+	// which means we can stop right now
+	n2TargetSum = targetSum / sum;
+	if ((targetSum % sum) != 0)
+		return;
+
+	CheckPairInternalTail(n1, targetSum, n2TargetSum, n2, sum, CompileTimePrimes<CompileTimePrimesCount>::value, numPrimesCheckedSoFar, indexForMaximumSumOfDivisorsN);
+}
+
 NOINLINE static void CheckPairInternalNoInline(const num128& n1, const num64 targetSum, num64 n2TargetSum, num64 n2, num64 sum)
 {
 	CheckPairInternal(n1, targetSum, n2TargetSum, n2, sum);
@@ -790,6 +810,13 @@ FORCEINLINE bool InitialCheck128(const num128 n1, num128& targetSum, num128& n2)
 		}
 	}
 
+	// sigma(n2) >= n2 + 1 > targetSum, so it can't be an amicable pair
+	// Without this check, such numbers would go through the whole 128-bit trial division loop below if n2 has no small factors
+	if (n2 >= targetSum)
+	{
+		return false;
+	}
+
 	if (HighWord(targetSum) == 0)
 	{
 		return true;
@@ -875,24 +902,1291 @@ NOINLINE void CheckPair128NoInline(const num128 n1, const num128 targetSum)
 	CheckPair128(n1, targetSum);
 }
 
-NOINLINE num64 SearchRange(const RangeData& r)
+// N = r^2 s (DecideAtMost2Factors): the sign of f(r) - D for f(r) = (r + 1)(r + N / r^2), which is the sign of (r + 1)(r^3 + N) - D r^2
+// (r < 2^27, N < 2^78, D < 2^54: the products are below 2^120)
+FORCEINLINE int R2S_Sign(const num64 r, const num128& N, const num64 D)
 {
-	num128 prime_limit = (SearchLimit::value - 1) / r.value;
-	if (prime_limit > SearchLimit::MainPrimeTableBound)
+	const num128 b = ((num128(r * r) * r) + N) * (r + 1);
+	const num128 c = num128(D) * (r * r);
+	return (b > c) ? 1 : ((b < c) ? -1 : 0);
+}
+
+// f'(r) > 0 for f(r) = (r + 1)(r + N / r^2): r^3 f'(r) = 2 r^4 + r^3 - N r - 2 N = r^3 (2 r + 1) - N (r + 2)
+FORCEINLINE bool R2S_Rising(const num64 r, const num128& N)
+{
+	return ((num128(r * r) * r) * (2 * r + 1) > N * (r + 2)) != 0;
+}
+
+// Numbers with few prime factors (the same as DecideAtMost2Factors in the GPU version, kernel.cl). D = targetSum - N - 1 must be
+// sigma(N) - N - 1, the sum of the divisors of N between 1 and N. If N has 4 or more prime factors, D >= N / p >= N^(3/4) (p: the
+// smallest prime factor), with 3 different ones D > r1 r2 + r1 r3 + r2 r3 >= 3 N^(2/3) (AM-GM), N = r^2 s (r != s) has
+// D = (r + 1)(r + s) > r^2 + N / r >= 1.8899 N^(2/3) and N = r^3 has D = r + r^2. So if D < 3 floor(N^(1/3))^2 (and N >= 2^20:
+// N^(3/4) > 3 N^(2/3)), N can only be the other member of a pair if it is prime (D = 0), p^2 (D = p), p * q (D = p + q, p < q),
+// r^3 (D = r + r^2) or r^2 s (D = (r + 1)(r + s)) with primes p, q, r, s: that is decided here without trial divisions (every factor
+// that a report assumes prime is tested). N > 1, targetSum > N. Returns true if decided (n1 reported if it is amicable).
+FORCEINLINE bool DecideAtMost2Factors(const num128& n1, const num128& targetSum, const num128& N)
+{
+	const num128 D128 = targetSum - N - 1;
+	if (D128 == 0)
 	{
-		prime_limit = SearchLimit::MainPrimeTableBound;
+		if (HighWord(N) != 0)
+		{
+			return false; // (no primality test for N >= 2^64 here)
+		}
+		if (IsPrime(LowWord(N)))
+		{
+			NumberFound(n1);
+		}
+		return true;
+	}
+	if ((HighWord(D128) != 0) || (N < (num64(1) << 20)))
+	{
+		return false;
+	}
+	const num64 D = LowWord(D128);
+
+	// a floating point test first: most numbers have D >> N^(2/3) (with the 1% margin it only skips numbers with D >= 3 r^2)
+	const double rf = cbrt(Num128ToDouble(N));
+	if (static_cast<double>(D) > rf * rf * 3.03)
+	{
+		return false;
 	}
 
-	unsigned int is_over_abundant_mask = 0;
-	if (r.sum - r.value < r.value)
+	// r = floor(N^(1/3)) (N < 2^78: r < 2^26)
+	num64 r = static_cast<num64>(rf);
+	while ((num128(r * r) * r) > N)
 	{
-		const num128 prime_limit2 = (r.sum - 1) / (r.value * 2 - r.sum);
-		if (prime_limit > prime_limit2)
+		--r;
+	}
+	while ((num128((r + 1) * (r + 1)) * (r + 1)) <= N)
+	{
+		++r;
+	}
+	const num64 r2 = r * r;
+	if (D >= r2 * 3)
+	{
+		return false;
+	}
+
+	// N = r^3: D = r + r^2 (a cube has no other of these forms)
+	if ((num128(r2) * r) == N)
+	{
+		if ((D == r + r2) && IsPrime(r))
 		{
-			prime_limit = prime_limit2;
+			NumberFound(n1);
+		}
+		return true;
+	}
+
+	// N = p^2 (D = p) or N = p * q (D = p + q, p < q): if N has such a pair of divisors, it is not r^2 s with D = (r + 1)(r + s)
+	{
+		const num128 DD = num128(D) * D;
+		if (DD == N)
+		{
+			if (IsPrime(D))
+			{
+				NumberFound(n1);
+			}
+			return true;
+		}
+		// (q - p)^2 = D^2 - 4N
+		const num128 N4 = N << 2;
+		if (DD > N4)
+		{
+			const num128 E = DD - N4;
+			const num64 sq = IntegerSquareRoot(E);
+			if ((num128(sq) * sq) == E)
+			{
+				const num64 p = (D - sq) >> 1;
+				const num64 q = (D + sq) >> 1;
+				if (IsPrime(p) && IsPrime(q))
+				{
+					NumberFound(n1);
+				}
+				return true;
+			}
 		}
 	}
+
+	// N = r^2 s (D >= 1.8899 N^(2/3)): D = f(r) = (r + 1)(r + N / r^2). f is convex for r > 0, with its minimum near (N / 2)^(1/3), and
+	// D < 3 N^(2/3) puts both solutions in (0.34, 1.54) N^(1/3). Exact bisections (R2S_Sign: the sign of f(r) - D, R2S_Rising: f'(r) > 0)
+	// find the integers next to them.
+	if (D * 25 >= r2 * 47)
+	{
+		const num64 lo = std::max<num64>((r * 34) / 100, 2);
+		const num64 hi = (r * 154) / 100 + 2;
+		// the minimum: the first x in [lo, hi] with f'(x) > 0
+		num64 a = lo;
+		num64 b = hi;
+		while (a < b)
+		{
+			const num64 m = (a + b) >> 1;
+			if (R2S_Rising(m, N))
+			{
+				b = m;
+			}
+			else
+			{
+				a = m + 1;
+			}
+		}
+		const num64 r0 = a;
+		num64 candidates[2];
+		// f decreases in [lo, r0 - 1] (r0 - 1 <= the real minimum): the last x with f(x) >= D
+		a = lo;
+		b = (r0 > lo) ? (r0 - 1) : lo;
+		while (a < b)
+		{
+			const num64 m = (a + b + 1) >> 1;
+			if (R2S_Sign(m, N, D) >= 0)
+			{
+				a = m;
+			}
+			else
+			{
+				b = m - 1;
+			}
+		}
+		candidates[0] = a;
+		// f increases in [r0, hi]: the first x with f(x) >= D
+		a = r0;
+		b = hi;
+		while (a < b)
+		{
+			const num64 m = (a + b) >> 1;
+			if (R2S_Sign(m, N, D) >= 0)
+			{
+				b = m;
+			}
+			else
+			{
+				a = m + 1;
+			}
+		}
+		candidates[1] = a;
+		for (int j = 0; j < 2; ++j)
+		{
+			const num64 x = candidates[j];
+			if (R2S_Sign(x, N, D) != 0)
+			{
+				continue;
+			}
+			// D = (x + 1)(x + s), N = x^2 s
+			const num64 s = D / (x + 1) - x;
+			if ((num128(x + 1) * (x + s) == D) && (num128(x * x) * s == N) && (s != x))
+			{
+				if (IsPrime(x) && IsPrime(s))
+				{
+					NumberFound(n1);
+				}
+				return true;
+			}
+		}
+	}
+
+	// none of the forms fits
+	return true;
+}
+
+// ---- trial division of CheckCofactor in doubles ----
+// n < 2^78 = n2 2^52 + n1 2^26 + n0 (26-bit limbs) is congruent to x = n2 (2^52 mod p) + n1 (2^26 mod p) + n0 < 2^52 + 2^26 (p < 2^25), an
+// exact double; r = x - floor(x * (1 / p)) p is exact and in (-p, 2p) (the floor is off by at most one), and p | n <=> |r| is 0 or p.
+// The tables hold the first TD_SIZE primes of PrimeInverses128 (index 0: 3). 8 primes per AVX-512 instruction, 4 with AVX2 + FMA,
+// instead of a 128-bit product per prime (k4: 90% of the time was this loop).
+enum : unsigned int { TD_SIZE = ReciprocalsTableSize128 }; // (all primes of the 128-bit tables: up to 2.15e7 < 2^25)
+static double* g_tdC2 = nullptr;
+static double* g_tdC1 = nullptr;
+static double* g_tdP = nullptr;
+static double* g_tdInvP = nullptr;
+static int g_tdLevel = 0; // 0: scalar, 1: AVX2 + FMA, 2: AVX-512
+
+#if defined(_MSC_VER)
+#define ENGINE_TARGET_AVX2
+#define ENGINE_TARGET_AVX512
+#else
+#define ENGINE_TARGET_AVX2 __attribute__((target("avx2,fma")))
+#define ENGINE_TARGET_AVX512 __attribute__((target("avx512f")))
+#endif
+
+void CheckCofactorInit(int simdLevel)
+{
+	if (g_tdP)
+	{
+		return;
+	}
+	g_tdC2 = static_cast<double*>(AllocateSystemMemory(TD_SIZE * sizeof(double) * 4, false));
+	g_tdC1 = g_tdC2 + TD_SIZE;
+	g_tdP = g_tdC1 + TD_SIZE;
+	g_tdInvP = g_tdP + TD_SIZE;
+	for (unsigned int i = 0; i < TD_SIZE; ++i)
+	{
+		// the prime: the inverse of its 128-bit inverse (mod 2^64)
+		const num64 inv = LowWord(PrimeInverses128[i]);
+		num64 p = inv;
+		for (int k = 0; k < 5; ++k)
+		{
+			p *= 2 - inv * p;
+		}
+		const num64 c1 = (num64(1) << 26) % p;
+		const num64 c2 = (c1 * c1) % p;
+		g_tdC2[i] = static_cast<double>(c2);
+		g_tdC1[i] = static_cast<double>(c1);
+		g_tdP[i] = static_cast<double>(p);
+		g_tdInvP[i] = 1.0 / static_cast<double>(p);
+	}
+	if ((g_tdP[TD_SIZE - 1] >= 33554432.0) || (simdLevel < 0))
+	{
+		std::cerr << "CheckCofactorInit: bad table" << std::endl;
+		abort();
+	}
+	int level = simdLevel;
+#if AMICABLE_X64
+	if (level == 1)
+	{
+		// AVX2 without FMA: scalar
+#if defined(_MSC_VER)
+		int r[4];
+		__cpuid(r, 1);
+		if (((r[2] >> 12) & 1) == 0)
+		{
+			level = 0;
+		}
+#else
+		if (!__builtin_cpu_supports("fma"))
+		{
+			level = 0;
+		}
+#endif
+	}
+#else
+	// (the portable trial division)
+	level = 0;
+#endif
+	g_tdLevel = level;
+}
+
+static FORCEINLINE unsigned int FindDivisorScalar(const num128& n, unsigned int i0, unsigned int i1)
+{
+	for (unsigned int i = i0; i < i1; ++i)
+	{
+		if (n * PrimeInverses128[i] <= n)
+		{
+			return i;
+		}
+	}
+	return i1;
+}
+
+#if AMICABLE_X64
+// The first index j in [i0, i1) (i1 <= TD_SIZE) whose prime divides n (n < 2^78), or i1
+static ENGINE_TARGET_AVX512 unsigned int FindDivisorAVX512(const num128& n, unsigned int i0, unsigned int i1)
+{
+	const num64 lo = LowWord(n);
+	const num64 hi = HighWord(n);
+	const __m512d n0 = _mm512_set1_pd(static_cast<double>(lo & 0x3FFFFFF));
+	const __m512d n1 = _mm512_set1_pd(static_cast<double>((lo >> 26) & 0x3FFFFFF));
+	const __m512d n2 = _mm512_set1_pd(static_cast<double>((lo >> 52) | (hi << 12)));
+	const __m512d zero = _mm512_setzero_pd();
+	unsigned int i = i0 & ~7U;
+	unsigned int first = 0xFFU << (i0 - i);
+	for (; i < i1; i += 8)
+	{
+		const __m512d p = _mm512_load_pd(g_tdP + i);
+		const __m512d x = _mm512_fmadd_pd(n2, _mm512_load_pd(g_tdC2 + i), _mm512_fmadd_pd(n1, _mm512_load_pd(g_tdC1 + i), n0));
+		const __m512d q = _mm512_roundscale_pd(_mm512_mul_pd(x, _mm512_load_pd(g_tdInvP + i)), _MM_FROUND_TO_NEG_INF | _MM_FROUND_NO_EXC);
+		const __m512d r = _mm512_abs_pd(_mm512_fnmadd_pd(q, p, x));
+		const unsigned int k = (static_cast<unsigned int>(_mm512_cmp_pd_mask(r, zero, _CMP_EQ_OQ)) | static_cast<unsigned int>(_mm512_cmp_pd_mask(r, p, _CMP_EQ_OQ))) & first;
+		first = 0xFF;
+		if (k)
+		{
+			unsigned long t;
+			_BitScanForward(&t, k);
+			_mm256_zeroupper();
+			return ((i + t) < i1) ? (i + t) : i1;
+		}
+	}
+	_mm256_zeroupper();
+	return i1;
+}
+
+static ENGINE_TARGET_AVX2 unsigned int FindDivisorAVX2(const num128& n, unsigned int i0, unsigned int i1)
+{
+	const num64 lo = LowWord(n);
+	const num64 hi = HighWord(n);
+	const __m256d n0 = _mm256_set1_pd(static_cast<double>(lo & 0x3FFFFFF));
+	const __m256d n1 = _mm256_set1_pd(static_cast<double>((lo >> 26) & 0x3FFFFFF));
+	const __m256d n2 = _mm256_set1_pd(static_cast<double>((lo >> 52) | (hi << 12)));
+	const __m256d zero = _mm256_setzero_pd();
+	const __m256d signBit = _mm256_set1_pd(-0.0);
+	unsigned int i = i0 & ~3U;
+	unsigned int first = 0xFU << (i0 - i);
+	for (; i < i1; i += 4)
+	{
+		const __m256d p = _mm256_load_pd(g_tdP + i);
+		const __m256d x = _mm256_fmadd_pd(n2, _mm256_load_pd(g_tdC2 + i), _mm256_fmadd_pd(n1, _mm256_load_pd(g_tdC1 + i), n0));
+		const __m256d q = _mm256_round_pd(_mm256_mul_pd(x, _mm256_load_pd(g_tdInvP + i)), _MM_FROUND_TO_NEG_INF | _MM_FROUND_NO_EXC);
+		const __m256d r = _mm256_andnot_pd(signBit, _mm256_fnmadd_pd(q, p, x));
+		const unsigned int k = static_cast<unsigned int>(_mm256_movemask_pd(_mm256_or_pd(_mm256_cmp_pd(r, zero, _CMP_EQ_OQ), _mm256_cmp_pd(r, p, _CMP_EQ_OQ)))) & first;
+		first = 0xF;
+		if (k)
+		{
+			unsigned long t;
+			_BitScanForward(&t, k);
+			_mm256_zeroupper();
+			return ((i + t) < i1) ? (i + t) : i1;
+		}
+	}
+	_mm256_zeroupper();
+	return i1;
+}
+
+#endif
+
+// The first index j in [i0, i1) whose prime (PrimeInverses128) divides n, or i1
+static FORCEINLINE unsigned int FindDivisor(const num128& n, unsigned int i0, unsigned int i1)
+{
+#if AMICABLE_X64
+	if ((g_tdLevel == 0) || (HighWord(n) >= (num64(1) << 14)) || (i0 >= TD_SIZE))
+	{
+		return FindDivisorScalar(n, i0, i1);
+	}
+	const unsigned int e = (i1 < TD_SIZE) ? i1 : static_cast<unsigned int>(TD_SIZE);
+	const unsigned int j = (g_tdLevel == 2) ? FindDivisorAVX512(n, i0, e) : FindDivisorAVX2(n, i0, e);
+	if ((j < e) || (e == i1))
+	{
+		return j;
+	}
+	return FindDivisorScalar(n, e, i1);
+#else
+	return FindDivisorScalar(n, i0, i1);
+#endif
+}
+
+// The trial division of InitialCheck128 stops after the block of 16 primes b if n2 + n2 * SumEstimates128[b] < targetSum (the
+// bound for the factors >= the prime 16 (b + 1); it decreases with b): the first such block end after i (binary search), or
+// ReciprocalsTableSize128
+static FORCEINLINE unsigned int SumEstimateStop(const num128& n2, const num128& targetSum, unsigned int i)
+{
+	unsigned int lo = i >> 4;
+	unsigned int hi = ReciprocalsTableSize128 / 16;
+	while (lo < hi)
+	{
+		const unsigned int mid = (lo + hi) >> 1;
+		if (n2 + ((n2 * SumEstimates128[mid]) >> (64 - SumEstimates128Shift)) < targetSum)
+		{
+			hi = mid;
+		}
+		else
+		{
+			lo = mid + 1;
+		}
+	}
+	return (lo < ReciprocalsTableSize128 / 16) ? (16 * (lo + 1)) : static_cast<unsigned int>(ReciprocalsTableSize128);
+}
+
+// The first index >= i of the double tables whose prime is > x (x below the largest prime of the tables): galloping search (the
+// index is usually close to i), then bisection
+static FORCEINLINE unsigned int FirstPrimeAbove(const double x, unsigned int i)
+{
+	unsigned int lo = i;
+	unsigned int step = 1;
+	while ((lo + step < TD_SIZE - 1) && (g_tdP[lo + step] <= x))
+	{
+		lo += step;
+		step <<= 1;
+	}
+	unsigned int hi = (lo + step < TD_SIZE - 1) ? (lo + step) : (TD_SIZE - 1);
+	while (lo < hi)
+	{
+		const unsigned int mid = (lo + hi) >> 1;
+		if (g_tdP[mid] > x)
+		{
+			hi = mid;
+		}
+		else
+		{
+			lo = mid + 1;
+		}
+	}
+	return lo;
+}
+
+// If N is the other member of a pair with D = targetSum - N - 1 > 0, every prime factor of N is > L = N / D (N / r is a divisor
+// between 1 and N), N has at most K = floor(ln N / ln L) of them, and the smallest one is <= K L + K + 2 (GPU version: DecideByBand).
+// bandHi: the index of the first prime above that bound (in the double tables), ReciprocalsTableSize128 if there is no bound (D = 0,
+// L < 2, or beyond the tables); bandLo: the index of the first prime above L (i if L is below the prime with index i)
+// (Lout, Eout: L and the bound, Eout = infinity if there is none)
+// BandBounds: L and that bound E alone (false if there is none)
+static FORCEINLINE bool BandBounds(const num128& n2, const num128& targetSum, double& Lout, double& Eout)
+{
+	const num128 D = targetSum - n2 - 1;
+	if (D == 0)
+	{
+		return false;
+	}
+	const double N = Num128ToDouble(n2);
+	const double L = N / Num128ToDouble(D);
+	if (!(L >= 2.0) || (L >= 9.0e18))
+	{
+		return false;
+	}
+	// K <= bitlen(N) / floor(log2 L) (bitlen(N) > log2 N): an upper bound without logarithms (a larger K only widens the band)
+	unsigned long t;
+	unsigned int bitsN;
+	if (HighWord(n2))
+	{
+		_BitScanReverse64(&t, HighWord(n2));
+		bitsN = static_cast<unsigned int>(t) + 65;
+	}
 	else
+	{
+		_BitScanReverse64(&t, LowWord(n2));
+		bitsN = static_cast<unsigned int>(t) + 1;
+	}
+	_BitScanReverse64(&t, static_cast<num64>(L));
+	unsigned int K = bitsN / static_cast<unsigned int>(t);
+	if (K < 2)
+	{
+		K = 2;
+	}
+	Lout = L;
+	Eout = (K * L + K + 2.0) * (1.0 + 1e-9) + 2.0;
+	return true;
+}
+
+static FORCEINLINE void BandRange(const num128& n2, const num128& targetSum, unsigned int i, unsigned int& bandLo, unsigned int& bandHi, double& Lout, double& Eout)
+{
+	bandLo = i;
+	bandHi = ReciprocalsTableSize128;
+	Lout = 0.0;
+	Eout = std::numeric_limits<double>::infinity();
+	double L, E;
+	if ((g_tdP == nullptr) || (i >= TD_SIZE) || !BandBounds(n2, targetSum, L, E))
+	{
+		return;
+	}
+	Lout = L;
+	Eout = E;
+	if (E < g_tdP[i])
+	{
+		// (most numbers: no prime of the band is left)
+		bandHi = i;
+		return;
+	}
+	if (!(E < g_tdP[TD_SIZE - 1]))
+	{
+		return;
+	}
+	bandHi = FirstPrimeAbove(E, i);
+	// (L slightly too small only makes the band longer)
+	const double Llo = L * (1.0 - 1e-9) - 1.0;
+	if (Llo > g_tdP[i])
+	{
+		bandLo = FirstPrimeAbove(Llo, i);
+	}
+}
+
+// The first index >= i of the double tables whose prime p has p^3 > n2 (exact), ReciprocalsTableSize128 if it is beyond them
+static FORCEINLINE unsigned int CubeStop(const num128& n2, unsigned int i)
+{
+	if ((g_tdP == nullptr) || (i >= TD_SIZE))
+	{
+		return ReciprocalsTableSize128;
+	}
+	const num64 pmax = static_cast<num64>(g_tdP[TD_SIZE - 1]);
+	if ((num128(pmax * pmax) * pmax) <= n2)
+	{
+		return ReciprocalsTableSize128;
+	}
+	unsigned int lo = i;
+	unsigned int hi = TD_SIZE - 1;
+	while (lo < hi)
+	{
+		const unsigned int mid = (lo + hi) >> 1;
+		const num64 p = static_cast<num64>(g_tdP[mid]);
+		if ((num128(p * p) * p) > n2)
+		{
+			hi = mid;
+		}
+		else
+		{
+			lo = mid + 1;
+		}
+	}
+	return lo;
+}
+
+// ---- band sieve (GPU version: SieveBand) ----
+static const signed char BAND_CLS30[30] = { -1, 0, -1, -1, -1, -1, -1, 1, -1, -1, -1, 2, -1, 3, -1, -1, -1, 4, -1, 5, -1, -1, -1, 6, -1, -1, -1, -1, -1, 7 };
+// The multiples d0 + k p prime to 30 (p prime to 30): d0 + k p == p (m + k) (mod 30) with m = d0 p^-1 mod 30, so k runs through
+// u - m for the units u = 1, 7, 11, 13, 17, 19, 23, 29 (+ 30 t) above m. BAND_INV30: u^-1 mod 30; BAND_FIRST30_J / _K: the index of
+// the first unit >= m and its distance from m; BAND_GAP30: the gaps between the units.
+static const unsigned char BAND_INV30[30] = { 0, 1, 0, 0, 0, 0, 0, 13, 0, 0, 0, 11, 0, 7, 0, 0, 0, 23, 0, 19, 0, 0, 0, 17, 0, 0, 0, 0, 0, 29 };
+static const unsigned char BAND_FIRST30_J[30] = { 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 4, 4, 4, 4, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7 };
+static const unsigned char BAND_FIRST30_K[30] = { 1, 0, 5, 4, 3, 2, 1, 0, 3, 2, 1, 0, 1, 0, 3, 2, 1, 0, 1, 0, 3, 2, 1, 0, 5, 4, 3, 2, 1, 0 };
+static const unsigned char BAND_GAP30[8] = { 6, 4, 2, 4, 2, 4, 6, 2 };
+static THREAD_LOCAL num64 t_bandStats[3];
+
+struct BandRootCache
+{
+	enum : unsigned int { NO_ROOT = 0xFFFFFFFFU };
+	num128 A1 = 0;
+	num128 B1 = 0;
+	unsigned int iLo = 0;
+	unsigned int iHi = 0;
+	std::vector<unsigned int> roots; // (of the primes iLo .. iHi - 1)
+	std::vector<unsigned int> offsets;
+};
+static THREAD_LOCAL BandRootCache* t_bandRoots = nullptr;
+#ifdef RANGE_SIEVE_VERIFY_BAND
+std::atomic<num64> g_bandVerifyCount(0);
+std::atomic<num64> g_bandVerifyErrors(0);
+#endif
+
+double CofactorTableMaxPrime()
+{
+	return g_tdP ? g_tdP[TD_SIZE - 1] : 0.0;
+}
+
+double CofactorTablePrimeCount(double lo, double hi)
+{
+	if ((g_tdP == nullptr) || !(hi > lo))
+	{
+		return 0.0;
+	}
+	const unsigned int iLo = (lo < g_tdP[0]) ? 0 : FirstPrimeAbove(lo, 0);
+	const unsigned int iHi = (hi < g_tdP[0]) ? 0 : FirstPrimeAbove(hi, iLo);
+	return static_cast<double>(iHi - iLo);
+}
+
+void CofactorBandStats(num64* out3)
+{
+	for (int k = 0; k < 3; ++k)
+	{
+		out3[k] = t_bandStats[k];
+		t_bandStats[k] = 0;
+	}
+}
+
+// x mod p (exact) of the prime with index i of the double tables, x < 2^78 (as in FindDivisor)
+static FORCEINLINE num64 ModTable(const num128& x, unsigned int i)
+{
+	const num64 lo = LowWord(x);
+	const num64 hi = HighWord(x);
+	const double y = static_cast<double>((lo >> 52) | (hi << 12)) * g_tdC2[i] + static_cast<double>((lo >> 26) & 0x3FFFFFF) * g_tdC1[i] + static_cast<double>(lo & 0x3FFFFFF);
+	const double p = g_tdP[i];
+	double r = y - floor(y * g_tdInvP[i]) * p;
+	if (r < 0.0)
+	{
+		r += p;
+	}
+	else if (r >= p)
+	{
+		r -= p;
+	}
+	return static_cast<num64>(r);
+}
+
+// a^-1 mod m (0 < a < m < 2^32, gcd(a, m) = 1)
+static FORCEINLINE num64 InvMod32Engine(num64 a, num64 m)
+{
+	long long t = 0, nt = 1;
+	unsigned int r = static_cast<unsigned int>(m), nr = static_cast<unsigned int>(a);
+	while (nr)
+	{
+		const unsigned int q = r / nr;
+		const long long tmp = t - static_cast<long long>(q) * nt;
+		t = nt;
+		nt = tmp;
+		const unsigned int tmp2 = r - q * nr;
+		r = nr;
+		nr = tmp2;
+	}
+	return static_cast<num64>((t < 0) ? (t + static_cast<long long>(m)) : t);
+}
+
+// ---- roots of the band primes: -B1 / A1 mod p, NO_ROOT if p | A1 (gcd(A1, B1) = 1), A1, B1 < 2^78 ----
+// SIMD: a^-1 = a^(p - 2) mod p (Fermat, right-to-left binary powering) in doubles, for primes p >= 1024. The residues
+// h - round(h / p) p (exact with FMA) are within 0.504 p (round may be off by one near a half-integer: the error of h * (1 / p) is
+// below 2^-8 for h < 2^53), within p/2 + 1 for the products h < 2^49 of the powering: exact for p < 2^25.
+static void BandRootsScalar(const num128& A1, const num128& B1, unsigned int i0, unsigned int i1, unsigned int* out)
+{
+	for (unsigned int i = i0; i < i1; ++i)
+	{
+		const num64 p = static_cast<num64>(g_tdP[i]);
+		const num64 a = ModTable(A1, i);
+		unsigned int root = BandRootCache::NO_ROOT;
+		if (a != 0)
+		{
+			const num64 b = ModTable(B1, i);
+			root = static_cast<unsigned int>(((b ? (p - b) : 0) * InvMod32Engine(a, p)) % p);
+		}
+		out[i - i0] = root;
+	}
+}
+
+// (root - P0) mod p, NO_ROOT stays
+static void BandOffsetsScalar(const num64 P0, unsigned int i0, unsigned int i1, const unsigned int* roots, unsigned int* out)
+{
+	const num128 P0w = P0;
+	for (unsigned int i = i0; i < i1; ++i)
+	{
+		const unsigned int root = roots[i - i0];
+		if (root == BandRootCache::NO_ROOT)
+		{
+			out[i - i0] = root;
+			continue;
+		}
+		const num64 p = static_cast<num64>(g_tdP[i]);
+		const num64 P0p = ModTable(P0w, i);
+		out[i - i0] = static_cast<unsigned int>((root >= P0p) ? (root - P0p) : (root + p - P0p));
+	}
+}
+
+#if AMICABLE_X64
+#define BAND_RN (_MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC)
+
+// x y mod p within p/2 + 1 (|x|, |y| < 0.504 p)
+static ENGINE_TARGET_AVX512 FORCEINLINE __m512d BandMulMod512(const __m512d x, const __m512d y, const __m512d p, const __m512d ip)
+{
+	const __m512d h = _mm512_mul_pd(x, y);
+	return _mm512_fnmadd_pd(_mm512_roundscale_pd(_mm512_mul_pd(h, ip), BAND_RN), p, h);
+}
+
+// x mod p within 0.504 p, x = x2 2^52 + x1 2^26 + x0 < 2^78
+static ENGINE_TARGET_AVX512 FORCEINLINE __m512d BandReduce512(const __m512d x2, const __m512d x1, const __m512d x0, const unsigned int i, const __m512d p, const __m512d ip)
+{
+	const __m512d x = _mm512_fmadd_pd(x2, _mm512_loadu_pd(g_tdC2 + i), _mm512_fmadd_pd(x1, _mm512_loadu_pd(g_tdC1 + i), x0));
+	return _mm512_fnmadd_pd(_mm512_roundscale_pd(_mm512_mul_pd(x, ip), BAND_RN), p, x);
+}
+
+// (4 independent blocks of 8 primes per step of the powering: its latency chain is ~25 multiplications long)
+#define BAND_R512_INIT(j) \
+	const __m512d p##j = _mm512_loadu_pd(g_tdP + i + 8 * j); \
+	const __m512d ip##j = _mm512_loadu_pd(g_tdInvP + i + 8 * j); \
+	const __m512d a##j = BandReduce512(A2, A1v, A0, i + 8 * j, p##j, ip##j); \
+	const __m512i e##j = _mm512_cvtepi32_epi64(_mm512_cvttpd_epi32(_mm512_sub_pd(p##j, two))); \
+	__m512d res##j = one; \
+	__m512d base##j = a##j;
+#define BAND_R512_STEP(j) \
+	res##j = _mm512_mask_mov_pd(res##j, _mm512_test_epi64_mask(e##j, bit), BandMulMod512(res##j, base##j, p##j, ip##j)); \
+	base##j = BandMulMod512(base##j, base##j, p##j, ip##j);
+#define BAND_R512_DONE(j) \
+	{ \
+		const __m512d b##j = BandReduce512(B2, B1v, B0, i + 8 * j, p##j, ip##j); \
+		__m512d r##j = BandMulMod512(_mm512_sub_pd(zero, b##j), res##j, p##j, ip##j); \
+		r##j = _mm512_mask_add_pd(r##j, _mm512_cmp_pd_mask(r##j, zero, _CMP_LT_OQ), r##j, p##j); \
+		r##j = _mm512_mask_mov_pd(r##j, _mm512_cmp_pd_mask(a##j, zero, _CMP_EQ_OQ), noRoot); \
+		_mm256_storeu_si256(reinterpret_cast<__m256i*>(out + (i - i0) + 8 * j), _mm512_cvttpd_epi32(r##j)); \
+	}
+
+static ENGINE_TARGET_AVX512 void BandRootsAVX512(const num128& A1, const num128& B1, unsigned int i0, unsigned int i1, unsigned int* out)
+{
+	const __m512d A0 = _mm512_set1_pd(static_cast<double>(LowWord(A1) & 0x3FFFFFF));
+	const __m512d A1v = _mm512_set1_pd(static_cast<double>((LowWord(A1) >> 26) & 0x3FFFFFF));
+	const __m512d A2 = _mm512_set1_pd(static_cast<double>((LowWord(A1) >> 52) | (HighWord(A1) << 12)));
+	const __m512d B0 = _mm512_set1_pd(static_cast<double>(LowWord(B1) & 0x3FFFFFF));
+	const __m512d B1v = _mm512_set1_pd(static_cast<double>((LowWord(B1) >> 26) & 0x3FFFFFF));
+	const __m512d B2 = _mm512_set1_pd(static_cast<double>((LowWord(B1) >> 52) | (HighWord(B1) << 12)));
+	const __m512d zero = _mm512_setzero_pd();
+	const __m512d one = _mm512_set1_pd(1.0);
+	const __m512d two = _mm512_set1_pd(2.0);
+	const __m512d noRoot = _mm512_set1_pd(-1.0); // (converts to NO_ROOT)
+	unsigned int i = i0;
+	if (i1 - i0 >= 8)
+	{
+		// the bits of the largest exponent
+		unsigned long t;
+		_BitScanReverse64(&t, static_cast<num64>(g_tdP[i1 - 1]) - 2);
+		const unsigned int nbits = static_cast<unsigned int>(t) + 1;
+		for (; i + 32 <= i1; i += 32)
+		{
+			BAND_R512_INIT(0)
+			BAND_R512_INIT(1)
+			BAND_R512_INIT(2)
+			BAND_R512_INIT(3)
+			__m512i bit = _mm512_set1_epi64(1);
+			for (unsigned int k = 0; k < nbits; ++k)
+			{
+				BAND_R512_STEP(0)
+				BAND_R512_STEP(1)
+				BAND_R512_STEP(2)
+				BAND_R512_STEP(3)
+				bit = _mm512_add_epi64(bit, bit);
+			}
+			BAND_R512_DONE(0)
+			BAND_R512_DONE(1)
+			BAND_R512_DONE(2)
+			BAND_R512_DONE(3)
+		}
+		for (; i + 8 <= i1; i += 8)
+		{
+			BAND_R512_INIT(0)
+			__m512i bit = _mm512_set1_epi64(1);
+			for (unsigned int k = 0; k < nbits; ++k)
+			{
+				BAND_R512_STEP(0)
+				bit = _mm512_add_epi64(bit, bit);
+			}
+			BAND_R512_DONE(0)
+		}
+	}
+	_mm256_zeroupper();
+	BandRootsScalar(A1, B1, i, i1, out + (i - i0));
+}
+
+static ENGINE_TARGET_AVX512 void BandOffsetsAVX512(const num64 P0, unsigned int i0, unsigned int i1, const unsigned int* roots, unsigned int* out)
+{
+	const __m512d P0v = _mm512_set1_pd(static_cast<double>(P0 & 0x3FFFFFF));
+	const __m512d P1v = _mm512_set1_pd(static_cast<double>((P0 >> 26) & 0x3FFFFFF));
+	const __m512d P2v = _mm512_set1_pd(static_cast<double>(P0 >> 52));
+	const __m512d zero = _mm512_setzero_pd();
+	const __m512d noRoot = _mm512_set1_pd(-1.0);
+	unsigned int i = i0;
+	for (; i + 8 <= i1; i += 8)
+	{
+		const __m512d p = _mm512_loadu_pd(g_tdP + i);
+		const __m512d ip = _mm512_loadu_pd(g_tdInvP + i);
+		// (NO_ROOT: -1)
+		const __m512d root = _mm512_cvtepi32_pd(_mm256_loadu_si256(reinterpret_cast<const __m256i*>(roots + (i - i0))));
+		__m512d d = _mm512_sub_pd(root, BandReduce512(P2v, P1v, P0v, i, p, ip));
+		d = _mm512_mask_add_pd(d, _mm512_cmp_pd_mask(d, zero, _CMP_LT_OQ), d, p);
+		d = _mm512_mask_sub_pd(d, _mm512_cmp_pd_mask(d, p, _CMP_GE_OQ), d, p);
+		d = _mm512_mask_mov_pd(d, _mm512_cmp_pd_mask(root, zero, _CMP_LT_OQ), noRoot);
+		_mm256_storeu_si256(reinterpret_cast<__m256i*>(out + (i - i0)), _mm512_cvttpd_epi32(d));
+	}
+	_mm256_zeroupper();
+	BandOffsetsScalar(P0, i, i1, roots + (i - i0), out + (i - i0));
+}
+
+static ENGINE_TARGET_AVX2 FORCEINLINE __m256d BandMulMod256(const __m256d x, const __m256d y, const __m256d p, const __m256d ip)
+{
+	const __m256d h = _mm256_mul_pd(x, y);
+	return _mm256_fnmadd_pd(_mm256_round_pd(_mm256_mul_pd(h, ip), BAND_RN), p, h);
+}
+
+static ENGINE_TARGET_AVX2 FORCEINLINE __m256d BandReduce256(const __m256d x2, const __m256d x1, const __m256d x0, const unsigned int i, const __m256d p, const __m256d ip)
+{
+	const __m256d x = _mm256_fmadd_pd(x2, _mm256_loadu_pd(g_tdC2 + i), _mm256_fmadd_pd(x1, _mm256_loadu_pd(g_tdC1 + i), x0));
+	return _mm256_fnmadd_pd(_mm256_round_pd(_mm256_mul_pd(x, ip), BAND_RN), p, x);
+}
+
+#define BAND_R256_INIT(j) \
+	const __m256d p##j = _mm256_loadu_pd(g_tdP + i + 4 * j); \
+	const __m256d ip##j = _mm256_loadu_pd(g_tdInvP + i + 4 * j); \
+	const __m256d a##j = BandReduce256(A2, A1v, A0, i + 4 * j, p##j, ip##j); \
+	const __m256i e##j = _mm256_cvtepi32_epi64(_mm256_cvttpd_epi32(_mm256_sub_pd(p##j, two))); \
+	__m256d res##j = one; \
+	__m256d base##j = a##j;
+#define BAND_R256_STEP(j) \
+	res##j = _mm256_blendv_pd(res##j, BandMulMod256(res##j, base##j, p##j, ip##j), _mm256_castsi256_pd(_mm256_cmpeq_epi64(_mm256_and_si256(e##j, bit), bit))); \
+	base##j = BandMulMod256(base##j, base##j, p##j, ip##j);
+#define BAND_R256_DONE(j) \
+	{ \
+		const __m256d b##j = BandReduce256(B2, B1v, B0, i + 4 * j, p##j, ip##j); \
+		__m256d r##j = BandMulMod256(_mm256_sub_pd(zero, b##j), res##j, p##j, ip##j); \
+		r##j = _mm256_add_pd(r##j, _mm256_and_pd(_mm256_cmp_pd(r##j, zero, _CMP_LT_OQ), p##j)); \
+		r##j = _mm256_blendv_pd(r##j, noRoot, _mm256_cmp_pd(a##j, zero, _CMP_EQ_OQ)); \
+		_mm_storeu_si128(reinterpret_cast<__m128i*>(out + (i - i0) + 4 * j), _mm256_cvttpd_epi32(r##j)); \
+	}
+
+static ENGINE_TARGET_AVX2 void BandRootsAVX2(const num128& A1, const num128& B1, unsigned int i0, unsigned int i1, unsigned int* out)
+{
+	const __m256d A0 = _mm256_set1_pd(static_cast<double>(LowWord(A1) & 0x3FFFFFF));
+	const __m256d A1v = _mm256_set1_pd(static_cast<double>((LowWord(A1) >> 26) & 0x3FFFFFF));
+	const __m256d A2 = _mm256_set1_pd(static_cast<double>((LowWord(A1) >> 52) | (HighWord(A1) << 12)));
+	const __m256d B0 = _mm256_set1_pd(static_cast<double>(LowWord(B1) & 0x3FFFFFF));
+	const __m256d B1v = _mm256_set1_pd(static_cast<double>((LowWord(B1) >> 26) & 0x3FFFFFF));
+	const __m256d B2 = _mm256_set1_pd(static_cast<double>((LowWord(B1) >> 52) | (HighWord(B1) << 12)));
+	const __m256d zero = _mm256_setzero_pd();
+	const __m256d one = _mm256_set1_pd(1.0);
+	const __m256d two = _mm256_set1_pd(2.0);
+	const __m256d noRoot = _mm256_set1_pd(-1.0);
+	unsigned int i = i0;
+	if (i1 - i0 >= 4)
+	{
+		unsigned long t;
+		_BitScanReverse64(&t, static_cast<num64>(g_tdP[i1 - 1]) - 2);
+		const unsigned int nbits = static_cast<unsigned int>(t) + 1;
+		for (; i + 16 <= i1; i += 16)
+		{
+			BAND_R256_INIT(0)
+			BAND_R256_INIT(1)
+			BAND_R256_INIT(2)
+			BAND_R256_INIT(3)
+			__m256i bit = _mm256_set1_epi64x(1);
+			for (unsigned int k = 0; k < nbits; ++k)
+			{
+				BAND_R256_STEP(0)
+				BAND_R256_STEP(1)
+				BAND_R256_STEP(2)
+				BAND_R256_STEP(3)
+				bit = _mm256_add_epi64(bit, bit);
+			}
+			BAND_R256_DONE(0)
+			BAND_R256_DONE(1)
+			BAND_R256_DONE(2)
+			BAND_R256_DONE(3)
+		}
+		for (; i + 4 <= i1; i += 4)
+		{
+			BAND_R256_INIT(0)
+			__m256i bit = _mm256_set1_epi64x(1);
+			for (unsigned int k = 0; k < nbits; ++k)
+			{
+				BAND_R256_STEP(0)
+				bit = _mm256_add_epi64(bit, bit);
+			}
+			BAND_R256_DONE(0)
+		}
+	}
+	_mm256_zeroupper();
+	BandRootsScalar(A1, B1, i, i1, out + (i - i0));
+}
+
+static ENGINE_TARGET_AVX2 void BandOffsetsAVX2(const num64 P0, unsigned int i0, unsigned int i1, const unsigned int* roots, unsigned int* out)
+{
+	const __m256d P0v = _mm256_set1_pd(static_cast<double>(P0 & 0x3FFFFFF));
+	const __m256d P1v = _mm256_set1_pd(static_cast<double>((P0 >> 26) & 0x3FFFFFF));
+	const __m256d P2v = _mm256_set1_pd(static_cast<double>(P0 >> 52));
+	const __m256d zero = _mm256_setzero_pd();
+	const __m256d noRoot = _mm256_set1_pd(-1.0);
+	unsigned int i = i0;
+	for (; i + 4 <= i1; i += 4)
+	{
+		const __m256d p = _mm256_loadu_pd(g_tdP + i);
+		const __m256d ip = _mm256_loadu_pd(g_tdInvP + i);
+		const __m256d root = _mm256_cvtepi32_pd(_mm_loadu_si128(reinterpret_cast<const __m128i*>(roots + (i - i0))));
+		__m256d d = _mm256_sub_pd(root, BandReduce256(P2v, P1v, P0v, i, p, ip));
+		d = _mm256_add_pd(d, _mm256_and_pd(_mm256_cmp_pd(d, zero, _CMP_LT_OQ), p));
+		d = _mm256_sub_pd(d, _mm256_and_pd(_mm256_cmp_pd(d, p, _CMP_GE_OQ), p));
+		d = _mm256_blendv_pd(d, noRoot, _mm256_cmp_pd(root, zero, _CMP_LT_OQ));
+		_mm_storeu_si128(reinterpret_cast<__m128i*>(out + (i - i0)), _mm256_cvttpd_epi32(d));
+	}
+	_mm256_zeroupper();
+	BandOffsetsScalar(P0, i, i1, roots + (i - i0), out + (i - i0));
+}
+#endif
+
+bool CofactorBandSetup(CofactorBand& band)
+{
+	if ((g_tdP == nullptr) || !(band.hi < g_tdP[TD_SIZE - 1]) || !(band.hi > band.lo))
+	{
+		return false;
+	}
+	const unsigned int iLo = (band.lo < g_tdP[0]) ? 0 : FirstPrimeAbove(band.lo, 0);
+	const unsigned int iHi = FirstPrimeAbove(band.hi, iLo);
+	for (unsigned int k = 0; k <= BAND_SUBBANDS; ++k)
+	{
+		band.sub[k] = iLo + static_cast<unsigned int>((static_cast<num64>(iHi - iLo) * k + BAND_SUBBANDS - 1) / BAND_SUBBANDS);
+	}
+	return true;
+}
+
+unsigned int CofactorBandSubBandOf(const CofactorBand& band, num64 prime)
+{
+	if ((g_tdP == nullptr) || (band.sub[0] >= band.sub[BAND_SUBBANDS]) || (static_cast<double>(prime) < g_tdP[band.sub[0]]) || !(static_cast<double>(prime) <= g_tdP[band.sub[BAND_SUBBANDS] - 1]))
+	{
+		return 0;
+	}
+	const unsigned int i = FirstPrimeAbove(static_cast<double>(prime) - 0.5, band.sub[0]);
+	if (static_cast<num64>(g_tdP[i]) != prime)
+	{
+		return 0;
+	}
+	unsigned int sb = 1;
+	while (i >= band.sub[sb])
+	{
+		++sb;
+	}
+	return sb;
+}
+
+unsigned int BandSieve(const num128& A1, const num128& B1, num64 P0, num64 p_hi, CofactorBand& band, unsigned char* subBands)
+{
+	if ((HighWord(A1) >= (num64(1) << 14)) || (HighWord(B1) >= (num64(1) << 14)) || (p_hi - P0 >= (num64(1) << 30)) || !CofactorBandSetup(band))
+	{
+		return 0;
+	}
+	const unsigned int iLo = band.sub[0];
+	const unsigned int iHi = band.sub[BAND_SUBBANDS];
+#if AMICABLE_X64
+	const int level = (g_tdP[iLo] >= 1024.0) ? g_tdLevel : 0;
+#endif
+	// the roots of the band primes: the same for all chunks of a range, kept per thread (also for a part of the cached primes:
+	// the band of a chunk moves a little with p_hi)
+	if (!t_bandRoots)
+	{
+		t_bandRoots = new BandRootCache();
+	}
+	BandRootCache& rc = *t_bandRoots;
+	if (!((rc.A1 == A1) && (rc.B1 == B1) && (rc.iLo <= iLo) && (iHi <= rc.iHi)))
+	{
+		rc.A1 = A1;
+		rc.B1 = B1;
+		rc.iLo = iLo;
+		rc.iHi = iHi;
+		rc.roots.resize(iHi - iLo);
+#if AMICABLE_X64
+		if (level == 2)
+		{
+			BandRootsAVX512(A1, B1, iLo, iHi, rc.roots.data());
+		}
+		else if (level == 1)
+		{
+			BandRootsAVX2(A1, B1, iLo, iHi, rc.roots.data());
+		}
+		else
+#endif
+		{
+			BandRootsScalar(A1, B1, iLo, iHi, rc.roots.data());
+		}
+	}
+	// the first position >= P0 of each prime (x == root (mod p))
+	rc.offsets.resize(iHi - iLo);
+	unsigned int* off = rc.offsets.data();
+	const unsigned int* roots = rc.roots.data() + (iLo - rc.iLo);
+#if AMICABLE_X64
+	if (level == 2)
+	{
+		BandOffsetsAVX512(P0, iLo, iHi, roots, off);
+	}
+	else if (level == 1)
+	{
+		BandOffsetsAVX2(P0, iLo, iHi, roots, off);
+	}
+	else
+#endif
+	{
+		BandOffsetsScalar(P0, iLo, iHi, roots, off);
+	}
+
+	// Decreasing sub-bands and every hit stores its sub-band: the last store to a position is from its smallest band prime (no load:
+	// the 4-bit version had to test the nibble first). NO_ROOT > span: p divides A1, not B1, never A1 p + B1. Only the positions
+	// prime to 30 have a byte (P0 is a multiple of 210): the wheel steps over the others. (32 bits: span < 2^30, p < 2^25)
+	const unsigned int span = static_cast<unsigned int>(p_hi - P0);
+	for (unsigned int sb = BAND_SUBBANDS; sb >= 1; --sb)
+	{
+		const unsigned char v = static_cast<unsigned char>(sb);
+		for (unsigned int i = band.sub[sb - 1]; i < band.sub[sb]; ++i)
+		{
+			const unsigned int d0 = off[i - iLo];
+			if (d0 > span)
+			{
+				continue;
+			}
+			const unsigned int p = static_cast<unsigned int>(g_tdP[i]);
+			const unsigned int m = ((d0 % 30) * BAND_INV30[p % 30]) % 30;
+			unsigned int j = BAND_FIRST30_J[m];
+			unsigned int d = d0 + BAND_FIRST30_K[m] * p;
+			while (d <= span)
+			{
+				// position 8 (d / 30) + class
+				const unsigned int q30 = d / 30;
+				subBands[q30 * 8 + static_cast<unsigned int>(BAND_CLS30[d - q30 * 30])] = v;
+				d += BAND_GAP30[j] * p;
+				j = (j + 1) & 7;
+			}
+		}
+	}
+	return iHi - iLo;
+}
+
+bool CofactorBandBounds(const num128& n2, const num128& targetSum, double& L, double& E)
+{
+	return BandBounds(n2, targetSum, L, E);
+}
+
+num64 g_testBandP = 0;
+num64 g_testBandPasses = 0;
+
+// The sub-band of the number of the range at p in the band sieve (0: no prime of the band divides A1 p + B1); n2: its cofactor
+// (RANGE_SIEVE_VERIFY_BAND)
+static FORCEINLINE unsigned int BandSubBand(const CofactorBand& band, const num64 p, const num128& n2)
+{
+	const num64 d = p - band.P0;
+	const num64 q30 = d / 30;
+	const num64 k = q30 * 8 + static_cast<num64>(BAND_CLS30[d - q30 * 30]);
+	const unsigned int sb = band.subBands[k];
+#ifdef RANGE_SIEVE_VERIFY_BAND
+	// (every 1024th lookup: the scalar trial division by all primes of a band takes up to ~10 ms)
+	static THREAD_LOCAL unsigned int t_verifyTick = 0;
+	if (((t_verifyTick++) & 1023) == 0)
+	{
+		// the sub-band of the smallest prime of the band that divides n2 (all prime factors of A1 p + B1 above Q are in n2, and g
+		// has no prime in the band)
+		const unsigned int jt = FindDivisorScalar(n2, band.sub[0], band.sub[BAND_SUBBANDS]);
+		unsigned int st = 0;
+		if (jt < band.sub[BAND_SUBBANDS])
+		{
+			st = 1;
+			while (jt >= band.sub[st])
+			{
+				++st;
+			}
+		}
+		if (st != sb)
+		{
+			g_bandVerifyErrors += 1;
+		}
+		g_bandVerifyCount += 1;
+	}
+#else
+	(void)n2;
+#endif
+	return sb;
+}
+
+// FinalCheck128 without the report: true if n1 is amicable (n2 is prime, p^2 or p q)
+static bool FinalCheck128Decide(const num128& targetSum, const num128& n2)
+{
+	if (LowWord(targetSum) & 1)
+	{
+		const num128 p = targetSum - n2 - 1;
+		return (p * p == n2) && IsPrime(LowWord(p));
+	}
+	if (targetSum == n2 + 1)
+	{
+		// (as in FinalCheck128: no test of the primality of n2 >= 2^64)
+		return (HighWord(n2) != 0) || IsPrime(LowWord(n2));
+	}
+	const num128 B = (targetSum - n2 - 1) >> 1;
+	num128 D = B * B;
+	if (D > n2)
+	{
+		D -= n2;
+		if (IsPerfectSquareCandidate(LowWord(D)))
+		{
+			const num64 sqrtD = IntegerSquareRoot(D);
+			if (num128(sqrtD) * sqrtD == D)
+			{
+				const num128 p = B - sqrtD;
+				const num128 q = B + sqrtD;
+				return (p * q == n2) && IsPrime(LowWord(p)) && IsPrime(LowWord(q));
+			}
+		}
+	}
+	return false;
+}
+
+NOINLINE void CheckCofactor(const num128 n1, num128 targetSum, num128 n2, const unsigned int startIndex, const CofactorBand* band, num64 p, const num128& targetOrig)
+{
+	if (n2 == 1)
+	{
+		if (targetSum == 1)
+		{
+			NumberFound(n1);
+		}
+		return;
+	}
+
+	// sigma(n2) >= n2 + 1
+	if (n2 >= targetSum)
+	{
+		return;
+	}
+
+	// The bound of the smallest prime factor first (as at the start of the loop below): most numbers have no prime left below it, and
+	// most numbers of the near-degenerate ranges have no prime of the band (their D ~ 3 N^(2/3) takes DecideAtMost2Factors a cube
+	// root and often a square root)
+	if ((g_tdP != nullptr) && (startIndex < TD_SIZE))
+	{
+		double L, E;
+		if (BandBounds(n2, targetSum, L, E))
+		{
+			if (E < g_tdP[startIndex])
+			{
+				return;
+			}
+			if (band && (E <= band->hi) && (L >= band->L0))
+			{
+				if (BandSubBand(*band, p, n2) == 0)
+				{
+					++t_bandStats[0];
+					return;
+				}
+				if (p == g_testBandP)
+				{
+					++g_testBandPasses;
+				}
+			}
+		}
+	}
+
+	if (DecideAtMost2Factors(n1, targetSum, n2))
+	{
+		return;
+	}
+
+	// Trial division from startIndex up to the first of: the band bound for the smallest prime factor (most numbers stop right away),
+	// the block where the sum estimate of InitialCheck128 rejects n2, the cube root of n2 (then n2 is prime, p^2 or p q with primes
+	// p, q above it: FinalCheck128). The same loop for 128-bit and 64-bit numbers (before: the 64-bit ones went through the scalar
+	// trial division of CheckPairInternal up to n2^(1/3), ~0.4 ms for each near-degenerate number of t1).
+	unsigned int i = startIndex;
+	bool bandChecked = (band == nullptr);
+	// (a factor taken from the band skips the primes of (Q, lo]: a factor there means that n1 is not amicable, so only a report has
+	// to be checked again, from scratch)
+	bool verifyReports = false;
+	auto Report = [&]()
+	{
+		if (verifyReports)
+		{
+			CheckPair128NoInline(n1, targetOrig);
+		}
+		else
+		{
+			NumberFound(n1);
+		}
+	};
+	for (;;)
+	{
+		unsigned int bandLo, bandStop;
+		double Lb, Eb;
+		BandRange(n2, targetSum, i, bandLo, bandStop, Lb, Eb);
+		if (bandStop <= i)
+		{
+			return;
+		}
+
+		unsigned int j = ReciprocalsTableSize128;
+		if (!bandChecked)
+		{
+			// (once: the sub-band is about A1 p + B1, whose prime factors > Q were all still in n2 at the first check)
+			bandChecked = true;
+			if ((Eb <= band->hi) && (Lb >= band->L0))
+			{
+				const unsigned int sb = BandSubBand(*band, p, n2);
+				if (sb == 0)
+				{
+					// no prime of the band divides N
+					++t_bandStats[0];
+					return;
+				}
+				++t_bandStats[1];
+				const unsigned int s0 = (band->sub[sb - 1] > i) ? band->sub[sb - 1] : i;
+				const unsigned int jb = (s0 < band->sub[sb]) ? FindDivisor(n2, s0, band->sub[sb]) : band->sub[sb];
+				if (jb < band->sub[sb])
+				{
+					if (g_tdP[jb] < Lb)
+					{
+						// a prime factor below L
+						return;
+					}
+					j = jb;
+					verifyReports = true;
+				}
+			}
+			else
+			{
+				++t_bandStats[2];
+			}
+		}
+
+		if (j == ReciprocalsTableSize128)
+		{
+			// (a band that ends soon: the other stops would only end the scan a little earlier)
+			unsigned int sumStop = ReciprocalsTableSize128;
+			unsigned int cubeStop = ReciprocalsTableSize128;
+			unsigned int stop = bandStop;
+			if (bandStop - i > 256)
+			{
+				sumStop = SumEstimateStop(n2, targetSum, i);
+				cubeStop = CubeStop(n2, i);
+				if (sumStop < stop)
+				{
+					stop = sumStop;
+				}
+				if (cubeStop < stop)
+				{
+					stop = cubeStop;
+				}
+			}
+			// the primes up to L can't divide n2 if it is the other member of a pair: the scan starts above L, and the primes it skipped
+			// are only tested when it finds a factor or before a conclusion that needs all of them (the cube root, the end of the tables)
+			const unsigned int from = (bandLo < stop) ? bandLo : stop;
+			j = (from < stop) ? FindDivisor(n2, from, stop) : stop;
+			if ((from > i) && ((j < stop) || (stop != bandStop) || (bandStop >= ReciprocalsTableSize128)))
+			{
+				if (FindDivisor(n2, i, from) < from)
+				{
+					// a prime factor up to L
+					return;
+				}
+			}
+			if (j >= stop)
+			{
+				if ((stop == bandStop) && (bandStop < ReciprocalsTableSize128))
+				{
+					// no prime factor in the band
+					return;
+				}
+				if ((stop == sumStop) && (sumStop < ReciprocalsTableSize128))
+				{
+					return;
+				}
+				// no prime factor below the cube root of n2 (or of the search limit): at most 2 are left
+				if (FinalCheck128Decide(targetSum, n2))
+				{
+					Report();
+				}
+				return;
+			}
+		}
+
+		// the prime with index j divides n2
+		const num128 inv = PrimeInverses128[j];
+		num128 q = n2 * inv;
+		const InverseData128* data = PowersOfP_128DivisibilityData[j];
+		for (;;)
+		{
+			n2 = q;
+			q *= inv;
+			if (HighWord(q) > HighWord(n2))
+			{
+				break;
+			}
+			++data;
+		}
+
+		if (data->shift)
+		{
+			if (LowWord(targetSum) & data->shift_bits)
+			{
+				return;
+			}
+			targetSum >>= data->shift;
+		}
+
+		targetSum *= data->inverse;
+		if (targetSum > data->max_value)
+		{
+			return;
+		}
+
+		if (n2 == 1)
+		{
+			if (targetSum == 1)
+			{
+				Report();
+			}
+			return;
+		}
+
+		if (n2 >= targetSum)
+		{
+			return;
+		}
+
+		i = j + 1;
+	}
+}
+
+// The mask of the numbers p + 1 (mod 385) that can't give an amicable number M0 p for an abundant M0 (r.sum - r.value >= r.value):
+// SearchRange (and the test of all known pairs)
+unsigned int RangeOverAbundantMask(const RangeData& r)
+{
+	unsigned int is_over_abundant_mask = 0;
+	if (r.sum - r.value >= r.value)
 	{
 		const Factor* f = r.factors;
 		const int k = r.last_factor_index;
@@ -903,6 +2197,41 @@ NOINLINE num64 SearchRange(const RangeData& r)
 		is_over_abundant_mask |= (((is_over_abundant_mask & 0x12) || OverAbundant<11>(f, k, r.value, r.sum, 2 * 5 * 11)) ? byte(1) : byte(0)) << 5;
 		is_over_abundant_mask |= (((is_over_abundant_mask & 0x14) || OverAbundant<11>(f, k, r.value, r.sum, 2 * 7 * 11)) ? byte(1) : byte(0)) << 6;
 		is_over_abundant_mask |= (((is_over_abundant_mask & 0x7E) || OverAbundant<11>(f, k, r.value, r.sum, 2 * 5 * 7 * 11)) ? byte(1) : byte(0)) << 7;
+	}
+	return is_over_abundant_mask;
+}
+
+NOINLINE num64 SearchRange(const RangeData& r)
+{
+	num128 prime_limit = (SearchLimit::value - 1) / r.value;
+	if (prime_limit > SearchLimit::MainPrimeTableBound)
+	{
+		prime_limit = SearchLimit::MainPrimeTableBound;
+	}
+
+	if (r.sum - r.value < r.value)
+	{
+		const num128 prime_limit2 = (r.sum - 1) / (r.value * 2 - r.sum);
+		if (prime_limit > prime_limit2)
+		{
+			prime_limit = prime_limit2;
+		}
+	}
+	const unsigned int is_over_abundant_mask = RangeOverAbundantMask(r);
+
+	// Long ranges are much faster with the arithmetic-progression sieve
+	if (g_UseRangeSieve && (LowWord(prime_limit) >= r.start_prime))
+	{
+		const num64 num_primes = RangeSieveCountPrimes(r.start_prime, LowWord(prime_limit));
+		if (num_primes >= g_RangeSieveMinPrimes)
+		{
+			// (long ranges are checked in chunks, shared with idle threads)
+			if (!RangeGen::ShareRange(r, r.start_prime, LowWord(prime_limit), is_over_abundant_mask, num_primes))
+			{
+				SearchRangeSieve(r, r.start_prime, LowWord(prime_limit), is_over_abundant_mask, num_primes);
+			}
+			return num_primes;
+		}
 	}
 
 	PrimeIterator q(r.start_prime);

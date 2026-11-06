@@ -1,7 +1,9 @@
 #include "stdafx.h"
+#include <new>
 #include "PrimeTables.h"
 #include "Engine.h"
 #include "RangeGen.h"
+#include "RangeSieve.h"
 #include "sprp64.h"
 #include <sstream>
 
@@ -20,6 +22,11 @@ volatile num64 RangeGen::SharedCounterForSearch[2] = {};
 num64 RangeGen::total_numbers_checked;
 double RangeGen::total_numbers_to_check = 2.5e11;
 volatile bool RangeGen::allDone = false;
+const num64 RangeGen::SharedRangeChunk;
+RangeGen::SharedRange RangeGen::sharedRanges[MaxSharedRanges];
+num64 RangeGen::sharedRangeNextId = 1;
+num64 RangeGen::numWorkerThreadsTotal = 0;
+num64 RangeGen::numIdleThreads = 0;
 
 const char* const CHECKPOINT_LOGICAL_NAME = "amicable_checkpoint";
 
@@ -511,11 +518,22 @@ NOINLINE void RangeGen::Run(num64 numThreads, char* startFrom, char* stopAt, uns
 	}
 
 	std::vector<std::thread> threads;
+	numWorkerThreadsTotal = numThreads;
+	numIdleThreads = 0;
 
 	WorkerThreadParams* params = reinterpret_cast<WorkerThreadParams*>(alloca(sizeof(WorkerThreadParams) * numThreads));
 	for (num64 i = 0; i < numThreads; ++i)
 	{
+		// (value-initialized: stateToSave.curLargestPrimePower = 0 means that the thread has no range yet, see CheckpointThread)
+		new (&params[i]) WorkerThreadParams();
 		params[i].rangeToCheckFirst = (startFrom && (startFromRange.value != 0) && (i == 0)) ? &startFromRange : nullptr;
+		if (params[i].rangeToCheckFirst)
+		{
+			// the range that thread 0 checks first (a checkpoint before it is done resumes from there)
+			params[i].stateToSave.curRange = startFromRange;
+			params[i].stateToSave.curLargestPrimePower = largestPrimePower;
+			params[i].stateToSave.total_numbers_checked = total_numbers_checked;
+		}
 		params[i].stopAtFactors = stopAt ? stopAtFactors : nullptr;
 		params[i].startPrime = startPrime;
 		params[i].primeLimit = primeLimit;
@@ -536,6 +554,135 @@ NOINLINE void RangeGen::Run(num64 numThreads, char* startFrom, char* stopAt, uns
 	checkpoint_thread.join();
 }
 
+bool RangeGen::ShareRange(const RangeData& r, num64 p_lo, num64 p_hi, unsigned int is_over_abundant_mask, num64 num_primes)
+{
+	const num64 chunk = SharedRangeChunk;
+	if ((p_hi < p_lo) || (p_hi - p_lo < chunk * 2))
+	{
+		return false;
+	}
+
+	EnterCriticalSection(&lock);
+	SharedRange* s = nullptr;
+	for (unsigned int i = 0; i < MaxSharedRanges; ++i)
+	{
+		if (!sharedRanges[i].inUse)
+		{
+			s = &sharedRanges[i];
+			break;
+		}
+	}
+	if (!s)
+	{
+		LeaveCriticalSection(&lock);
+		return false;
+	}
+	const num64 id = sharedRangeNextId++;
+	s->range = r;
+	s->is_over_abundant_mask = is_over_abundant_mask;
+	s->inUse = true;
+	s->id = id;
+	s->p_next = p_lo;
+	s->p_hi = p_hi;
+	const double primesPerNumber = static_cast<double>(num_primes) / static_cast<double>(p_hi - p_lo + 1);
+	s->primesPerNumber = primesPerNumber;
+	s->tier = -1;
+	const unsigned int slot = static_cast<unsigned int>(s - sharedRanges);
+	LeaveCriticalSection(&lock);
+
+	// this thread takes chunks too, until all are taken (the slot is free again when the last chunk is taken: then it can belong to
+	// another range, hence the id)
+	for (;;)
+	{
+		num64 lo = 0, hi = 0;
+		bool last = true;
+		int tier = -1;
+		EnterCriticalSection(&lock);
+		const bool any = s->inUse && (s->id == id) && (s->p_next <= s->p_hi);
+		if (any)
+		{
+			tier = s->tier;
+			lo = s->p_next;
+			hi = std::min(lo + (chunk - 1), s->p_hi);
+			s->p_next = hi + 1;
+			last = (s->p_next > s->p_hi);
+			if (last)
+			{
+				s->inUse = false;
+			}
+		}
+		LeaveCriticalSection(&lock);
+		if (!any)
+		{
+			break;
+		}
+		SearchSharedChunk(r, is_over_abundant_mask, lo, hi, static_cast<num64>(primesPerNumber * static_cast<double>(hi - lo + 1)), slot, id, tier);
+		if (last)
+		{
+			break;
+		}
+	}
+	return true;
+}
+
+bool RangeGen::TakeSharedChunk(RangeData& r, unsigned int& is_over_abundant_mask, num64& p_lo, num64& p_hi, num64& num_primes, unsigned int& slot, num64& id, int& tier)
+{
+	for (unsigned int i = 0; i < MaxSharedRanges; ++i)
+	{
+		SharedRange& s = sharedRanges[i];
+		if (s.inUse && (s.p_next <= s.p_hi))
+		{
+			slot = i;
+			id = s.id;
+			tier = s.tier;
+			r = s.range;
+			is_over_abundant_mask = s.is_over_abundant_mask;
+			p_lo = s.p_next;
+			p_hi = std::min(p_lo + (SharedRangeChunk - 1), s.p_hi);
+			num_primes = static_cast<num64>(s.primesPerNumber * static_cast<double>(p_hi - p_lo + 1));
+			s.p_next = p_hi + 1;
+			if (s.p_next > s.p_hi)
+			{
+				s.inUse = false;
+			}
+			return true;
+		}
+	}
+	return false;
+}
+
+// The chunks of a range adapt its sieve tier: where the survivors take more than 40% of the time of a chunk, the next chunks sieve
+// with one tier more (fewer survivors), below 10% with one less (cheaper sieve), within the tiers 2..5 (Q = 4093 .. 32749). (The tier
+// by the window height alone was wrong for some ranges: at W = 0.03 - 0.1, k4 is fastest with Q = 32749 and t2 with Q = 4093; k4
+// has 38 times as many survivors per number.)
+void RangeGen::SearchSharedChunk(const RangeData& r, unsigned int is_over_abundant_mask, num64 p_lo, num64 p_hi, num64 num_primes, unsigned int slot, num64 id, int tier)
+{
+	SearchRangeSieve(r, p_lo, p_hi, is_over_abundant_mask, num_primes, tier);
+
+	int tierUsed;
+	double checkShare;
+	RangeSieveLastCall(tierUsed, checkShare);
+	if (tierUsed < 0)
+	{
+		return;
+	}
+	int next = tierUsed;
+	if ((checkShare > 0.40) && (next < 5))
+	{
+		++next;
+	}
+	else if ((checkShare < 0.10) && (next > 2))
+	{
+		--next;
+	}
+	EnterCriticalSection(&lock);
+	if (sharedRanges[slot].inUse && (sharedRanges[slot].id == id))
+	{
+		sharedRanges[slot].tier = next;
+	}
+	LeaveCriticalSection(&lock);
+}
+
 NOINLINE void RangeGen::CheckpointThread(WorkerThreadParams* params, num64 numWorkerThreads)
 {
 	std::string checkpoint_name, data;
@@ -543,7 +690,12 @@ NOINLINE void RangeGen::CheckpointThread(WorkerThreadParams* params, num64 numWo
 
 	while (!allDone)
 	{
-		Sleep(1000);
+		// 1 second, in steps of 50 ms: Run joins this thread after the worker threads are done, a single Sleep(1000) made every work
+		// unit wait up to 1 second longer
+		for (int i = 0; (i < 20) && !allDone; ++i)
+		{
+			Sleep(50);
+		}
 		if (boinc_time_to_checkpoint())
 		{
 			std::stringstream s;
@@ -569,13 +721,17 @@ NOINLINE void RangeGen::CheckpointThread(WorkerThreadParams* params, num64 numWo
 			{
 				WorkerThreadState mostLaggingThreadState = {};
 				mostLaggingThreadState.curLargestPrimePower = std::numeric_limits<unsigned int>::max();
+				bool anyState = false;
 
 				EnterCriticalSection(&lock);
 
 				for (num64 i = 0; i < numWorkerThreads; ++i)
 				{
-					if (!params[i].finished)
+					// (a thread without a range yet gets one after those of the others; before: uninitialized memory, a checkpoint "0 0#"
+					// or garbage when thread 0 was still on the range of /from)
+					if (!params[i].finished && (params[i].stateToSave.curLargestPrimePower != 0))
 					{
+						anyState = true;
 						bool is_less = false;
 
 						if (params[i].stateToSave.curLargestPrimePower < mostLaggingThreadState.curLargestPrimePower)
@@ -616,6 +772,12 @@ NOINLINE void RangeGen::CheckpointThread(WorkerThreadParams* params, num64 numWo
 				}
 
 				LeaveCriticalSection(&lock);
+
+				if (!anyState)
+				{
+					// (no thread has a range yet, or all are done: nothing to save)
+					continue;
+				}
 
 				// First write how many numbers have been checked so far
 				s << mostLaggingThreadState.total_numbers_checked << ' ';
@@ -722,6 +884,24 @@ NOINLINE void RangeGen::WorkerThread(WorkerThreadParams* params)
 					boinc_fraction_done((f > 1.0) ? 1.0 : f);
 				}
 
+				// with an empty read-ahead buffer: a chunk of a shared range first (see ShareRange)
+				if (range_read_index == range_write_index)
+				{
+					RangeData chunkRange;
+					unsigned int chunkMask, chunkSlot;
+					num64 chunkLo, chunkHi, chunkPrimes, chunkId;
+					int chunkTier;
+					if (TakeSharedChunk(chunkRange, chunkMask, chunkLo, chunkHi, chunkPrimes, chunkSlot, chunkId, chunkTier))
+					{
+						params->stateToSave.curRange = chunkRange;
+						params->stateToSave.curLargestPrimePower = 1;
+						params->stateToSave.total_numbers_checked = total_numbers_checked;
+						LeaveCriticalSection(&lock);
+						SearchSharedChunk(chunkRange, chunkMask, chunkLo, chunkHi, chunkPrimes, chunkSlot, chunkId, chunkTier);
+						continue;
+					}
+				}
+
 				while (range_write_index - range_read_index < RangesReadAheadSize)
 				{
 					RangeData& r = ranges[range_write_index % RangesReadAheadSize];
@@ -777,6 +957,43 @@ NOINLINE void RangeGen::WorkerThread(WorkerThreadParams* params)
 
 			if (range_read_index == range_write_index)
 			{
+				// no ranges left: take chunks of the shared ranges until all threads are idle (they can still share a range)
+				RangeData chunkRange;
+				unsigned int chunkMask, chunkSlot;
+				num64 chunkLo, chunkHi, chunkPrimes, chunkId;
+				int chunkTier;
+				bool gotChunk = false;
+				EnterCriticalSection(&lock);
+				++numIdleThreads;
+				params->finished = true;
+				for (;;)
+				{
+					if (TakeSharedChunk(chunkRange, chunkMask, chunkLo, chunkHi, chunkPrimes, chunkSlot, chunkId, chunkTier))
+					{
+						--numIdleThreads;
+						params->finished = false;
+						params->stateToSave.curRange = chunkRange;
+						params->stateToSave.curLargestPrimePower = 1;
+						params->stateToSave.total_numbers_checked = total_numbers_checked;
+						gotChunk = true;
+						break;
+					}
+					if (numIdleThreads >= numWorkerThreadsTotal)
+					{
+						// (SearchLargePrimes below: the checkpoint uses the thread again)
+						params->finished = false;
+						break;
+					}
+					LeaveCriticalSection(&lock);
+					Sleep(1);
+					EnterCriticalSection(&lock);
+				}
+				LeaveCriticalSection(&lock);
+				if (gotChunk)
+				{
+					SearchSharedChunk(chunkRange, chunkMask, chunkLo, chunkHi, chunkPrimes, chunkSlot, chunkId, chunkTier);
+					continue;
+				}
 				break;
 			}
 

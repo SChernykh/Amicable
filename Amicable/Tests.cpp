@@ -3,10 +3,12 @@
 #include "Engine.h"
 #include <fstream>
 
-const char* FilesToCheck[] = { "c2_3.txt", "c2_4.txt", "c2_5.txt", "c2_6.txt", "c2_7.txt", "c2_8.txt", "c2_9.txt", "c2_10.txt", "c2_11.txt", "c2_12.txt", "c2_13.txt", "c2_14.txt", "c2_15.txt", "c2_16.txt", "c2_17.txt", "c2_18.txt", "c2_19.txt", "c2_20.txt", "c2_21.txt" };
+const char* FilesToCheck[] = { "c2_3.txt", "c2_4.txt", "c2_5.txt", "c2_6.txt", "c2_7.txt", "c2_8.txt", "c2_9.txt", "c2_10.txt", "c2_11.txt", "c2_12.txt", "c2_13.txt", "c2_14.txt", "c2_15.txt", "c2_16.txt", "c2_17.txt", "c2_18.txt", "c2_19.txt", "c2_20.txt", "c2_20_1.txt", "c2_20_2.txt", "c2_21.txt", "c2_21_1.txt", "c2_21_2.txt", "c2_21_3.txt", "c2_21_4.txt", "c2_22.txt" };
 
 NOINLINE bool TestCheckPair()
 {
+	// (all pairs below the search limit; empty lines between the records are skipped, the count is printed)
+	num64 numChecked = 0;
 	for (const char* name : FilesToCheck)
 	{
 		std::ifstream f(name);
@@ -16,7 +18,11 @@ NOINLINE bool TestCheckPair()
 			buf[0] = '\0';
 			f.getline(buf, sizeof(buf)); // type author year
 			if (buf[0] == '\0')
-				break;
+			{
+				if (f.eof() || f.fail())
+					break;
+				continue;
+			}
 
 			buf[0] = '\0';
 			f.getline(buf, sizeof(buf)); // M and factorization
@@ -41,9 +47,11 @@ NOINLINE bool TestCheckPair()
 				std::cerr << "CheckPair128 didn't recognize " << m << " as a valid amicable number" << std::endl;
 				return false;
 			}
+			++numChecked;
 		}
 	}
-	return true;
+	std::cout << numChecked << " pairs...";
+	return numChecked > 0;
 }
 
 template<typename T>
