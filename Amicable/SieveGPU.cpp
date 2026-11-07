@@ -733,11 +733,11 @@ namespace
 
 	double SmallPi(unsigned int x)
 	{
-		static std::vector<unsigned short> table;
-		if (table.empty())
+		// (built once; the initialization of a local static is thread-safe: the ranges are prepared in several threads)
+		static const std::vector<unsigned short> table = []()
 		{
+			std::vector<unsigned short> t(SmallPiLimit);
 			std::vector<unsigned char> composite(SmallPiLimit, 0);
-			table.resize(SmallPiLimit);
 			unsigned short n = 0;
 			for (unsigned int i = 0; i < SmallPiLimit; ++i)
 			{
@@ -749,9 +749,10 @@ namespace
 						composite[k] = 1;
 					}
 				}
-				table[i] = n;
+				t[i] = n;
 			}
-		}
+			return t;
+		}();
 		return table[(x < SmallPiLimit) ? x : (SmallPiLimit - 1)];
 	}
 

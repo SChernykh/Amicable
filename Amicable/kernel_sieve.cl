@@ -1456,12 +1456,11 @@ void SieveBand(
 	// 2^64 mod r
 	uint c64 = (uint)(0xFFFFFFFFFFFFFFFFUL - m * r) + 1;
 	c64 = (c64 == r) ? 0 : c64;
-	const uint inv30 = BandPowMod(30, r - 2, r, m);
+	// The inverse of 30 comes with the first batch inversion (inv(30 P) P = inv(30), inv(30 P) 30 = inv(P)): no exponentiation of its
+	// own (the host runs this kernel over slices of the entries of a launch, every slice computed it again)
+	uint inv30 = 0;
 	uint wv[8];
-	for (uint c = 0; c < 8; ++c)
-	{
-		wv[c] = BandMulMod(SIEVE_W30(c), inv30, r, m);
-	}
+	bool have30 = false;
 
 	for (uint e0 = 0; e0 < bandCount; e0 += SIEVE_BAND_GROUP)
 	{
@@ -1500,7 +1499,22 @@ void SieveBand(
 		{
 			continue;
 		}
-		uint inv = BandPowMod(prod, r - 2, r, m);
+		uint inv;
+		if (!have30)
+		{
+			const uint inv30prod = BandPowMod(BandMulMod(prod, 30, r, m), r - 2, r, m);
+			inv30 = BandMulMod(inv30prod, prod, r, m);
+			inv = BandMulMod(inv30prod, 30, r, m);
+			for (uint c = 0; c < 8; ++c)
+			{
+				wv[c] = BandMulMod(SIEVE_W30(c), inv30, r, m);
+			}
+			have30 = true;
+		}
+		else
+		{
+			inv = BandPowMod(prod, r - 2, r, m);
+		}
 		for (int k = (int)ne - 1; k >= 0; --k)
 		{
 			const uint ainv = BandMulMod(inv, pre[k], r, m);

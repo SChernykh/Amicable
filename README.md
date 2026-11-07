@@ -37,11 +37,22 @@ checking every number by trial division:
 - `/sieve_hits N` - target number of hits per task (default 16)
 - `/sieve_wheel N` - moduli >= N use wheel stepping (default 3/4 of the segment length)
 - `/sieve_batch N` - 2^N positions per batch (default 35)
+- `/sieve_pipes N` - sieve batches on the GPU at once, 1 to 4 (default 2): the GPU runs the kernels of one batch while the host reads
+  back the results of another and prepares its next round; every pipeline after the first needs ~1.1 GB of GPU memory with kernel
+  size 21, ~1.4 GB with 22 (they are created only if the device has the memory for all of them and 1 GB more)
+- `/sieve_threads N` - helper threads that prepare the ranges of the first stage for the sieve (prime limits, range reduction, sieve
+  record), 0 to 8 (default 1; 0: everything on the main thread). The main thread generates the ranges and adds them to the batches in
+  their order, so the results don't depend on N; in the units of many tiny ranges the main thread alone couldn't keep the GPU busy
 - `/sieve_dry_run` - only the host part (for profiling)
 - `/nokill`, `/noreduce` - without the divisibility kill of the wheel primes, without the necessary conditions of the range reduction
   (for comparison)
 - `/analyze R`, `/explore N` - development aids: survivors of every tier for positions sampled at rate R (host only); the
   factorization where a work unit of N numbers starting at `/from` ends
+
+Project preferences: `<kernel_size_nvidia>` and `<kernel_size_amd>` (16 to 23) set the kernel size N: 2^N numbers per phase 1 launch
+of the original algorithm and a phase 2 buffer of 2^(N+1) numbers. The default is 21, and 22 on NVIDIA devices with at least 3 GB of
+memory: with the sieve, a launch whose numbers don't fit in the phase 2 buffer runs again (a unit of the 3^10 subtree sieved 1.37 x its
+positions with 21, 1.24 x with 22, -8% time); 22 takes ~300 MB more GPU memory per sieve pipeline.
 
 After the kernels are compiled, the app runs a quick self-test: known pairs through phases 1-3 (as before) and, with the sieve, full
 sieve runs around 48 known first-stage pairs (17 of them through the band sieve) or 4 large primes pairs (`self_test_sieve.inl`).

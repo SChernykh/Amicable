@@ -230,6 +230,18 @@ int main(int argc, char* argv[])
 			g_SieveBatchShift = static_cast<unsigned int>(std::min<num64>(40, std::max<num64>(16, StrToNumber(argv[++i]))));
 		}
 
+		// Sieve batches on the GPU at once (1-4: the GPU runs the kernels of one batch while the host waits for another)
+		if ((strcmp(argv[i], "/sieve_pipes") == 0) && (i + 1 < argc))
+		{
+			g_SievePipes = static_cast<int>(std::min<num64>(4, std::max<num64>(1, StrToNumber(argv[++i]))));
+		}
+
+		// Helper threads that prepare the ranges for the sieve (0-8, 0: all on the main thread)
+		if ((strcmp(argv[i], "/sieve_threads") == 0) && (i + 1 < argc))
+		{
+			g_SieveThreads = static_cast<int>(std::min<num64>(8, StrToNumber(argv[++i])));
+		}
+
 		// GPU time of the sieve kernels (OpenCL profiling)
 		if (strcmp(argv[i], "/sieve_profile") == 0)
 		{

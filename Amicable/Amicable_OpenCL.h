@@ -9,6 +9,8 @@
 #include "SieveGPU.h"
 #include <condition_variable>
 #include <mutex>
+#include <deque>
+#include <thread>
 
 extern FILE* g_outputFile;
 
@@ -17,6 +19,8 @@ extern bool g_UseSieve;
 extern bool g_SieveDryRun;
 extern bool g_SieveProfile;
 extern unsigned int g_SieveBatchShift;
+extern int g_SievePipes;
+extern int g_SieveThreads;
 extern bool g_RunTests;
 extern double g_AnalyzeRate;
 extern bool g_SieveReduce;
@@ -27,6 +31,7 @@ extern unsigned int g_TestStride;
 extern SieveGPUConfig g_SieveConfig;
 
 struct RangeData;
+struct Factor;
 struct AmicableCandidate;
 
 #pragma pack(push, 1)
@@ -63,8 +68,154 @@ struct SieveBatch
 	num64 positions = 0;
 };
 
+// The factorization of a range of the first stage (what a checkpoint saves: SaveProgressForRanges)
+struct SieveRangeKey
+{
+	num64 primes[MaxPrimeFactors];
+	unsigned int exponents[MaxPrimeFactors];
+	unsigned int numFactors = 0;
+};
+
+// Ranges of the first stage on their way into the sieve batches (RunRangesSieve): the main thread generates them in blocks
+// (RangeGen::Iterate), helper threads prepare them (PrepareSieveRange: prime limits, reduction, the record of the sieve: 3/4 of the host
+// work), and the main thread adds them to the batches in their order (CommitSieveRange). The batches are the same as with one thread.
+struct SieveRangeBlock
+{
+	enum Status
+	{
+		NoPrimes,                     // p_lo > p_hi
+		Skipped,                      // no amicable numbers possible (reduction)
+		Counted,                      // only counted (/explore, /analyze)
+		Ready,                        // record prepared
+		Failed,
+	};
+	struct Range
+	{
+		num128 value;
+		num128 sum;
+		num64 start_prime;
+		unsigned int firstFactor;     // in primes and exponents
+		unsigned int numFactors;
+		// prepared
+		Status status;
+		bool impossible;
+		num64 p_lo;
+		num64 p_hi;
+		double numPrimes;
+		double W;                     // of the reduction, -1 if it found the range impossible
+		num64 Lfull;
+		num64 L235;
+		num64 record[SieveRangeStride];
+	};
+	std::vector<Range> ranges;
+	std::vector<num64> primes;
+	std::vector<unsigned int> exponents;
+	num64 cycles[6] = {};             // (/sieve_profile) host cycles of the preparation, see g_HostCycles
+	bool prepared = false;            // (guarded by OpenCL::mySieveRangeMutex while helper threads run)
+};
+
 // capacity of the buffer of found numbers (kernel.cl: NumberFound)
 enum { AmicableFoundMax = 8192 };
+
+// One sieve pipeline: the command queue, the kernels and the buffers of a sieve batch (first stage), and the host state of the batch
+// path (phase 3 backlog, launch estimates, statistics, its worker thread). RunRanges keeps two batches on the GPU with two pipelines:
+// while the host of one reads results back and prepares its next round, the GPU runs the kernels of the other (with one pipeline the GPU
+// was idle 3-9% of a work unit: 6.7 us between the launches, 0.3-1 ms at every read back). The context, the programs and the read-only
+// tables are shared. A worker thread uses its own pipeline (OpenCL::P()), all other code pipeline 0.
+struct SievePipe
+{
+	cl_command_queue myQueue = nullptr;
+
+	// kernels (their arguments refer to the buffers of the pipeline)
+	cl_kernel mySieveRanges = nullptr;
+	cl_kernel mySieveRangesKill = nullptr;
+	cl_kernel myCheckSieveSurvivors = nullptr;
+	cl_kernel mySieveLaunchDone = nullptr;
+	cl_kernel mySieveTestDeferred = nullptr;         // primality test of p for the numbers that passed phase 1 (first stage sieve)
+	cl_kernel myCheckSieveSurvivorsPrime = nullptr;  // second check of the survivors with a prime p
+	cl_kernel mySieveBand = nullptr;
+	cl_kernel myCheckPairPhase2 = nullptr;
+	cl_kernel myCheckPairPhase3 = nullptr;
+	cl_kernel myCheckPairPhase3Wide = nullptr;
+	cl_kernel myPhase2BucketCount = nullptr;
+	cl_kernel myPhase2BucketScatter = nullptr;
+	cl_kernel myPhase2Prefilter = nullptr;
+
+	// buffers of a batch
+	cl_mem myPhase2BucketsBuf = nullptr;
+	cl_mem myPhase1_offset_to_resume_buf = nullptr;
+	cl_mem myPhase2_numbers_count_buf = nullptr;
+	cl_mem myPhase2_numbers_buf = nullptr;
+	cl_mem myPhase3_numbers_count_buf = nullptr;
+	cl_mem myPhase3_numbers_buf = nullptr;
+	cl_mem myPhase3WideStatusBuf = nullptr;
+	cl_mem myPhase3BacklogBuf = nullptr;
+	cl_mem myAmicable_numbers_count_buf = nullptr;
+	cl_mem myAmicable_numbers_data_buf = nullptr;
+	cl_mem mySieveRangesBuf = nullptr;
+	cl_mem mySieveChunksBuf = nullptr;
+	cl_mem mySurvivorCountBuf = nullptr;
+	cl_mem mySurvivorsBuf = nullptr;
+	cl_mem mySieveStatsBuf = nullptr;
+	cl_mem mySieveDeferredCountBuf = nullptr;
+	cl_mem mySieveDeferredListBuf = nullptr;
+	cl_mem mySieveBandTableBuf = nullptr;            // SieveBandEntry uints per band chunk, for all launches of a round
+	cl_mem mySieveBandBitmapBuf = nullptr;           // the index of the smallest band prime of every position of the band chunks of a launch
+	cl_mem mySievePrimeCountBuf = nullptr;           // survivors with a prime p (SieveTestDeferred)
+
+	// numbers of phase 3 that are collected in the sieve batches (RunPhase3)
+	unsigned int myPhase3BacklogCount = 0;
+	int myPhase3BacklogIteration = 0;                // the first phase 3 iteration of the numbers in the backlog
+	bool myPhase3BacklogEnabled = false;
+
+	// launch estimates (RunSieveLaunches): measured survivors / estimate of SieveSurvivorRateByW for the ranges with W < 1e-3 and for the
+	// others, numbers for phase 2 per survivor (per group), and for the large primes stage survivors and numbers for phase 2 per position
+	double mySieveRateScale[2] = { 1.0, 1.0 };
+	double mySievePhase2PerSurvivor[2] = { 0.3, 0.3 };
+	double mySieveSurvivorRate = 0.01;
+	double mySievePhase2Rate = 1e-6;
+	num64 mySieveRoundPositions2 = 0;                // positions whose phase 2 numbers are still in the buffer
+
+	// statistics (summed over the pipelines at the end: OpenCL::AddPipeStats)
+	num64 mySieveStatPositions = 0;
+	num64 mySieveStatSurvivors = 0;
+	num64 mySieveStatChunks = 0;
+	num64 mySieveStatBatches = 0;
+	num64 mySieveStatPhase2 = 0;
+	num64 mySieveStatOverflows = 0;
+	num64 mySieveStatLaunchedPositions = 0;          // including the launches that ran again
+	num64 mySieveStatLaunches = 0;
+	num64 mySieveStatRounds = 0;
+	num64 mySieveStatBandChunks = 0;
+	num64 mySieveStatPhase2Sorts = 0;
+	double mySieveStatTime = 0.0;
+	double mySieveStatSieveKernelTime = 0.0;
+	double mySieveStatCheckKernelTime = 0.0;
+	double mySieveStatBandKernelTime = 0.0;
+	std::vector<std::pair<int, cl_event>> myPhase2ProfileEvents;   // (/sieve_profile) kind, event
+	double mySieveStatPhase2Times[4] = {};
+	double mySieveStatPhase2Wall = 0.0;
+	double mySieveStatCheckTimes[3] = {};            // (/sieve_profile) the survivor checks: first pass, SieveTestDeferred, prime p
+	double mySieveStatPhase3Wall = 0.0;              // (/sieve_profile) host time of RunPhase3, and the numbers of its first iterations
+	num64 mySieveStatPhase3Numbers = 0;
+	double mySieveStatPhase3IterTime[20] = {};
+	num64 mySieveStatPhase3IterNumbers[20] = {};
+	num64 mySieveStatPhase3IterLaunches[20] = {};
+
+	// the worker thread (SieveWorkerLoop, started with the first batch of the pipeline, stopped in the destructor) and its batch
+	SieveBatch mySieveBatchRun;
+	std::thread mySieveWorker;
+	std::mutex mySieveWorkerMutex;                   // guards the three flags below and mySieveWorkerResult
+	std::condition_variable mySieveWorkerCV;
+	bool mySieveJobPending = false;                  // a batch (mySieveBatchRun) is waiting for the worker
+	bool mySieveJobDone = false;                     // the worker has finished the last batch it was given
+	bool mySieveWorkerStop = false;                  // the worker ends (destructor)
+	bool mySieveWorkerRunning = false;               // a batch was submitted and not waited for yet (main thread only)
+	bool mySieveWorkerResult = true;
+	SieveRangeKey myRunFirstRange;                   // first range of mySieveBatchRun (valid if myRunHasFirst; main thread only)
+	bool myRunHasFirst = false;
+	num64 myRunStartNumbers = 0;                     // myNumbersProcessedTotal before myRunFirstRange
+};
 
 class OpenCL
 {
@@ -111,9 +262,19 @@ private:
 	bool RunRanges(char* startFrom, char* stopAt, num64& offset, unsigned int ChunkSizeShift);
 
 	bool InitSieve(cl_device_id device, num64 localMemSize, num64 maxWorkGroupSize, std::string& buildOptions);
-	bool CreateSieveBuffers();
-	bool GetPrimeLimit(const RangeData& r, num64& p_lo, num64& p_hi) const;
-	bool AddSieveRange(const RangeData& r);
+	static bool GetPrimeLimit(num128 value, num128 sum, num64 start_prime, num64& p_lo, num64& p_hi);
+	// The first stage with the sieve: the ranges from r on, in blocks (SieveRangeBlock) prepared by g_SieveThreads helper threads
+	bool RunRangesSieve(RangeData& r, const Factor* stopAtFactors, num64 offset);
+	bool FillSieveRangeBlock(SieveRangeBlock& block, RangeData& r, const Factor* stopAtFactors, unsigned int count);
+	void PrepareSieveRangeBlock(SieveRangeBlock& block) const;
+	void PrepareSieveRange(SieveRangeBlock& block, SieveRangeBlock::Range& range) const;
+	bool CommitSieveRange(const SieveRangeBlock& block, const SieveRangeBlock::Range& range, num64 offset, bool& explored);
+	void SieveRangeHelperLoop();
+	std::mutex mySieveRangeMutex;                    // guards mySieveRangePending, mySieveRangeStop and SieveRangeBlock::prepared
+	std::condition_variable mySieveRangeWorkCV;      // helper threads: a block to prepare, or stop
+	std::condition_variable mySieveRangeDoneCV;      // main thread: a block was prepared
+	std::deque<SieveRangeBlock*> mySieveRangePending; // blocks generated and not taken by a thread yet, oldest first
+	bool mySieveRangeStop = false;
 	// W: height of the window above the known part (RangeReduction), -1 = unknown; it predicts the number of survivors
 	bool AddSieveRangeRecord(const num64* record, num64 p_lo, num64 p_hi, double W = -1.0);
 	bool ProcessSieveBatch(SieveBatch& batch);
@@ -124,7 +285,7 @@ private:
 	// first batch, stopped in the destructor): a new thread for every batch meant thousands of short-lived threads per work unit.
 	bool SubmitSieveBatch(bool checkpoint, num64 offset);
 	bool WaitSieveBatch();
-	void SieveWorkerLoop();
+	void SieveWorkerLoop(int pipe);
 	// chunks [chunkBegin, killChunks) use mySieveRangesKill
 	bool RunSieveLaunches(unsigned int chunkBegin, unsigned int chunkEnd, unsigned int killChunks, num64 positionsPerChunk, unsigned int numExtra, const SieveBatch* batch, num64& survivors, bool& overflow);
 	bool FinishSieveBatch(bool& redo);
@@ -151,20 +312,6 @@ private:
 	// (kernel.cl: PHASE2_BUCKETS) the numbers of a phase 2 run are sorted if there are at least Phase2SortMinCount
 	enum { Phase2Buckets = 64, Phase2SortMinCount = 1 << 16 };
 	enum { SieveBandEntry = 8, SieveMaxBandChunks = 64, SieveBandMaxOctaves = 4 };
-	cl_kernel myPhase2BucketCount = nullptr;
-	cl_kernel myPhase2BucketScatter = nullptr;
-	cl_kernel myPhase2Prefilter = nullptr;
-	cl_mem myPhase2BucketsBuf = nullptr;
-	num64 mySieveStatPhase2Sorts = 0;
-	std::vector<std::pair<int, cl_event>> myPhase2ProfileEvents;   // (/sieve_profile) kind, event
-	double mySieveStatPhase2Times[4] = {};
-	double mySieveStatPhase2Wall = 0.0;
-	double mySieveStatCheckTimes[3] = {};   // (/sieve_profile) the survivor checks: first pass, SieveTestDeferred, prime p
-	double mySieveStatPhase3Wall = 0.0;    // (/sieve_profile) host time of RunPhase3, and the numbers of its first iterations
-	num64 mySieveStatPhase3Numbers = 0;
-	double mySieveStatPhase3IterTime[20] = {};
-	num64 mySieveStatPhase3IterNumbers[20] = {};
-	num64 mySieveStatPhase3IterLaunches[20] = {};
 	bool FlushPhase3Backlog();
 	// numbers of phase 3 that are collected in the sieve batches (RunPhase3): when fewer than Phase3BacklogMinCount are left
 	enum { Phase3BacklogMinCount = 1 << 16 };
@@ -173,6 +320,7 @@ private:
 
 	bool SaveFoundNumbers();
 	bool SaveProgressForRanges(const RangeData& r, num64 offset, num64 numbersProcessed = ~num64(0));
+	bool SaveProgressForRanges(const SieveRangeKey& r, num64 offset, num64 numbersProcessed = ~num64(0));
 	// resets the counter of found numbers and sets the capacity of their buffer
 	bool SetFoundCapacity(unsigned int capacity);
 	bool SaveProgressForLargePrimes(num64 firstPrime, num64 lastPrime, num64 offset, bool queueEmpty);
@@ -182,26 +330,15 @@ private:
 	cl_context myGPUContext;
 	cl_program myProgram;
 	cl_program myProgramKill = nullptr;        // first stage sieve with the divisibility kill (for the chunks of the last tier)
-	cl_kernel mySieveRangesKill = nullptr;
 	std::string mySieveOptions;                // sieve build options of myProgram
 	std::string mySieveKillOptions;            // and of myProgramKill (empty: no second program)
 	std::string myBuildOptionsKill;            // all build options of myProgramKill
 
-	cl_command_queue myQueue;
 	cl_kernel mySaveCounter;
 	cl_kernel mySearchMultipleRanges;
 	cl_kernel mySearchLargePrimes;
 	cl_kernel myCheckPairs;
-	cl_kernel myCheckPairPhase2;
-	cl_kernel myCheckPairPhase3;
-	cl_kernel myCheckPairPhase3Wide = nullptr;
-	cl_mem myPhase3WideStatusBuf = nullptr;
 	cl_mem mySpsp2Buf = nullptr;
-	cl_kernel mySieveRanges;
-	cl_kernel myCheckSieveSurvivors;
-	cl_kernel mySieveLaunchDone;
-	cl_kernel mySieveTestDeferred = nullptr;  // primality test of p for the numbers that passed phase 1 (first stage sieve)
-	cl_kernel myCheckSieveSurvivorsPrime = nullptr; // second check of the survivors with a prime p
 	cl_mem mySmallPrimesBuf;
 	std::vector<cl_mem> myMainBuffers;
 	cl_mem myPrimeInversesBuf;
@@ -215,17 +352,6 @@ private:
 	cl_mem myLargePrimesBuf;
 	cl_mem myRangesTable_Buf;
 	cl_mem myRangesLookupTable_Buf;
-	cl_mem myPhase1_offset_to_resume_buf;
-	cl_mem myPhase2_numbers_count_buf;
-	cl_mem myPhase2_numbers_buf;
-	cl_mem myPhase3_numbers_count_buf;
-	cl_mem myPhase3_numbers_buf;
-	cl_mem myPhase3BacklogBuf = nullptr;
-	unsigned int myPhase3BacklogCount = 0;
-	int myPhase3BacklogIteration = 0;      // the first phase 3 iteration of the numbers in the backlog
-	bool myPhase3BacklogEnabled = false;
-	cl_mem myAmicable_numbers_count_buf;
-	cl_mem myAmicable_numbers_data_buf;
 
 	// Sieve (first stage and large primes)
 	bool myUseSieve;
@@ -242,30 +368,15 @@ private:
 	cl_mem mySieveWheelTabsBuf;
 	cl_mem mySieveModTaskIdxBuf;
 	cl_mem mySieveModTaskListBuf;
-	cl_mem mySieveRangesBuf;
-	cl_mem mySieveChunksBuf;
-	cl_mem mySurvivorCountBuf;
-	cl_mem mySurvivorsBuf;
-	cl_mem mySieveStatsBuf;
-	cl_mem mySieveDeferredCountBuf = nullptr;
-	cl_mem mySieveDeferredListBuf = nullptr;
 	// band sieve (kernel_sieve.cl: SieveBand, kernel.cl: DecideByBand) for the ranges with W < SieveBandMaxW: record[21] = L0 | the index of
 	// the smallest prime of g in the band << 32, record[22] = the indexes in smallPrimes [begin, end) of the band (the primes in (L0, L0 2^T]))
-	cl_kernel mySieveBand = nullptr;
-	cl_mem mySieveBandTableBuf = nullptr;    // SieveBandEntry uints per band chunk, for all launches of a round
-	cl_mem mySieveBandBitmapBuf = nullptr;   // the index of the smallest band prime of every position of the band chunks of a launch
 	std::vector<unsigned int> mySmallPrimesHost;
-	num64 mySieveStatBandChunks = 0;
-	double mySieveStatBandKernelTime = 0.0;
 	void SetBandParameters(num64* record, double W, num64 p_hi, const num64* primes, unsigned int numPrimes) const;
 	void SetTestBandParameters(num64* record, const struct KnownPair& pair) const;
 	mutable num64 mySieveStatBandTestRanges = 0;
 	bool TestBandBitmap(const SieveBatch* batch, const cl_uint* entries, cl_uint count, cl_uint bytes);    // survivor records (as many as the survivor buffer holds)
-	cl_mem mySievePrimeCountBuf = nullptr;      // survivors with a prime p (SieveTestDeferred)
 	// measured survivors / estimate of SieveSurvivorRateByW for the ranges with W < 1e-3 (almost every N with a rough cofactor
 	// survives there) and for the others (launch sizes; the launches don't mix the two groups)
-	double mySieveRateScale[2] = { 1.0, 1.0 };
-	double mySievePhase2PerSurvivor[2] = { 0.3, 0.3 }; // numbers for phase 2 per survivor, per group of mySieveRateScale
 	cl_mem myPrimeBitsBuf;
 	std::vector<cl_uint> myPrimeBits;
 	num64 myPrimeBitsP1;
@@ -275,41 +386,40 @@ private:
 	unsigned int mySurvivorCapacity;
 	size_t mySieveCheckGlobalSize;
 	num64 mySieveMaxPositions;
+	// sieve pipelines (SievePipe): RunRanges uses myNumPipes of them, everything else pipeline 0. The worker threads set ourPipe.
+	enum { MaxSievePipes = 4 };
+	SievePipe myPipes[MaxSievePipes];
+	int myNumPipes = 1;
+	std::deque<int> myPipeOrder;          // the pipelines with a batch in flight, oldest batch first (main thread)
+	static thread_local int ourPipe;
+	SievePipe& P() { return myPipes[ourPipe]; }
+	const SievePipe& P() const { return myPipes[ourPipe]; }
+	// (setup and the end of a run on the main thread: P() is pipeline i in the scope)
+	struct PipeScope
+	{
+		explicit PipeScope(int i) : old(ourPipe) { ourPipe = i; }
+		~PipeScope() { ourPipe = old; }
+		int old;
+	};
+	bool CreatePipeKernels();
+	bool CreatePipeBuffers();
+	bool CreateSieveTables();
+	bool CreateSievePipeBuffers();
+	bool CreateExtraPipe(cl_device_id device, int i);
+	bool WaitPipe(int i);
+	void ReleasePipe();
+	void AddPipeStats(const SievePipe& other);
 	SieveBatch mySieveBatch;            // the batch being built
-	SieveBatch mySieveBatchRun;         // the batch of the worker thread
-	std::thread mySieveWorker;
-	std::mutex mySieveWorkerMutex;        // guards the three flags below and mySieveWorkerResult
-	std::condition_variable mySieveWorkerCV;
-	bool mySieveJobPending = false;       // a batch (mySieveBatchRun) is waiting for the worker
-	bool mySieveJobDone = false;          // the worker has finished the last batch it was given
-	bool mySieveWorkerStop = false;       // the worker ends (destructor)
-	bool mySieveWorkerRunning = false;    // a batch was submitted and not waited for yet (main thread only)
-	bool mySieveWorkerResult = true;
-	RangeData* mySieveBatchFirstRange = nullptr; // first range of mySieveBatch (valid if mySieveBatchHasFirst)
+	SieveRangeKey mySieveBatchFirstRange; // first range of mySieveBatch (valid if mySieveBatchHasFirst)
 	bool mySieveBatchHasFirst = false;
 	num64 mySieveBatchStartNumbers = 0; // myNumbersProcessedTotal before mySieveBatchFirstRange
-	double mySieveSurvivorRate;
-	double mySievePhase2Rate;        // numbers for phase 2 per position (to limit the size of launches)
-	num64 mySieveRoundPositions2;     // positions whose phase 2 numbers are still in the buffer
-	num64 mySieveStatPositions;
-	num64 mySieveStatSurvivors;
 	num64 mySieveStatRanges;
-	num64 mySieveStatChunks;
-	num64 mySieveStatBatches;
-	num64 mySieveStatPhase2;
-	num64 mySieveStatOverflows;
-	num64 mySieveStatLaunchedPositions = 0;  // including the launches that ran again
-	num64 mySieveStatLaunches = 0;
-	num64 mySieveStatRounds = 0;
 	double myRedStat[4] = {};
 	double myRedHist[64] = {};
 	double myRedHistW[8] = {};
 	num64 mySieveStatSkipped = 0;
 	num64 myAnalyzeSamples = 0;
 	num64 myAnalyzeCounts[SieveMaxTiers][6] = {};
-	double mySieveStatTime;
-	double mySieveStatSieveKernelTime;
-	double mySieveStatCheckKernelTime;
 
 	size_t myWorkGroupSize;
 
