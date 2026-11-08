@@ -404,10 +404,17 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 			}
 		}
 
-		num64 q = q0;
-		num64 sum_q = q0 + 1;
-
-		const num128 value_to_check = s->value * q;
+		// m * q0^k for k = the largest prime power, as in Iterate (before: m * q0 for every k, which rejected the ranges of /lpp 2 and 3
+		// that only m * q0^k makes abundant, e.g. a checkpoint of such a range on resume; 2026-11-08, as in the CPU app)
+		num128 q = q0;
+		num128 sum_q = q0 + 1;
+		num128 value_to_check = s->value * q0;
+		for (unsigned int i = 1; (i < cur_largest_prime_power) && (value_to_check < SearchLimit::value); ++i)
+		{
+			value_to_check *= q0;
+			q *= q0;
+			sum_q += q;
+		}
 		bool is_initialized = false;
 		if (value_to_check < SearchLimit::value)
 		{

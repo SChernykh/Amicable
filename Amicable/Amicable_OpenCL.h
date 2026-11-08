@@ -236,7 +236,9 @@ public:
 		num128 M;
 		num128 targetSum;
 	};
-	bool TestPairs(std::vector<SPairToCheck>& pairs);
+	// bands (optional): the band parameter of each pair (DecideByBand in phase 1), 0 by default
+	bool TestPairs(std::vector<SPairToCheck>& pairs, const std::vector<num64>* bands = nullptr);
+	bool TestBandPowerCofactor();
 
 	bool AddRange(const RangeData& r, num64 offset, bool& added);
 

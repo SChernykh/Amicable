@@ -423,6 +423,35 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 
 	enum { MaxMainBufferSize = 512 << 20 };
 
+	// /lpp k >= 2 (the original path, no sieve): every number m*q^k has m >= 2, so q <= (SearchLimit / 2)^(1/k), and only the primes up
+	// to there are needed (k = 2: up to 7.1e10, the first 5.8 GB of the 8.2 GB table; k = 3: 1.7e7, the first 2.2 MB). RunRanges walks
+	// all ranges once per window of the table (the offset loop below: 16 windows of MaxMainBufferSize for the whole table), and the
+	// walk on the host is the work of /lpp 2 and 3 (the GPU is nearly idle): the walks over the windows past that prime found nothing
+	// but took as long as the first one. So the loop stops after the last needed window, and for k = 2 one window holds all needed
+	// primes if the device has the memory (mainBufferWhole: the kernel indexes the whole window, MAIN_BUFFER_MASK = 2^32 - 1): one walk
+	// instead of 16 for k = 3 and of 11 for k = 2. (Development aids: AMICABLE_LPP_ALL_WINDOWS=1 walks all 16 windows, as before;
+	// AMICABLE_TEST_WINDOW_PRIME=<q> takes q as the bound, also for k = 1 with /nosieve: known first-stage pairs with their largest
+	// prime between 2^28-th prime (5.8e9) and q then test the kernel's prime lookup in a window with MAIN_BUFFER_MASK = 2^32 - 1.)
+	const char* testWindowPrime = getenv("AMICABLE_TEST_WINDOW_PRIME");
+	num64 mainBufferNeeded = myMainBufferTotalSize;
+	bool mainBufferWhole = false;
+	if (!IsLargePrimes && ((largestPrimePower >= 2) || testWindowPrime) && !getenv("AMICABLE_LPP_ALL_WINDOWS"))
+	{
+		const double qMax = testWindowPrime ? atof(testWindowPrime) : (pow(Num128ToDouble(SearchLimit::value) / 2.0, 1.0 / largestPrimePower) * 1.001 + 16.0);
+		num64 a = 0;
+		num64 b = NumPrimes;
+		while (a < b)
+		{
+			const num64 c = (a + b) >> 1;
+			if (qMax < static_cast<double>(GetNthPrime(c)))
+				b = c;
+			else
+				a = c + 1;
+		}
+		// (a: the index of the first prime above qMax; every range uses smaller indices)
+		mainBufferNeeded = std::min<num64>(myMainBufferTotalSize, ((a * 2) / 4096 + 2) * 4096);
+	}
+
 	// The sieve is used for all ranges when the largest prime has exponent 1 (N(p) is linear in p only then), and for large primes
 	myUseSieve = (IsLargePrimes || (largestPrimePower == 1)) && (g_UseSieve || g_RunTests);
 	myLargePrimesSieve = myUseSieve && IsLargePrimes;
@@ -458,6 +487,21 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	}
 	else {
 		myMainBufferSize = std::min<num64>(myMainBufferTotalSize, MaxMainBufferSize);
+
+		// one window for all needed primes (see mainBufferNeeded) if it fits in 5 chunks of the largest allocation (the kernel takes at
+		// most 5) and half of the device memory, and its prime indices in 32 bits
+		if (((largestPrimePower >= 2) || testWindowPrime) && (mainBufferNeeded > MaxMainBufferSize))
+		{
+			cl_ulong deviceMemory = 0;
+			clGetDeviceInfo(device, CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(deviceMemory), &deviceMemory, nullptr);
+			unsigned long chunkShift;
+			_BitScanReverse64(&chunkShift, MaxMemAllocSize);
+			if ((mainBufferNeeded <= (num64(5) << chunkShift)) && (mainBufferNeeded <= deviceMemory / 2) && (mainBufferNeeded / 2 <= num64(0xFFFFFFFFU)))
+			{
+				myMainBufferSize = mainBufferNeeded;
+				mainBufferWhole = true;
+			}
+		}
 	}
 
 	// Try to create a single continuous buffer for storing prime numbers
@@ -508,7 +552,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 			static_cast<unsigned int>(NumMainBufferChunks),
 			ChunkSizeShift,
 			64 - SumEstimates128Shift,
-			(MaxMainBufferSize / 2) - 1,
+			mainBufferWhole ? 0xFFFFFFFFU : static_cast<unsigned int>((MaxMainBufferSize / 2) - 1),
 			sieve_compiler_options.c_str()
 		);
 		// Development aid: extra kernel build options (for example -D switches of experimental kernel variants)
@@ -847,7 +891,8 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 		}
 		else
 		{
-			for (num64 offset = 0; offset < myMainBufferTotalSize; offset += myMainBufferSize)
+			// (only the windows with needed primes: see mainBufferNeeded)
+			for (num64 offset = 0; offset < mainBufferNeeded; offset += myMainBufferSize)
 			{
 				if (!RunRanges(startFrom, stopAt, offset, ChunkSizeShift))
 				{
@@ -914,7 +959,13 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 		}
 		std::cerr << std::endl;
 	}
-	std::cerr << "Work unit finished in " << std::setprecision(6) << t.getElapsedTime() << " seconds" << std::endl;
+	std::cerr << "Work unit finished in " << std::setprecision(6) << t.getElapsedTime() << " seconds";
+	if (!myUseSieve && !IsLargePrimes)
+	{
+		// (the original path: the numbers of the ranges, over all windows of the prime table)
+		std::cerr << ", " << myNumbersProcessedTotal << " numbers, " << ((mainBufferNeeded + myMainBufferSize - 1) / myMainBufferSize) << " windows of " << (myMainBufferSize >> 20) << " MB (" << myMainBuffers.size() << " buffers)";
+	}
+	std::cerr << std::endl;
 	return result;
 }
 
@@ -1515,7 +1566,7 @@ bool OpenCL::SetPhase2KernelArguments()
 }
 
 // Checks the given pairs (M, sigma(M)) with the same kernels as all numbers (phases 1-3), all of them must be found
-bool OpenCL::TestPairs(std::vector<SPairToCheck>& pairs)
+bool OpenCL::TestPairs(std::vector<SPairToCheck>& pairs, const std::vector<num64>* bands)
 {
 	const unsigned int total_numbers = static_cast<unsigned int>(pairs.size());
 	LOG(1, "Total numbers: " << total_numbers);
@@ -1533,11 +1584,22 @@ bool OpenCL::TestPairs(std::vector<SPairToCheck>& pairs)
 		FORCEINLINE operator cl_mem() { return mem; }
 
 		cl_mem mem;
-	} pairsToCheck, buf;
+	} pairsToCheck, buf, bandsBuf;
 
 	pairs.resize(((pairs.size() + myWorkGroupSize - 1) / myWorkGroupSize) * myWorkGroupSize);
 	CL_CHECKED_CALL_WITH_RESULT(pairsToCheck.mem, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(SPairToCheck) * pairs.size(), 0);
 	CL_CHECKED_CALL(clEnqueueWriteBuffer, P().myQueue, pairsToCheck, CL_TRUE, 0, sizeof(SPairToCheck) * pairs.size(), pairs.data(), 0, nullptr, nullptr);
+
+	// the band parameter of every pair (0: no band)
+	{
+		std::vector<num64> bandValues(pairs.size(), 0);
+		if (bands)
+		{
+			std::copy(bands->begin(), bands->begin() + static_cast<std::ptrdiff_t>(std::min(bands->size(), bandValues.size())), bandValues.begin());
+		}
+		CL_CHECKED_CALL_WITH_RESULT(bandsBuf.mem, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, sizeof(num64) * bandValues.size(), 0);
+		CL_CHECKED_CALL(clEnqueueWriteBuffer, P().myQueue, bandsBuf, CL_TRUE, 0, sizeof(num64) * bandValues.size(), bandValues.data(), 0, nullptr, nullptr);
+	}
 
 	CL_CHECKED_CALL_WITH_RESULT(buf.mem, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64) * 4 * pairs.size(), 0);
 	// the found numbers go to buf (one entry per pair) during the test
@@ -1564,7 +1626,7 @@ bool OpenCL::TestPairs(std::vector<SPairToCheck>& pairs)
 		Timer t;
 
 		const size_t globalSizePhase1 = pairs.size();
-		CL_CHECKED_CALL(setKernelArguments, myCheckPairs, mySmallPrimesBuf, myPrimeInversesBuf, myPQ_Buf, myPowerOf2SumInverses_Buf, myPowersOfP_128SumInverses_offsets_Buf, myPowersOfP_128SumInverses_Buf, myPrimeInverses_128_Buf, mySumEstimates_128_Buf, pairsToCheck, P().myPhase2_numbers_count_buf, P().myPhase2_numbers_buf, P().myAmicable_numbers_count_buf, buf);
+		CL_CHECKED_CALL(setKernelArguments, myCheckPairs, mySmallPrimesBuf, myPrimeInversesBuf, myPQ_Buf, myPowerOf2SumInverses_Buf, myPowersOfP_128SumInverses_offsets_Buf, myPowersOfP_128SumInverses_Buf, myPrimeInverses_128_Buf, mySumEstimates_128_Buf, pairsToCheck, bandsBuf, P().myPhase2_numbers_count_buf, P().myPhase2_numbers_buf, P().myAmicable_numbers_count_buf, buf);
 		CL_CHECKED_CALL(clEnqueueNDRangeKernel, P().myQueue, myCheckPairs, 1, nullptr, &globalSizePhase1, &myWorkGroupSize, 0, nullptr, &event);
 
 		if (!WaitForQueue(P().myQueue, event) || !GetAndResetCounter(P().myQueue, P().myPhase2_numbers_count_buf, filtered_numbers_count) || !GetCounter(P().myQueue, P().myAmicable_numbers_count_buf, amicable_numberscount))
@@ -1717,6 +1779,151 @@ bool OpenCL::TestPairs(std::vector<SPairToCheck>& pairs)
 	}
 
 	return (num_missed == 0);
+}
+
+// Regression test of BandPrimeDivides (kernel.cl, 2026-11-08): the other member N = c * r^e of a synthetic pair (sigma(N) - N, sigma(N)),
+// with r a prime above the primes of phase 1 and c a product of primes of phase 1 (phase 1 leaves N = r^e), sigma(r^e) >= 2^64 (the
+// band logic is in the 128-bit part of phase 1) and D = sigma(r^e) - r^e - 1 < 2^64. With the band [r, ...) DecideByBand starts the trial
+// division at r, and BandPrimeDivides divides r^e out: the cofactor and the target sum are 1 then, which it rejected for e >= 4 (e <= 3:
+// DecideAtMost2Factors decides first). Every pair runs without a band and with it; all must be found. e = 3 is the shape of the CPU's
+// InitialCheck128 bug (sigma(r^3) >= 2^64, r in the 128-bit table).
+bool OpenCL::TestBandPowerCofactor()
+{
+	struct Case
+	{
+		num64 r;
+		unsigned int e;
+		num64 c;
+	};
+	const Case cases[] = {
+		{ 65537, 4, 1 }, { 65537, 4, 30 }, { 400009, 4, 1 }, { 7151, 5, 1 }, { 7151, 5, 2 * 7 * 11 }, { 30011, 5, 1 }, { 1627, 6, 1 }, { 1627, 6, 10 },
+		{ 5501, 6, 1 }, { 2642257, 3, 1 }, { 10000019, 3, 2 }, { 21544451, 3, 1 },
+	};
+	if (mySmallPrimesHost.empty())
+	{
+		LOG_ERROR("Band cofactor test: no table of small primes");
+		return false;
+	}
+
+	std::vector<std::pair<SPairToCheck, num64>> items;
+	for (const Case& c : cases)
+	{
+		const auto it = std::lower_bound(mySmallPrimesHost.begin(), mySmallPrimesHost.end(), static_cast<unsigned int>(c.r));
+		if ((it == mySmallPrimesHost.end()) || (*it != c.r))
+		{
+			LOG_ERROR("Band cofactor test: " << c.r << " is not in the table of small primes");
+			return false;
+		}
+		const num64 index = static_cast<num64>(it - mySmallPrimesHost.begin());
+		const num64 end = std::min<num64>(index + 64, mySmallPrimesHost.size() - 1);
+		const num64 band = index | (index << 21) | (end << 42);
+
+		num128 re = 1;
+		num128 sigmaRe = 1;
+		for (unsigned int i = 0; i < c.e; ++i)
+		{
+			re *= c.r;
+			sigmaRe += re;
+		}
+		num64 sigmaC = 1;
+		num64 n = c.c;
+		for (num64 p = 2; p <= n; ++p)
+		{
+			num64 t = 1;
+			num64 pk = 1;
+			while (n % p == 0)
+			{
+				n /= p;
+				pk *= p;
+				t += pk;
+			}
+			sigmaC *= t;
+		}
+		const num128 N = re * c.c;
+		const num128 sigmaN = sigmaRe * sigmaC;
+		items.emplace_back(SPairToCheck(sigmaN - N, sigmaN), band);
+	}
+	std::sort(items.begin(), items.end(), [](const std::pair<SPairToCheck, num64>& a, const std::pair<SPairToCheck, num64>& b) { return a.first.M < b.first.M; });
+
+	bool ok = true;
+	for (int withBand = 0; withBand < 2; ++withBand)
+	{
+		std::vector<SPairToCheck> pairs;
+		std::vector<num64> bands;
+		for (const auto& item : items)
+		{
+			pairs.push_back(item.first);
+			bands.push_back(withBand ? item.second : 0);
+		}
+		const bool found = TestPairs(pairs, &bands);
+		std::cerr << "Band cofactor test: " << items.size() << " numbers N = c * r^e (sigma(r^e) >= 2^64) " << (withBand ? "with" : "without") << " the band: " << (found ? "all found" : "NOT all found") << std::endl;
+		ok = ok && found;
+	}
+	return ok;
+}
+
+// Regression test of OverAbundant (PrimeTables.h, 2026-11-08): (sum - value) (sigma(g) - g) >= value g is exact now (256-bit products); the
+// 128-bit products wrapped around from value g >= 2^128 (m >= ~3e18 with a large g), and a wrapped "true" made the walk skip a range.
+// Synthetic factorizations and sums (OverAbundant only uses the sum's divisibility by the prime powers of m); the expected results come from
+// exact integers (a Python model of the function). The old code gave the wrong result in 9 of these 14 cases, a wrong "true" in 3 of them.
+static bool TestOverAbundantExact()
+{
+	struct Case
+	{
+		num64 p[3];
+		unsigned int k[3];
+		int n;
+		const char* value;
+		const char* sum;
+		num64 sum_coeff;
+		num64 max_factor;
+		bool expected;
+	};
+	const Case cases[] = {
+		{ { 2 }, { 70 }, 1, "1180591620717411303424", "2361183241434822606848", 1, 1, false }, // m = 2^70, sum = 2^71; old: true
+		{ { 2 }, { 70 }, 1, "1180591620717411303424", "3541774862152233910272", 1, 1, true }, // m = 2^70, sum = 3 * 2^70; old: true
+		{ { 2 }, { 64 }, 1, "18446744073709551616", "36893488147419103232", 1, 1, false }, // m = 2^64, sum = 2^65; old: true
+		{ { 2 }, { 64 }, 1, "18446744073709551616", "36893488147419103232", 2, 2, false }, // m = 2^64, sum = 2^65, sum_coeff 2; old: true
+		{ { 5 }, { 30 }, 1, "931322574615478515625", "1862645149230957031250", 1, 2, false }, // m = 5^30, sum = 2 * 5^30; old: false
+		{ { 2, 5 }, { 30, 17 }, 2, "819200000000000000000", "1638400000000000000000", 1, 2, true }, // m = 2^30 5^17, sum = 2^31 5^17; old: true
+		{ { 2, 5, 7 }, { 3, 1, 1 }, 3, "280", "720", 2, 2, true }, // m = 280 (no overflow); old: true
+		{ { 2, 7 }, { 5, 1 }, 2, "224", "504", 1, 1, true }, // m = 224 (no overflow); old: true
+		{ { 2, 5 }, { 43, 12 }, 2, "2147483648000000000000", "10881568079872000000000", 1, 1, true }, // old: false
+		{ { 2, 31 }, { 22, 10 }, 2, "3437770202596721557504", "1210552556542617326190592", 1, 2, true }, // old: false
+		{ { 17, 19 }, { 13, 3 }, 2, "67935500727701821883", "41834137864112960300976336", 1, 1, true }, // old: false
+		{ { 5, 43 }, { 2, 12 }, 2, "998990769931564410025", "250525906292667791181659475", 2, 2, true }, // old: false
+		{ { 2, 19 }, { 47, 6 }, 2, "6621119129403646803968", "26164600472781249839104", 1, 1, true }, // old: false
+		{ { 2, 7 }, { 31, 14 }, 2, "1456472958639540273152", "4048697585638607767470080", 1, 1, true }, // old: false
+	};
+
+	bool ok = true;
+	for (const Case& c : cases)
+	{
+		Factor f[3];
+		for (int i = 0; i < c.n; ++i)
+		{
+			f[i].p = PrimeIterator(c.p[i]);
+			f[i].k = c.k[i];
+			int index = 0;
+			for (PrimeIterator it; it.Get() < c.p[i]; ++it)
+			{
+				++index;
+			}
+			f[i].index = index;
+			f[i].p_inv = num64(0) - modular_inverse64(c.p[i]);
+			f[i].p_inv128 = -modular_inverse128(c.p[i]);
+		}
+		const num128 value = atoi128(c.value);
+		const num128 sum = atoi128(c.sum);
+		const byte result = (c.max_factor == 1) ? OverAbundant<1>(f, c.n - 1, value, sum, c.sum_coeff) : OverAbundant<2>(f, c.n - 1, value, sum, c.sum_coeff);
+		if ((result != 0) != c.expected)
+		{
+			std::cerr << "OverAbundant<" << c.max_factor << ">(m = " << c.value << ", sum = " << c.sum << ", sum_coeff = " << c.sum_coeff << ") = " << (result != 0) << ", expected " << c.expected << std::endl;
+			ok = false;
+		}
+	}
+	std::cerr << "OverAbundant test: " << ARRAYSIZE(cases) << " cases " << (ok ? "passed" : "FAILED") << std::endl;
+	return ok;
 }
 
 // Fast integer cube root. Returns num64 m such that m^3 <= n < (m+1)^3 for all n > 0
@@ -1925,7 +2132,9 @@ bool OpenCL::ProcessNumbers()
 	const num64 averageRangeSize = myTotalNumbersInRanges / myRanges.size();
 	unsigned long index;
 	_BitScanReverse64(&index, averageRangeSize);
-	const unsigned int lookupTableShift = index;
+	// (at most 30: "1 << lookupTableShift" below is an int, and the ranges of one window of the whole needed table (/lpp 2, see
+	// mainBufferNeeded) can have more than 2^31 numbers in principle; the windows of 2^28 primes never had more than 2^28)
+	const unsigned int lookupTableShift = (index < 30) ? index : 30;
 
 	myLookupTable.clear();
 	for (unsigned int range_index = 0, range_offset = 0;;)
@@ -4685,6 +4894,12 @@ bool OpenCL::RunSieveTests()
 		}
 		std::cerr << "Phases 1-3 test: " << numChecked << " pairs " << (ok ? "found" : "NOT found") << " (" << t1.getElapsedTime() << " seconds)" << std::endl;
 	}
+
+	// Regression tests of 2026-11-08: BandPrimeDivides with the cofactor r^e (GPU), OverAbundant with products above 2^128 (host)
+	// (both run, so that a failure of the first doesn't hide the second)
+	const bool bandPowerCofactorOk = TestBandPowerCofactor();
+	const bool overAbundantOk = TestOverAbundantExact();
+	ok = ok && bandPowerCofactorOk && overAbundantOk;
 
 	if (myLargePrimesSieve)
 	{

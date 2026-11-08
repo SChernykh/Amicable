@@ -754,7 +754,8 @@ static int FirstUsefulPrimeIndex(const ulong N, const ulong N_high, const ulong 
 )==="
 R"===(
 // A band prime r = smallPrimes[index] of N (DecideByBand; index >= 1: PrimeInverses_128[index - 1] and PowersOfP_128SumInverses belong to it,
-// as in the loops of phases 1 and 2): if N is the other member of a pair, sigma(r^e) divides targetSum and N / r^e < targetSum / sigma(r^e).
+// as in the loops of phases 1 and 2): if N is the other member of a pair, sigma(r^e) divides targetSum and N / r^e < targetSum / sigma(r^e)
+// (or both are 1).
 // Most candidates of the band fail this (it is what phase 2 finds after the trial division up to r). Returns false if N is not a match.
 static bool BandPrimeDivides(ulong N, ulong N_high, ulong targetSum, ulong targetSumHigh, const uint index, __global const ulong2* PrimeInverses_128,
 	__global const uint* PowersOfP_128SumInverses_offsets, __global const ulong4* PowersOfP_128SumInverses)
@@ -793,6 +794,11 @@ static bool BandPrimeDivides(ulong N, ulong N_high, ulong targetSum, ulong targe
 	}
 	targetSum *= inv2.x;
 	targetSumHigh = q_high;
+	// (N = r^e: a match if targetSum is 1 now; the comparison below rejected it, 2026-11-08)
+	if ((N_high == 0) && (N == 1))
+	{
+		return (targetSumHigh == 0) && (targetSum == 1);
+	}
 	return (N_high < targetSumHigh) || ((N_high == targetSumHigh) && (N < targetSum));
 }
 
@@ -2846,6 +2852,7 @@ void CheckPairs(
 	__global const ulong2* PrimeInverses_128,
 	__global const ulong* SumEstimates_128,
 	__global const ulong4* pairsToCheck,
+	__global const ulong* bands,
 	__global uint* filtered_numbers_count,
 	__global ulong4* filtered_numbers_data,
 	__global uint* amicable_numbers_count,
@@ -2857,6 +2864,7 @@ void CheckPairs(
 	{
 		return;
 	}
-	CheckPairPhase1(smallPrimes, primeInverses, PQ, PowerOf2SumInverses, PowersOfP_128SumInverses_offsets, PowersOfP_128SumInverses, PrimeInverses_128, SumEstimates_128, cur_pair.x, cur_pair.y, cur_pair.z, cur_pair.w, 0, 0, filtered_numbers_count, filtered_numbers_data, amicable_numbers_count, amicable_numbers_data, 0, filtered_numbers_count, (__global ulong*)filtered_numbers_data, 0);
+	// bands: the band parameter of each number (DecideByBand; 0: no band, the test of BandPrimeDivides sets it)
+	CheckPairPhase1(smallPrimes, primeInverses, PQ, PowerOf2SumInverses, PowersOfP_128SumInverses_offsets, PowersOfP_128SumInverses, PrimeInverses_128, SumEstimates_128, cur_pair.x, cur_pair.y, cur_pair.z, cur_pair.w, 0, 0, filtered_numbers_count, filtered_numbers_data, amicable_numbers_count, amicable_numbers_data, 0, filtered_numbers_count, (__global ulong*)filtered_numbers_data, bands[get_global_id(0)]);
 }
 )===";
