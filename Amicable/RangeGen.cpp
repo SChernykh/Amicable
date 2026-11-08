@@ -30,6 +30,8 @@ num64 RangeGen::numIdleThreads = 0;
 
 const char* const CHECKPOINT_LOGICAL_NAME = "amicable_checkpoint";
 
+bool g_LppGeneric = false;
+
 RangeGen RangeGen::RangeGen_instance;
 
 template<unsigned int largest_prime_power>
@@ -137,7 +139,21 @@ recurse_begin:
 					sum_q += q;
 				}
 
-				const num128 value_to_check = s[1].value * q;
+				num128 value_to_check = s[1].value * q;
+
+				// largest_prime_power = 0: the power k = cur_largest_prime_power (/lpp k, k >= 4; k = 2, 3 with /lpp_generic). q = q0^k and
+				// sum_q = sigma(q0^k), computed only while s[1].value * q0^i is below the limit (no overflow: s[1].value * q0^i < 2^74 and
+				// q0 < 2^36 before each multiplication)
+				IF_CONSTEXPR(largest_prime_power == 0)
+				{
+					for (unsigned int i = 1; (i < cur_largest_prime_power) && (value_to_check < SearchLimit::value); ++i)
+					{
+						value_to_check *= q0;
+						q *= q0;
+						sum_q += q;
+					}
+				}
+
 				if (value_to_check >= SearchLimit::value)
 				{
 					if (f->k == 1)
@@ -147,9 +163,10 @@ recurse_begin:
 					break;
 				}
 
-				// Skip overabundant numbers
+				// Skip overabundant numbers (sigma(q^k) is even for odd k: the factor 2 of sum_coeff)
 				const byte is_deficient = (s[1].sum - s[1].value < s[1].value);
-				if (is_deficient || !OverAbundant<(largest_prime_power & 1) ? 2 : 1>(factors, search_stack_depth, s[1].value, s[1].sum, (largest_prime_power & 1) ? 2 : 1))
+				const num64 sum_coeff = (((largest_prime_power == 0) ? cur_largest_prime_power : largest_prime_power) & 1) ? 2 : 1;
+				if (is_deficient || !OverAbundant<((largest_prime_power & 1) || (largest_prime_power == 0)) ? 2 : 1>(factors, search_stack_depth, s[1].value, s[1].sum, sum_coeff))
 				{
 					if (!is_deficient || (s[1].sum * sum_q - value_to_check > value_to_check))
 					{
@@ -212,6 +229,12 @@ bool RangeGen::Iterate(RangeData& range)
 		return false;
 	}
 
+	// testing (/lpp_generic): the code of k >= 4 for /lpp 2 and 3 (only with /to: no chain to the next power)
+	if (g_LppGeneric && (cur_largest_prime_power >= 2))
+	{
+		return Iterate<0>(range);
+	}
+
 	if (cur_largest_prime_power == 1)
 	{
 		if (Iterate<1>(range))
@@ -243,6 +266,12 @@ bool RangeGen::Iterate(RangeData& range)
 	if (cur_largest_prime_power == 3)
 	{
 		return Iterate<3>(range);
+	}
+
+	// /lpp k, k >= 4: only the ranges of this k (no chain to k + 1)
+	if (cur_largest_prime_power >= 4)
+	{
+		return Iterate<0>(range);
 	}
 
 	return false;
@@ -409,10 +438,17 @@ NOINLINE void RangeGen::Init(char* startFrom, char* stopAt, RangeData* outStartF
 			}
 		}
 
-		num64 q = q0;
-		num64 sum_q = q0 + 1;
-
-		const num128 value_to_check = s->value * q;
+		// m * q0^k for k = the largest prime power, as in Iterate (before: m * q0 for every k, which rejected the ranges of /lpp k >= 2
+		// that only m * q0^k makes abundant, e.g. a checkpoint of such a range on resume)
+		num128 q = q0;
+		num128 sum_q = q0 + 1;
+		num128 value_to_check = s->value * q0;
+		for (unsigned int i = 1; (i < cur_largest_prime_power) && (value_to_check < SearchLimit::value); ++i)
+		{
+			value_to_check *= q0;
+			q *= q0;
+			sum_q += q;
+		}
 		bool is_initialized = false;
 		if (value_to_check < SearchLimit::value)
 		{
@@ -552,6 +588,12 @@ NOINLINE void RangeGen::Run(num64 numThreads, char* startFrom, char* stopAt, uns
 
 	allDone = true;
 	checkpoint_thread.join();
+
+	if (!(startPrime && primeLimit))
+	{
+		// (the numbers of the ranges, as /task_size counts them; with a resumed checkpoint: since its start)
+		std::cerr << "Numbers checked: " << total_numbers_checked << std::endl;
+	}
 }
 
 bool RangeGen::ShareRange(const RangeData& r, num64 p_lo, num64 p_hi, unsigned int is_over_abundant_mask, num64 num_primes)
@@ -815,6 +857,25 @@ NOINLINE void RangeGen::CheckpointThread(WorkerThreadParams* params, num64 numWo
 	}
 }
 
+// The numbers m*q^k of a range: k = 1 first stage, 2 and 3 the original code, k >= 4 (and 2, 3 with /lpp_generic) SearchRangePower
+static FORCEINLINE num64 SearchRangeOfPower(const RangeData& r, unsigned int k)
+{
+	if ((k >= 4) || (g_LppGeneric && (k >= 2)))
+	{
+		return SearchRangePower(r, k);
+	}
+	switch (k)
+	{
+	case 1:
+		return SearchRange(r);
+	case 2:
+		return SearchRangeSquared(r);
+	case 3:
+		return SearchRangeCubed(r);
+	}
+	return 0;
+}
+
 NOINLINE void RangeGen::WorkerThread(WorkerThreadParams* params)
 {
 	SetLowPriority();
@@ -842,18 +903,7 @@ NOINLINE void RangeGen::WorkerThread(WorkerThreadParams* params)
 	{
 		if (params->rangeToCheckFirst)
 		{
-			switch (params->startLargestPrimePower)
-			{
-			case 1:
-				numbers_checked += SearchRange(*params->rangeToCheckFirst);
-				break;
-			case 2:
-				numbers_checked += SearchRangeSquared(*params->rangeToCheckFirst);
-				break;
-			case 3:
-				numbers_checked += SearchRangeCubed(*params->rangeToCheckFirst);
-				break;
-			}
+			numbers_checked += SearchRangeOfPower(*params->rangeToCheckFirst, params->startLargestPrimePower);
 		}
 
 		enum
@@ -997,18 +1047,7 @@ NOINLINE void RangeGen::WorkerThread(WorkerThreadParams* params)
 				break;
 			}
 
-			switch (range_largest_prime_power[range_read_index % RangesReadAheadSize])
-			{
-			case 1:
-				numbers_checked += SearchRange(ranges[range_read_index % RangesReadAheadSize]);
-				break;
-			case 2:
-				numbers_checked += SearchRangeSquared(ranges[range_read_index % RangesReadAheadSize]);
-				break;
-			case 3:
-				numbers_checked += SearchRangeCubed(ranges[range_read_index % RangesReadAheadSize]);
-				break;
-			}
+			numbers_checked += SearchRangeOfPower(ranges[range_read_index % RangesReadAheadSize], range_largest_prime_power[range_read_index % RangesReadAheadSize]);
 			++range_read_index;
 		}
 

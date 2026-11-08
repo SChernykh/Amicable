@@ -5,6 +5,7 @@ struct RangeData;
 num64 SearchRange(const RangeData& r);
 num64 SearchRangeSquared(const RangeData& r);
 num64 SearchRangeCubed(const RangeData& r);
+num64 SearchRangePower(const RangeData& r, unsigned int k);
 
 void SearchLargePrimes(volatile num64* SharedCounterForSearch, const num64 StartPrime, const num64 PrimeLimit, num64 &sharedCounterValue);
 

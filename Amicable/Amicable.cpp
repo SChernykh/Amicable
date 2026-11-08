@@ -76,9 +76,19 @@ int main(int argc, char* argv[])
 			return 0;
 		}
 
-		if (strcmp(argv[i], "/test") == 0)
+		// "/test_nolinear": /test without the candidates of the linear search (the large primes stage, ~24 GB of memory at 10^22): the prime
+		// tables as for a range search (up to the main prime table bound), and no amicable candidates test
+		if ((strcmp(argv[i], "/test") == 0) || (strcmp(argv[i], "/test_nolinear") == 0))
 		{
-			PrimeTablesInit(SearchLimit::LinearLimit, SearchLimit::SafeLimit, nullptr);
+			const bool linear = (strcmp(argv[i], "/test") == 0);
+			if (linear)
+			{
+				PrimeTablesInit(SearchLimit::LinearLimit, SearchLimit::SafeLimit, nullptr);
+			}
+			else
+			{
+				PrimeTablesInit(0, SearchLimit::SafeLimit, "");
+			}
 			g_PrintNumbers = false;
 
 			std::cout << "Testing CheckPair()...";
@@ -88,12 +98,32 @@ int main(int argc, char* argv[])
 				std::cerr << "CheckPair() test failed" << std::endl;
 				return 1;
 			}
-			std::cout << "done" << std::endl << "Testing amicable candidates...";
+			// (the regression tests of 2026-11-08 both run, so that a failure of the first doesn't hide the second)
+			std::cout << "done" << std::endl << "Testing CheckPair() with the cofactor q^e, sigma(q^e) >= 2^64...";
 			flush(std::cout);
-			if (!TestAmicableCandidates())
+			const bool powerCofactorOk = TestCheckPairPowerCofactor();
+			std::cout << (powerCofactorOk ? "done" : "FAILED") << std::endl << "Testing OverAbundant() with products above 2^128...";
+			flush(std::cout);
+			const bool overAbundantOk = TestOverAbundantExact();
+			if (!powerCofactorOk)
 			{
-				std::cerr << "Amicable candidates test failed" << std::endl;
-				return 2;
+				std::cerr << "CheckPair() cofactor q^e test failed" << std::endl;
+				return 6;
+			}
+			if (!overAbundantOk)
+			{
+				std::cerr << "OverAbundant() test failed" << std::endl;
+				return 7;
+			}
+			if (linear)
+			{
+				std::cout << "done" << std::endl << "Testing amicable candidates...";
+				flush(std::cout);
+				if (!TestAmicableCandidates())
+				{
+					std::cerr << "Amicable candidates test failed" << std::endl;
+					return 2;
+				}
 			}
 			std::cout << "done" << std::endl << "Testing MaximumSumOfDivisors3()...";
 			flush(std::cout);
@@ -137,10 +167,16 @@ int main(int argc, char* argv[])
 			{
 				largestPrimePower = 1;
 			}
-			if (largestPrimePower > 3)
+			if (largestPrimePower > MaxLargestPrimePower)
 			{
-				largestPrimePower = 3;
+				largestPrimePower = MaxLargestPrimePower;
 			}
+		}
+
+		// testing: /lpp 2 and 3 with the code of k >= 4
+		if (strcmp(argv[i], "/lpp_generic") == 0)
+		{
+			g_LppGeneric = true;
 		}
 
 		if (((strcmp(argv[i], "/large_primes_range") == 0) || (strcmp(argv[i], "/lpr") == 0)) && (i + 2 < argc))

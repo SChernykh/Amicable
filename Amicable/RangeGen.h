@@ -20,6 +20,13 @@
 //
 // This iteration order allows very effective filtering of deficient and overabundant numbers
 
+// The largest prime power k of /lpp k: 1 (first stage), 2, 3, and from 4 on m*q^k (Iterate<0>, SearchRangePower). 2^74 > 10^22, so
+// there are no numbers for k >= 47.
+enum { MaxLargestPrimePower = 64 };
+
+// testing (/lpp_generic): /lpp 2 and 3 with the code of k >= 4
+extern bool g_LppGeneric;
+
 struct RangeData
 {
 	Factor factors[MaxPrimeFactors];
@@ -63,6 +70,7 @@ private:
 		num128 sum;
 	};
 
+	// largest_prime_power = 0: the power cur_largest_prime_power (k >= 4, or 2 and 3 with /lpp_generic)
 	template<unsigned int largest_prime_power> static bool Iterate(RangeData& range);
 
 	struct WorkerThreadState

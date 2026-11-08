@@ -343,6 +343,38 @@ struct Factor
 	num128 p_inv128;
 };
 
+// a * b >= c * d for 128-bit numbers, exact: the products can exceed 2^128 (OverAbundant: (sum - value) * (sum_g - g) and value * g, from
+// m >= ~3e18 with a large g = gcd part; the 128-bit products wrapped around before 2026-11-08, and a wrapped "true" skipped the range)
+FORCEINLINE bool ProductAtLeast(const num128 a, const num128 b, const num128 c, const num128 d)
+{
+	// the 256-bit products as four 64-bit words, the highest last
+	auto multiply = [](const num128 x, const num128 y, num64* r)
+	{
+		num64 h00, h01, h10, h11;
+		const num64 l00 = _umul128(LowWord(x), LowWord(y), &h00);
+		const num64 l01 = _umul128(LowWord(x), HighWord(y), &h01);
+		const num64 l10 = _umul128(HighWord(x), LowWord(y), &h10);
+		const num64 l11 = _umul128(HighWord(x), HighWord(y), &h11);
+		const num128 mid = num128(h00) + l01 + l10;
+		const num128 high = num128(h01) + h10 + l11 + HighWord(mid);
+		r[0] = l00;
+		r[1] = LowWord(mid);
+		r[2] = LowWord(high);
+		r[3] = h11 + HighWord(high);
+	};
+	num64 ab[4], cd[4];
+	multiply(a, b, ab);
+	multiply(c, d, cd);
+	for (int i = 3; i > 0; --i)
+	{
+		if (ab[i] != cd[i])
+		{
+			return ab[i] > cd[i];
+		}
+	}
+	return ab[0] >= cd[0];
+}
+
 template<num64 sum_coeff_max_factor>
 FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const num128 value, const num128 sum, const num64 sum_coeff)
 {
@@ -417,7 +449,7 @@ FORCEINLINE byte OverAbundant(const Factor* f, int last_factor_index, const num1
 		++f;
 	}
 
-	return (sum - value) * (sum_g - g) >= value * g;
+	return ProductAtLeast(sum - value, sum_g - g, value, g);
 }
 
 template<num64 sum_coeff_max_factor>

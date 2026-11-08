@@ -861,6 +861,17 @@ FORCEINLINE bool InitialCheck128(const num128 n1, num128& targetSum, num128& n2)
 				return false;
 			}
 
+			// n2 was the largest prime power of the other member: a match if the target sum is 1 now (sigma(q^e) >= 2^64, q in this table).
+			// The test below rejected it (1 >= 1), and CheckPairInternal can't take n2 = 1 (2026-11-08)
+			if (n2 == 1)
+			{
+				if (targetSum == 1)
+				{
+					NumberFound(n1);
+				}
+				return false;
+			}
+
 			if (n2 >= targetSum)
 			{
 				return false;
@@ -2308,6 +2319,49 @@ NOINLINE num64 SearchRangeCubed(const RangeData& r)
 			break;
 		}
 		const num128 sum = sum_m * (q3 + q2 + q.Get() + 1);
+		if (value >= sum - value)
+		{
+			break;
+		}
+		CheckPair128NoInline(value, sum);
+		++q;
+		++result;
+	}
+	return result;
+}
+
+// The largest prime to the power k >= 4 (/lpp k; k = 2, 3 too with /lpp_generic): m * q^k for the primes q from r.start_prime while
+// m * q^k is below the limit and abundant (the smaller member of a pair is abundant; sigma(q^k) / q^k decreases with q, so the
+// numbers after the first deficient one are deficient too). The powers are computed only while m * q^i is below the limit
+// (m * q^i < 2^74 and q < 2^37 before each multiplication: no overflow).
+NOINLINE num64 SearchRangePower(const RangeData& r, unsigned int k)
+{
+	PrimeIterator q(r.start_prime);
+	num64 result = 0;
+	const num128 m = r.value;
+	const num128 sum_m = r.sum;
+	for (;;)
+	{
+		const num64 p = q.Get();
+		num128 value = m;
+		num128 qi = 1;
+		num128 sum_qi = 1;
+		unsigned int i;
+		for (i = 0; i < k; ++i)
+		{
+			value *= p;
+			if (value >= SearchLimit::value)
+			{
+				break;
+			}
+			qi *= p;
+			sum_qi += qi;
+		}
+		if (i < k)
+		{
+			break;
+		}
+		const num128 sum = sum_m * sum_qi;
 		if (value >= sum - value)
 		{
 			break;
