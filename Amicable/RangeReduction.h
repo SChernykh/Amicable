@@ -30,6 +30,9 @@ struct RangeReduction
 	unsigned int lq[RangeReductionMaxLPrimes];
 	unsigned int le[RangeReductionMaxLPrimes];     // exponent of lq[i] in N (including its exponent in g)
 	double W;         // log of the largest T / N minus the log of the abundancy of the known part K
+	unsigned int v2;  // the power of 2 in N that W assumes (a lower bound)
+	bool fixed2;      // true: no higher power of 2 fits in the window W (else the numbers with 2^(v2 + k) in N have a window
+	                  // W - ln(sigma(2^(v2 + k)) / 2^(v2 + k)) + ln(sigma(2^v2) / 2^v2): OpenCL::PrepareSieveRange, band)
 };
 
 // M0 = product of primes[i]^exponents[i] (any order), sumM0 = sigma(M0), p <= p_hi

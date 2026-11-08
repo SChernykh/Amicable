@@ -163,6 +163,8 @@ void ComputeRangeReduction(num128 M0, num128 sumM0, const num64* primes, const u
 	r.numForced = 0;
 	r.numLPrimes = 0;
 	r.W = 0;
+	r.v2 = 0;
+	r.fixed2 = true;
 
 	const num128 A = sumM0 - M0;
 	const num128 B = sumM0;
@@ -259,6 +261,8 @@ void ComputeRangeReduction(num128 M0, num128 sumM0, const num64* primes, const u
 		{
 			fixed2 = true;
 		}
+		r.v2 = v2;
+		r.fixed2 = fixed2;
 
 		// every fixed q^e in N: sigma(q^e) | T = sigma(M0) * (p + 1)
 		num128 newL = 1;

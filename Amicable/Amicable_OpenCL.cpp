@@ -49,9 +49,12 @@ static num128 Gcd128Host(num128 a, num128 b)
 static const unsigned int SieveW30Host[8] = { 1, 7, 11, 13, 17, 19, 23, 29 };
 bool g_SieveReduce = true;
 bool g_SieveKill = true;
-// band sieve for the ranges with W ~ 0 (SetBandParameters); AMICABLE_NO_BAND=1 switches it off (for comparisons)
+// band sieve for the ranges with W < 1e-4 (SetBandParameters); AMICABLE_NO_BAND=1 switches it off (for comparisons)
 static const bool g_SieveBand = (getenv("AMICABLE_NO_BAND") == nullptr);
-static const double SieveBandMaxW = 1e-4;
+// (Development aid: AMICABLE_BAND_MAX_W=<W> sets the largest window of the band ranges. 1e-3, with the band for W >= 1e-4 only in
+// dense ranges (SetBandParameters): 2^6*79*409*2287*3449.., 39% of its positions at W = 1e-4 - 1e-3, 11.7 -> 6.3 s, but the units of
+// the 3^10 subtree 10% slower, e.g. 3^10*5*7*11*661*29131.. 30.1 -> 33.7 s: not the default.)
+static const double SieveBandMaxW = getenv("AMICABLE_BAND_MAX_W") ? atof(getenv("AMICABLE_BAND_MAX_W")) : 1e-4;
 num64 g_ExploreNumbers = 0;
 bool g_TestReductionOnly = false;
 unsigned int g_TestStride = 16;
@@ -2124,9 +2127,11 @@ bool OpenCL::ProcessNumbersPhases2_3(unsigned int numbers_in_phase2)
 		LOG(2, "Phase 2: processed " << numbers_in_phase2 << " numbers in " << phase2Time << " seconds, " << phase3_numbers_buf_count << " numbers left (" << ((phase3_numbers_buf_count * 100.0) / numbers_in_phase2) << "%)");
 
 		// debugging: AMICABLE_DUMP_PHASE3=<file> writes the first numbers that go to phase 3 (32 bytes each, CheckPairPhase3 input)
+		// (AMICABLE_DUMP_PHASE3_MIN=<n>: the first run with at least n numbers)
 		static bool phase3Dumped = false;
 		const char* dumpPath = getenv("AMICABLE_DUMP_PHASE3");
-		if (dumpPath && !phase3Dumped && (phase3_numbers_buf_count > 0))
+		static const unsigned int dumpMin = getenv("AMICABLE_DUMP_PHASE3_MIN") ? static_cast<unsigned int>(atof(getenv("AMICABLE_DUMP_PHASE3_MIN"))) : 1;
+		if (dumpPath && !phase3Dumped && (phase3_numbers_buf_count >= std::max(dumpMin, 1U)))
 		{
 			phase3Dumped = true;
 			std::vector<num64> data(static_cast<size_t>(std::min(phase3_numbers_buf_count, 1U << 18)) * 4);
@@ -3153,6 +3158,7 @@ void OpenCL::PrepareSieveRange(SieveRangeBlock& block, SieveRangeBlock::Range& r
 	range.impossible = false;
 	range.numPrimes = 0.0;
 	range.W = -1.0;
+	range.Wband = -1.0;
 	range.Lfull = 0;
 	range.L235 = 0;
 	if (!GetPrimeLimit(range.value, range.sum, range.start_prime, range.p_lo, range.p_hi))
@@ -3191,6 +3197,88 @@ void OpenCL::PrepareSieveRange(SieveRangeBlock& block, SieveRangeBlock::Range& r
 		range.W = red.W;
 		range.Lfull = red.Lfull;
 		range.L235 = red.L235;
+
+		// The band is made for W. If W is too wide for it and the power of 2 in N is not fixed, the numbers with a higher power of 2
+		// have a smaller window W - ln(sigma(2^v) / 2^v) + ln(sigma(2^v2) / 2^v2) (v2: the power that W assumes): the band is made for the
+		// smallest of these windows above 0 if it is narrow enough (v73: 2^5*37*197*69557*p, W = 0.016 from 2^4 || N for p == 1 (mod 4),
+		// W = 4e-6 for 2^5 || N, p == 7 (mod 8): 2.7e8 numbers of 1e10 went to phase 3, 15 s of 19 s; the numbers of the other powers
+		// have L = N / D below the band and are not decided by it). Only for a window <= 1e-5 (L >= 1e5: such a number needs >= 2e4
+		// primes of trial division without the band) of a power at most 3 above v2 (a fair share of the positions): the band costs the
+		// same for all positions of the range, also if few of them have that power (k1 = 2^6*97*1777*7559..: W = 8.2e-4 for 2^7 || N, the
+		// band made k1 3.7 -> 99 s and its phase 2 numbers 26.7M -> 24.8M)
+		range.Wband = red.W;
+		// (development aid: AMICABLE_BAND_CLASS=<mask> chooses the classes: 1 the powers of 2, 2 the odd primes; default both)
+		static const unsigned int bandClasses = getenv("AMICABLE_BAND_CLASS") ? static_cast<unsigned int>(atoi(getenv("AMICABLE_BAND_CLASS"))) : 3U;
+		if ((bandClasses & 1) && (red.W >= SieveBandMaxW) && !red.fixed2)
+		{
+			const long double base = logl(2.0L - ldexpl(1.0L, -static_cast<int>(red.v2)));
+			double best = -1.0;
+			unsigned int bestV = 0;
+			for (unsigned int v = red.v2 + 1; v <= red.v2 + 16; ++v)
+			{
+				const double Wv = static_cast<double>(static_cast<long double>(red.W) - (logl(2.0L - ldexpl(1.0L, -static_cast<int>(v))) - base));
+				if (!(Wv > 0.0))
+				{
+					break;
+				}
+				best = Wv;
+				bestV = v;
+			}
+			if ((best > 0.0) && (best <= std::min(SieveBandMaxW, 1e-5)) && (bestV <= red.v2 + 3))
+			{
+				range.Wband = best;
+			}
+		}
+		// The same for the odd primes q <= 13 outside the known part (not in g, not fixed by the conditions of the reduction, able to
+		// divide N): the numbers with q^e || N (a progression of p) have the window W - ln(sigma(q^e) / q^e) (v73: 2*5^2*13*47*103*177823*p,
+		// W = 0.18; 5 || N for p == 4 (mod 5) gives a window 2.5e-6, L = 4.0e5: 2.6e8 numbers of 1e10 went to phase 3, 25 s of 27 s).
+		// (With q <= 97 and e <= 3, 72 windows per range, a band came up by chance in ~0.2% of the ranges of the typical units: k1
+		// 3.63 -> 3.74 s, t3 2.52 -> 2.65 s; q <= 13 and e <= 2: 12 windows, the larger classes)
+		if ((bandClasses & 2) && (red.W >= SieveBandMaxW) && !(range.Wband < red.W))
+		{
+			static const unsigned int oddPrimes[] = { 3, 5, 7, 11, 13 };
+			const num128 Ag = range.sum - range.value;
+			double best = -1.0;
+			for (const unsigned int q : oddPrimes)
+			{
+				// q | g (q | M0 and q | sigma(M0)), or q | A and not B = sigma(M0) (then q never divides N = A p + B), or a fixed exponent
+				const bool qA = (Ag % num128(static_cast<num64>(q))) == 0;
+				const bool qB = (range.sum % num128(static_cast<num64>(q))) == 0;
+				bool skip = qA;
+				for (unsigned int k = 0; (k < range.numFactors) && !skip; ++k)
+				{
+					skip = (primes[k] == q) && qB;
+				}
+				for (unsigned int k = 0; (k < red.numLPrimes) && !skip; ++k)
+				{
+					skip = (red.lq[k] == q);
+				}
+				if (skip)
+				{
+					continue;
+				}
+				double qe = 1.0;
+				double sq = 1.0;
+				for (unsigned int e = 1; e <= 2; ++e)
+				{
+					qe *= q;
+					sq += qe;
+					const double Wq = red.W - log(sq / qe);
+					if (!(Wq > 0.0))
+					{
+						break;
+					}
+					if ((Wq <= std::min(SieveBandMaxW, 1e-5)) && ((best < 0.0) || (Wq < best)))
+					{
+						best = Wq;
+					}
+				}
+			}
+			if (best > 0.0)
+			{
+				range.Wband = best;
+			}
+		}
 	}
 	if (g_AnalyzeRate > 0)
 	{
@@ -3206,7 +3294,7 @@ void OpenCL::PrepareSieveRange(SieveRangeBlock& block, SieveRangeBlock::Range& r
 		range.status = SieveRangeBlock::Failed;
 		return;
 	}
-	SetBandParameters(range.record, range.W, range.p_hi, primes, range.numFactors);
+	SetBandParameters(range.record, range.Wband, range.p_lo, range.p_hi, primes, range.numFactors);
 	range.status = SieveRangeBlock::Ready;
 }
 
@@ -3457,6 +3545,20 @@ bool OpenCL::TestBandBitmap(const SieveBatch* batch, const cl_uint* entries, cl_
 				const num64 js = be[1] % r;
 				for (num64 d = (jc + r - js) % r; d < be[2]; d += r)
 				{
+					// (SieveBand skips the positions whose p has a prime factor 11..127 in the entries of at least 2^20 j)
+					if (be[2] >= (1U << 20))
+					{
+						const num64 p = P0 + 30 * (be[1] + d) + w;
+						bool smallFactor = false;
+						for (num64 q = 11; (q <= 127) && !smallFactor; q += 2)
+						{
+							smallFactor = ((q % 3) != 0) && ((q % 5) != 0) && ((q % 7) != 0) && ((p % q) == 0) && (p > 127);
+						}
+						if (smallFactor)
+						{
+							continue;
+						}
+					}
 					cl_uint& v = host[be[3] + d * 8 + c];
 					v = std::min<cl_uint>(v, i);
 					++hits;
@@ -3565,15 +3667,26 @@ void OpenCL::SetTestBandParameters(num64* record, const KnownPair& pair) const
 
 // Band sieve parameters of a range record (kernel_sieve.cl: SieveBand, kernel.cl: DecideByBand). Every number of the range has
 // N / D >= 1 / (e^W - 1) (W is the largest ln(T/N) - ln(sigma(K)/K)), so the band starts at L0 = 0.999 / (e^W - 1) (>= 1e4 for
-// W < 1e-4; it may contain primes of the sieve, then the band has their positions too), and it has the octaves up to the bands K L + K + 2 <= 1.7 N^(1/3) + 8 that the numbers can need
-// (DecideAtMost2Factors decides the numbers with D < 1.88 N^(2/3)), at most SieveBandMaxOctaves (most numbers have L ~ L0; the
-// others go to phase 2 as before) and only within the table of primes. The choice only matters for the speed (DecideByBand checks
-// that the band of each number is covered).
-void OpenCL::SetBandParameters(num64* record, double W, num64 p_hi, const num64* primes, unsigned int numPrimes) const
+// W < 1e-4; it may contain primes of the sieve, then the band has their positions too). A number with L = N / D needs the band up to
+// K L + K + 2 (K = floor(ln N / ln L) <= K0 = floor(ln Nmax / ln L0)). T / N grows with p, and so does the window W(p) of the numbers
+// at p: they have L(p) ~ 1 / (e^W(p) - 1), close to L0 except near p_lo. The band ends at K0 Lx + K0 + 2 (Lx = L(px) + 1%, px: 1e-4 of
+// the positions of the range are below it; the numbers there with a larger L continue from the end of the band in phases 1 - 3), at most
+// at the octaves up to the bands K L + K + 2 <= 1.7 N^(1/3) + 8 that the numbers can need (DecideAtMost2Factors decides the numbers
+// with D < 1.88 N^(2/3)), at most SieveBandMaxOctaves, and only within the table of primes. Before (v72) the band always had these
+// octaves (16 L0 in the ranges with W ~ 0, where L0 - 4.2 L0 is enough: 1/2 of the hits of SieveBand, 4/5 of its primes). The choice
+// only matters for the speed (DecideByBand checks that the band of each number is covered).
+void OpenCL::SetBandParameters(num64* record, double W, num64 p_lo, num64 p_hi, const num64* primes, unsigned int numPrimes) const
 {
 	record[21] = 0;
 	record[22] = 0;
 	if (!g_SieveBand || !P().mySieveBand || !(W > 0.0) || (W >= SieveBandMaxW) || mySmallPrimesHost.empty())
+	{
+		return;
+	}
+	// (with AMICABLE_BAND_MAX_W above 1e-4) W >= 1e-4 only in dense ranges (record[12] bit 41, SieveGPUTables::PrepareRange: the positions
+	// without small factors survive): the band costs the same for all positions, in the ranges with few survivors it costs more than the
+	// trial division it saves (2^3*13*17*503*1167823.., W = 2.4e-4, 1% survivors: 1.6 -> 5.7 s without this condition)
+	if ((W >= 1e-4) && !((record[12] >> 41) & 1))
 	{
 		return;
 	}
@@ -3591,7 +3704,35 @@ void OpenCL::SetBandParameters(num64* record, double W, num64 p_hi, const num64*
 	{
 		++T;
 	}
-	const num64 top = L0 << T;
+	num64 top = L0 << T;
+
+	// the band that the numbers at p >= px need: W(px) = W - (ln(T/N)(p_hi) - ln(T/N)(px)), ln(T/N)(p) = -ln(a + (1 - a) / (p + 1)),
+	// a = 1 - M0 / sigma(M0); N after the known power of 2 for K0 (BandEndForChunk: the same for the first p of each chunk)
+	const unsigned int v2g = static_cast<unsigned int>((record[12] >> 48) & 0xFF);
+	const double Nred = (Num128ToDouble(CombineNum128(record[6], record[7]) - CombineNum128(record[4], record[5])) * static_cast<double>(p_hi) +
+		Num128ToDouble(CombineNum128(record[6], record[7]))) / ldexp(1.0, static_cast<int>(v2g));
+	const double K0 = std::max(floor(log(Nred) / log(static_cast<double>(L0)) * 1.0001 + 0.0001), 2.0);
+	if (p_hi > p_lo)
+	{
+		const double M0 = Num128ToDouble(CombineNum128(record[4], record[5]));
+		const double S0 = Num128ToDouble(CombineNum128(record[6], record[7]));
+		const double oneMinusA = M0 / S0;
+		const double a = 1.0 - oneMinusA;
+		const double px = static_cast<double>(p_lo) + static_cast<double>(p_hi - p_lo) * 1e-4;
+		const double ph = static_cast<double>(p_hi);
+		const double delta = log1p(oneMinusA * ((ph - px) / ((px + 1.0) * (ph + 1.0))) / (a + oneMinusA / (ph + 1.0)));
+		const double Wx = W - delta;
+		if (Wx > 0.0)
+		{
+			const double Lx = 1.01 / expm1(Wx);
+			const double need = K0 * Lx + K0 + 2.0;
+			if (need < static_cast<double>(top))
+			{
+				top = std::max(static_cast<num64>(need) + 1, L0 * 2);
+			}
+		}
+	}
+
 	const unsigned int begin = static_cast<unsigned int>(std::upper_bound(mySmallPrimesHost.begin(), mySmallPrimesHost.end(), static_cast<unsigned int>(L0)) - mySmallPrimesHost.begin());
 	const unsigned int end = static_cast<unsigned int>(std::upper_bound(mySmallPrimesHost.begin(), mySmallPrimesHost.end(), static_cast<unsigned int>(top)) - mySmallPrimesHost.begin());
 	if ((end <= begin) || (begin == 0) || (end >= mySmallPrimesHost.size()))
@@ -3600,6 +3741,49 @@ void OpenCL::SetBandParameters(num64* record, double W, num64 p_hi, const num64*
 	}
 	record[21] = L0 | (static_cast<num64>(BandGMin(record, primes, numPrimes, mySmallPrimesHost, begin, end)) << 32);
 	record[22] = begin | (static_cast<num64>(end) << 32);
+	const float Wf = static_cast<float>(W);
+	unsigned int Wbits;
+	memcpy(&Wbits, &Wf, sizeof(Wbits));
+	record[23] = Wbits | (static_cast<num64>(K0) << 32);
+}
+
+// The end (prime index) of the band for the chunk of a band range whose first position is P0 + 30 jFirst (record[23]: W and K0 of
+// SetBandParameters): K0 L(pa) + K0 + 2 for the smallest p of the chunk (L(p) is largest there), within the band of the range. In a
+// range with p_hi / p_lo ~ 1e3 (2^4*19*137*167*878699: L0 = 9.2e5, but L = 5.3e6 at the p with 1e-4 of the positions below it) the
+// range needs a wide band, but only its first chunks do.
+cl_uint OpenCL::BandEndForChunk(const num64* rec, num64 jFirst) const
+{
+	const cl_uint begin = static_cast<cl_uint>(rec[22]);
+	const cl_uint end = static_cast<cl_uint>(rec[22] >> 32);
+	// (only in ranges of 8 chunks or more: an entry of its own for the first chunks of a short range doubles the setup of SieveBand for
+	// it, "t1" 2.6 chunks per range: 18.6 -> 20.3 s)
+	if ((rec[23] == 0) || (mySieve.NumChunks(rec[9], rec[10]) < 8))
+	{
+		return end;
+	}
+	float Wf;
+	const unsigned int Wbits = static_cast<unsigned int>(rec[23]);
+	memcpy(&Wf, &Wbits, sizeof(Wf));
+	const double K0 = static_cast<double>(rec[23] >> 32);
+	const double M0 = Num128ToDouble(CombineNum128(rec[4], rec[5]));
+	const double S0 = Num128ToDouble(CombineNum128(rec[6], rec[7]));
+	const double oneMinusA = M0 / S0;
+	const double a = 1.0 - oneMinusA;
+	const double pa = std::max(static_cast<double>(rec[9]), static_cast<double>(rec[8]) + 30.0 * static_cast<double>(jFirst));
+	const double ph = static_cast<double>(rec[10]);
+	const double delta = (ph > pa) ? log1p(oneMinusA * ((ph - pa) / ((pa + 1.0) * (ph + 1.0))) / (a + oneMinusA / (ph + 1.0))) : 0.0;
+	const double Wa = static_cast<double>(Wf) - delta;
+	if (!(Wa > 0.0))
+	{
+		return end;
+	}
+	const double need = K0 * 1.01 / expm1(Wa) + K0 + 2.0;
+	if (!(need < static_cast<double>(mySmallPrimesHost[end - 1])))
+	{
+		return end;
+	}
+	const cl_uint e = static_cast<cl_uint>(std::upper_bound(mySmallPrimesHost.begin(), mySmallPrimesHost.end(), static_cast<unsigned int>(need)) - mySmallPrimesHost.begin());
+	return std::min(std::max(e, begin + 1), end);
 }
 
 bool OpenCL::AddSieveRangeRecord(const num64* record, num64 p_lo, num64 p_hi, double W)
@@ -3788,12 +3972,14 @@ bool OpenCL::RunSieveLaunches(unsigned int chunkBegin, unsigned int chunkEnd, un
 					}
 					// (the band table and bitmap have the layout of the 30-wheel: first j and number of j in units of 30)
 					const cl_uint jCount = batch->chunks[c * 4 + 2] * mySieve.cfg.segJ * 7;
-					const cl_uint entry[SieveBandEntry] = { batch->chunks[c * 4], batch->chunks[c * 4 + 1] * 7, jCount, bl[4], static_cast<cl_uint>(rec[22]), static_cast<cl_uint>(rec[22] >> 32), static_cast<cl_uint>(rec[21] >> 32), 0 };
+					// (the end of the band for this chunk: BandEndForChunk; the smallest prime of g stays, the kernel caps it at the end)
+					const cl_uint entry[SieveBandEntry] = { batch->chunks[c * 4], batch->chunks[c * 4 + 1] * 7, jCount, bl[4], static_cast<cl_uint>(rec[22]), BandEndForChunk(rec, batch->chunks[c * 4 + 1] * 7), static_cast<cl_uint>(rec[21] >> 32), 0 };
 					// The next chunk of the same range (its j follow those of the last entry, and so do its bits of the bitmap) extends that
 					// entry: SieveBand computes A1, B1, their inverse and the first hit mod every band prime once per entry, and the chunks of
 					// a range have the same A1, B1 and P0 (3^10.. units of "t1": 2.6 chunks per range, SieveBand 68% of the time)
+					// (v73: only if the end of its band is within 1/32 of the band of that entry, which then covers it)
 					cl_uint* last = (bl[1] > 0) ? (bandTable.data() + bandTable.size() - SieveBandEntry) : nullptr;
-					if (last && (last[0] == entry[0]) && (last[1] + last[2] == entry[1]))
+					if (last && (last[0] == entry[0]) && (last[1] + last[2] == entry[1]) && (entry[5] <= last[5]) && ((last[5] - entry[5]) * 32 <= last[5] - last[4]))
 					{
 						last[2] += jCount;
 					}

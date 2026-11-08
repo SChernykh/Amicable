@@ -955,6 +955,29 @@ bool SieveGPUTables::PrepareRange(num128 M0, num128 sumM0, const num64* primes, 
 		++tier;
 	}
 
+	// dense: the positions where A1 * p + B1 has no odd prime factors <= Q of the tier (most of them) are inside the window, so the
+	// range has many survivors (the ranges with W ~ 0; OpenCL::SetBandParameters uses it for the band of the ranges with W >= 1e-4)
+	bool dense = false;
+	{
+		int base = Ttab[v2g + (twoAdic ? 1 : 0)];
+		const unsigned int numPrimes = tierInfo[tier * 8];
+		for (unsigned int f = 0; f < ngf; ++f)
+		{
+			const unsigned int q = gf[f] & 0xFFFFFFU;
+			for (unsigned int i = 0; i < numPrimes; ++i)
+			{
+				if (myPrimes[i] == q)
+				{
+					base += Ttab[SieveT2Size + i * SieveTStride + (gf[f] >> 24)];
+					break;
+				}
+			}
+		}
+		const double corr = log1p((Num128ToDouble(M0) / Num128ToDouble(A)) / (static_cast<double>(p_lo) + 1.0)) * SIEVE_FX;
+		const int lo = lnr_fx - static_cast<int>(corr) - 1 - loExtra;
+		dense = (base >= lo);
+	}
+
 	unsigned int floatBits;
 	memcpy(&floatBits, &rm1, sizeof(floatBits));
 
@@ -970,7 +993,7 @@ bool SieveGPUTables::PrepareRange(num128 M0, num128 sumM0, const num64* primes, 
 	out[9] = p_lo;
 	out[10] = p_hi;
 	out[11] = static_cast<num64>(static_cast<unsigned int>(lnr_fx)) | (static_cast<num64>(static_cast<unsigned int>(loExtra)) << 32);
-	out[12] = static_cast<num64>(floatBits) | (static_cast<num64>(tier) << 32) | (static_cast<num64>(twoAdic ? 1 : 0) << 40) | (static_cast<num64>(v2g) << 48) | (static_cast<num64>(ngf) << 56);
+	out[12] = static_cast<num64>(floatBits) | (static_cast<num64>(tier) << 32) | (static_cast<num64>(twoAdic ? 1 : 0) << 40) | (static_cast<num64>(dense ? 1 : 0) << 41) | (static_cast<num64>(v2g) << 48) | (static_cast<num64>(ngf) << 56);
 	for (unsigned int i = 0; i < SieveMaxGFactors / 2; ++i)
 	{
 		out[13 + i] = static_cast<num64>(gf[i * 2]) | (static_cast<num64>(gf[i * 2 + 1]) << 32);

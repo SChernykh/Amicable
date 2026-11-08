@@ -103,6 +103,7 @@ struct SieveRangeBlock
 		num64 p_hi;
 		double numPrimes;
 		double W;                     // of the reduction, -1 if it found the range impossible
+		double Wband;                 // the window the band is made for (PrepareSieveRange)
 		num64 Lfull;
 		num64 L235;
 		num64 record[SieveRangeStride];
@@ -369,9 +370,11 @@ private:
 	cl_mem mySieveModTaskIdxBuf;
 	cl_mem mySieveModTaskListBuf;
 	// band sieve (kernel_sieve.cl: SieveBand, kernel.cl: DecideByBand) for the ranges with W < SieveBandMaxW: record[21] = L0 | the index of
-	// the smallest prime of g in the band << 32, record[22] = the indexes in smallPrimes [begin, end) of the band (the primes in (L0, L0 2^T]))
+	// the smallest prime of g in the band << 32, record[22] = the indexes in smallPrimes [begin, end) of the band (the primes in (L0, top],
+	// SetBandParameters), record[23] = W (float) | K0 << 32 for the end of the band of each chunk (BandEndForChunk)
 	std::vector<unsigned int> mySmallPrimesHost;
-	void SetBandParameters(num64* record, double W, num64 p_hi, const num64* primes, unsigned int numPrimes) const;
+	void SetBandParameters(num64* record, double W, num64 p_lo, num64 p_hi, const num64* primes, unsigned int numPrimes) const;
+	cl_uint BandEndForChunk(const num64* rec, num64 jFirst) const;
 	void SetTestBandParameters(num64* record, const struct KnownPair& pair) const;
 	mutable num64 mySieveStatBandTestRanges = 0;
 	bool TestBandBitmap(const SieveBatch* batch, const cl_uint* entries, cl_uint count, cl_uint bytes);    // survivor records (as many as the survivor buffer holds)

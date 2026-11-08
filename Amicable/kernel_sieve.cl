@@ -458,6 +458,25 @@ static inline uint SieveScan(__local int* S, __local const int* TBC, __local con
 }
 )==="
 R"===(
+// p with a prime factor 11 <= q <= 127 (q | p <=> p * q^-1 mod 2^64 <= (2^64 - 1) / q; the positions are prime to 210): p is composite,
+// the position is not a number of the range. CheckSieveSurvivors rejects these positions before it reads their band word (the first pass,
+// p not known to be prime), so SieveBand skips their hits (v73: half of its atomic_min; a wrong word of a composite p could only reject
+// that position, never report it). (The same test in the scan of SieveRanges, to record half of the survivors of the ranges with
+// W ~ 0: the survivor checks 1.53 -> 0.84 s on x1, but SieveRanges 0.69 -> 1.21 s, k1 3.05 -> 3.45 s: not used.)
+__constant ulong SieveBandSmallInv[27] = { 0x2E8BA2E8BA2E8BA3UL, 0x4EC4EC4EC4EC4EC5UL, 0xF0F0F0F0F0F0F0F1UL, 0x86BCA1AF286BCA1BUL, 0xD37A6F4DE9BD37A7UL, 0x34F72C234F72C235UL, 0xEF7BDEF7BDEF7BDFUL, 0x14C1BACF914C1BADUL, 0x8F9C18F9C18F9C19UL, 0x82FA0BE82FA0BE83UL, 0x51B3BEA3677D46CFUL, 0x21CFB2B78C13521DUL, 0xCBEEA4E1A08AD8F3UL, 0x4FBCDA3AC10C9715UL, 0xF0B7672A07A44C6BUL, 0x193D4BB7E327A977UL, 0x7E3F1F8FC7E3F1F9UL, 0x9B8B577E613716AFUL, 0xA3784A062B2E43DBUL, 0xF47E8FD1FA3F47E9UL, 0xA3A0FD5C5F02A3A1UL, 0x3A4C0A237C32B16DUL, 0xDAB7EC1DD3431B57UL, 0x77A04C8F8D28AC43UL, 0xA6C0964FDA6C0965UL, 0x90FDBC090FDBC091UL, 0x7EFDFBF7EFDFBF7FUL };
+__constant ulong SieveBandSmallLim[27] = { 0x1745D1745D1745D1UL, 0x13B13B13B13B13B1UL, 0x0F0F0F0F0F0F0F0FUL, 0x0D79435E50D79435UL, 0x0B21642C8590B216UL, 0x08D3DCB08D3DCB08UL, 0x0842108421084210UL, 0x06EB3E45306EB3E4UL, 0x063E7063E7063E70UL, 0x05F417D05F417D05UL, 0x0572620AE4C415C9UL, 0x04D4873ECADE304DUL, 0x0456C797DD49C341UL, 0x04325C53EF368EB0UL, 0x03D226357E16ECE5UL, 0x039B0AD12073615AUL, 0x0381C0E070381C0EUL, 0x033D91D2A2067B23UL, 0x03159721ED7E7534UL, 0x02E05C0B81702E05UL, 0x02A3A0FD5C5F02A3UL, 0x0288DF0CAC5B3F5DUL, 0x027C45979C95204FUL, 0x02647C69456217ECUL, 0x02593F69B02593F6UL, 0x0243F6F0243F6F02UL, 0x0204081020408102UL };
+
+static inline bool BandSmallFactor(const ulong p)
+{
+	bool f = false;
+	#pragma unroll
+	for (int k = 0; k < 27; ++k)
+	{
+		f |= (p * SieveBandSmallInv[k] <= SieveBandSmallLim[k]);
+	}
+	return f && (p > 127);
+}
+
 // One work-group sieves one chunk (up to SIEVE_CHUNK_SEGMENTS segments) of one range: all p = Pchunk + 210 * j + w(c) coprime to 210
 // with 0 <= j < nseg * SIEVE_SEG_J, in the 6 sub-sieves one after the other, and records the positions whose sum is inside the window
 // (and p_lo <= p <= p_hi) as survivors: (p << 27) | range index
@@ -1535,9 +1554,17 @@ void SieveBand(
 			for (uint c = 0; c < 8; ++c)
 			{
 				const uint jr = (jb >= wv[c]) ? (jb - wv[c]) : (jb + r - wv[c]);
+				// (the test of p only in the entries with at least 2^20 j, 32 MB of bitmap: the host slices the launches at 32 MB, an entry
+				// above it is a slice of its own whose hits miss the L2 cache. In the small entries ("t1", 2.6 chunks per range) the hits are
+				// cheap, and the test everywhere made SieveBand 17.6 -> 18.5 s)
+				const ulong pc = rg[8] + 30 * (ulong)be[1] + SIEVE_W30(c);
+				const bool filter = (count >= (1U << 20));
 				for (uint d = (jr >= js) ? (jr - js) : (jr + r - js); d < count; d += r)
 				{
-					atomic_min(&bitmap[offset + d * 8 + c], pi);
+					if (!filter || !BandSmallFactor(pc + 30 * (ulong)d))
+					{
+						atomic_min(&bitmap[offset + d * 8 + c], pi);
+					}
 				}
 			}
 		}
