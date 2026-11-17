@@ -1935,14 +1935,14 @@ FORCEINLINE num64 IntegerCbrt(const num128 n)
 	}
 
 	unsigned long index;
-	if (LowWord(n))
-	{
-		_BitScanReverse64(&index, LowWord(n));
-	}
-	else
+	if (HighWord(n))
 	{
 		_BitScanReverse64(&index, HighWord(n));
 		index += 64;
+	}
+	else
+	{
+		_BitScanReverse64(&index, LowWord(n));
 	}
 
 	index = (index * ((1048576 / 3) + 1)) >> 20;
@@ -1957,6 +1957,54 @@ FORCEINLINE num64 IntegerCbrt(const num128 n)
 		}
 	}
 	return result;
+}
+
+static bool TestIntegerCbrt()
+{
+	bool ok = true;
+	num64 count = 0;
+	const auto check = [&ok, &count](const num128 n)
+	{
+		const num64 r = IntegerCbrt(n);
+		++count;
+		if (((num128(r) * r) * r > n) || ((num128(r + 1) * (r + 1)) * (r + 1) <= n))
+		{
+			if (ok)
+			{
+				std::cerr << "IntegerCbrt(" << n << ") = " << r << " is not the integer cube root" << std::endl;
+			}
+			ok = false;
+		}
+	};
+
+	// limit / m for the m of the first ranges (the high word of n is not zero for m < limit / 2^64)
+	for (num64 m = 1; m <= 100000; ++m)
+	{
+		check(SearchLimit::value / m);
+	}
+
+	// around cubes, on both sides of 2^64 (2642245^3 < 2^64 < 2642246^3)
+	static const num64 roots[] = { 2, 3, 1000, 2097151, 2097152, 2097153, 2642245, 2642246, 4194303, 4194304, 4194305, 7937005, 21544346, 21544347, 4294967295ULL, 4294967296ULL, 1099511627775ULL };
+	for (const num64 k : roots)
+	{
+		const num128 c = (num128(k) * k) * k;
+		check(c - 1);
+		check(c);
+		check(c + 1);
+	}
+
+	// around powers of 2, up to 2^119
+	num128 p = num64(8);
+	for (unsigned int b = 3; b < 120; ++b)
+	{
+		check(p - 1);
+		check(p);
+		check(p + 1);
+		p *= 2;
+	}
+
+	std::cerr << "IntegerCbrt test: " << count << " values " << (ok ? "passed" : "FAILED") << std::endl;
+	return ok;
 }
 
 bool OpenCL::AddRange(const RangeData& r, num64 offset, bool& added)
@@ -4899,7 +4947,8 @@ bool OpenCL::RunSieveTests()
 	// (both run, so that a failure of the first doesn't hide the second)
 	const bool bandPowerCofactorOk = TestBandPowerCofactor();
 	const bool overAbundantOk = TestOverAbundantExact();
-	ok = ok && bandPowerCofactorOk && overAbundantOk;
+	const bool integerCbrtOk = TestIntegerCbrt();
+	ok = ok && bandPowerCofactorOk && overAbundantOk && integerCbrtOk;
 
 	if (myLargePrimesSieve)
 	{
