@@ -2043,10 +2043,10 @@ bool OpenCL::AddRange(const RangeData& r, num64 offset, bool& added)
 			// (r.value * 2 - r.sum) / r.sum * p^2 - p - 1 = 0
 			// (r.value * 2 / r.sum - 1) * p^2 - p - 1 = 0
 			const double A = Num128ToDouble(r.value * 2 - r.sum) / Num128ToDouble(r.sum);
-			const num64 prime_limit2 = static_cast<num64>((1.0 + sqrt(1.0 + 4.0 * A)) / (2.0 * A));
+			const double prime_limit2 = (1.0 + sqrt(1.0 + 4.0 * A)) / (2.0 * A) + 1.0;
 			if (prime_limit > prime_limit2)
 			{
-				prime_limit = prime_limit2;
+				prime_limit = static_cast<num64>(prime_limit2);
 			}
 		}
 		break;

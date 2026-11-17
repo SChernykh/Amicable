@@ -119,8 +119,8 @@ static FORCEINLINE bool efficient_mr64(const num64 N)
 	num64 u=N-1;
 	const num64 nr = N-r;	
 
-	int t;
-	_BitScanForward64((DWORD*) &t, u);
+	unsigned long t;
+	_BitScanForward64(&t, u);
 	u >>= t;
 
 	// These 7 bases are enough to make Miller-Rabin test deterministic for N < 2^64
