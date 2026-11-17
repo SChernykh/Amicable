@@ -2281,10 +2281,10 @@ NOINLINE num64 SearchRangeSquared(const RangeData& r)
 		// (r.value * 2 - r.sum) / r.sum * p^2 - p - 1 = 0
 		// (r.value * 2 / r.sum - 1) * p^2 - p - 1 = 0
 		const double A = Num128ToDouble(r.value * 2 - r.sum) / Num128ToDouble(r.sum);
-		const num64 prime_limit2 = static_cast<num64>((1.0 + sqrt(1.0 + 4.0 * A)) / (2.0 * A)) + 1;
+		const double prime_limit2 = (1.0 + sqrt(1.0 + 4.0 * A)) / (2.0 * A) + 1.0;
 		if (prime_limit > prime_limit2)
 		{
-			prime_limit = prime_limit2;
+			prime_limit = static_cast<num64>(prime_limit2);
 		}
 	}
 
@@ -2294,8 +2294,9 @@ NOINLINE num64 SearchRangeSquared(const RangeData& r)
 	const num128 sum_m = r.sum;
 	while (q.Get() < prime_limit)
 	{
-		const num64 q2 = q.Get() * q.Get();
-		CheckPair128NoInline(m * q2, sum_m * (q2 + q.Get() + 1));
+		const num64 q1 = q.Get();
+		const num128 q2 = num128(q1) * q1;
+		CheckPair128NoInline(m * q2, sum_m * (q2 + q1 + 1));
 		++q;
 		++result;
 	}
@@ -2311,14 +2312,15 @@ NOINLINE num64 SearchRangeCubed(const RangeData& r)
 	const num128 sum_m = r.sum;
 	for (;;)
 	{
-		const num128 q2 = q.Get() * q.Get();
-		const num128 q3 = q2 * q.Get();
+		const num64 q1 = q.Get();
+		const num128 q2 = num128(q1) * q1;
+		const num128 q3 = q2 * q1;
 		const num128 value = m * q3;
 		if (value >= SearchLimit::value)
 		{
 			break;
 		}
-		const num128 sum = sum_m * (q3 + q2 + q.Get() + 1);
+		const num128 sum = sum_m * (q3 + q2 + q1 + 1);
 		if (value >= sum - value)
 		{
 			break;
