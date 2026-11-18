@@ -20,9 +20,9 @@ static const char* kernel_cl = R"===(
 //-----------------------------------------------------------------------------------------------------------------------------------------------------------
 
 // A: smaller member of an amicable pair
-// B: if it's not zero, it must be prime in order for A to be amicable number
+// B (B_high: its bits from 64 up): if it's not zero, it must be prime in order for A to be amicable number (the host tests it)
 // amicable_numbers_count[1] is the capacity of the buffer (the host reports an error if the counter is larger)
-static void NumberFound(__global uint* amicable_numbers_count, __global ulong4* amicable_numbers_data, ulong A, ulong A_high, ulong B)
+static void NumberFound128(__global uint* amicable_numbers_count, __global ulong4* amicable_numbers_data, ulong A, ulong A_high, ulong B, ulong B_high)
 {
 	const uint index = atom_inc(amicable_numbers_count);
 	if (index < amicable_numbers_count[1])
@@ -30,7 +30,20 @@ static void NumberFound(__global uint* amicable_numbers_count, __global ulong4* 
 		amicable_numbers_data[index].x = A;
 		amicable_numbers_data[index].y = A_high;
 		amicable_numbers_data[index].z = B;
+		amicable_numbers_data[index].w = B_high;
 	}
+}
+
+static void NumberFound(__global uint* amicable_numbers_count, __global ulong4* amicable_numbers_data, ulong A, ulong A_high, ulong B)
+{
+	NumberFound128(amicable_numbers_count, amicable_numbers_data, A, A_high, B, 0);
+}
+
+// An empty slot of the buffers of phases 2 and 3 (the host pads them with zeros, Phase2Prefilter removes a number): M = 0, all of its
+// 78 bits. The low 64 bits alone are zero for every M = 2^64 k (the ranges 2^64 .. 2^70): these numbers were dropped.
+static bool EmptySlot(const ulong4 x)
+{
+	return (x.x == 0) && (((x.w >> 22) & ((1U << 14) - 1)) == 0);
 }
 
 // 32-bit floats don't have enough precision
@@ -976,7 +989,7 @@ static void CheckPairPhase1(
 				{
 					// (N_high: N can still be >= 2^64 here, the test of the low 64 bits alone made rare numbers return)
 					const ulong sumN = ((N > 1) ? N : 0) + 1;
-					if (sumN == targetSum)
+					if ((targetSumHigh == 0) && (sumN == targetSum))
 					{
 						PHASE1_FOUND();
 					}
@@ -1368,7 +1381,7 @@ void CheckPairPhase2(
 )
 {
 	const ulong4 cur_number = numbersToCheck[get_global_id(0) + numbersToCheckOffset];
-	if (cur_number.x == 0)
+	if (EmptySlot(cur_number))
 	{
 		return;
 	}
@@ -1475,7 +1488,7 @@ void CheckPairPhase2(
 					// N is 1 or prime (unless a factor below N / D was skipped: FirstUsefulPrimeIndex). (N_high: N can still be >= 2^64 here,
 					// the test of the low 64 bits alone made rare numbers return)
 					const ulong sumN = ((N > 1) ? N : 0) + 1;
-					if (sumN == targetSum)
+					if ((targetSumHigh == 0) && (sumN == targetSum))
 					{
 						if (N > 1)
 						{
@@ -1822,7 +1835,7 @@ void CheckPairPhase3Wide(
 		return;
 	}
 	const ulong4 cur_number = numbersToCheck[n];
-	if (cur_number.x == 0)
+	if (EmptySlot(cur_number))
 	{
 		return;
 	}
@@ -1902,7 +1915,7 @@ void CheckPairPhase3(
 )
 {
 	const ulong4 cur_number = numbersToCheck[get_global_id(0) + numbersToCheckOffset];
-	if (cur_number.x == 0)
+	if (EmptySlot(cur_number))
 	{
 		return;
 	}
@@ -2036,7 +2049,7 @@ void CheckPairPhase3(
 					// N is 1 or prime (unless a factor below N / D was skipped: FirstUsefulPrimeIndex). (N_high: N can still be >= 2^64 here,
 					// the test of the low 64 bits alone made rare numbers return)
 					const ulong sumN = ((N > 1) ? N : 0) + 1;
-					if (sumN == targetSum)
+					if ((targetSumHigh == 0) && (sumN == targetSum))
 					{
 						if (N > 1)
 						{
@@ -2102,7 +2115,9 @@ void CheckPairPhase3(
 				{
 					if ((targetSum == N2) && (targetSumHigh == N2_high))
 					{
-						NumberFound(amicable_numbers_count, amicable_numbers_data, M, M_high, 0);
+						// N must be prime, and it is 2^64 - 1 or more here (the target sum is 2^64 or more): the host tests it. It was
+						// reported without a test: a composite N with no factor up to its cube root was a false report.
+						NumberFound128(amicable_numbers_count, amicable_numbers_data, M, M_high, N, N_high);
 					}
 					else
 					{
@@ -2439,7 +2454,7 @@ void Phase2BucketScatter(__global const ulong4* numbers, const uint count, __glo
 }
 
 // Before phase 2 (the host: ProcessNumbersPhases2_3): the numbers with D < 3 N^(2/3) that phase 1 could not decide (the form r^2 s,
-// DecideAtMost2Factors) are decided here and removed (M = 0: the kernels of phase 2 skip them). In the ranges with W ~ 0 they are most
+// DecideAtMost2Factors) are decided here and removed (M = 0, EmptySlot: the kernels of phase 2 skip them). In the ranges with W ~ 0 they are most
 // numbers of phase 2 for some N (t1: D / N^(2/3) ~ 1.88 - 3), and they needed the trial division up to 2 N / D.
 __kernel
 __attribute__((reqd_work_group_size(WORK_GROUP_SIZE, 1, 1)))
@@ -2451,7 +2466,7 @@ void Phase2Prefilter(__global ulong4* numbers, const uint count, __global uint* 
 		return;
 	}
 	const ulong4 x = numbers[id];
-	if (x.x == 0)
+	if (EmptySlot(x))
 	{
 		return;
 	}
@@ -2466,7 +2481,9 @@ void Phase2Prefilter(__global ulong4* numbers, const uint count, __global uint* 
 		{
 			NumberFound(amicable_numbers_count, amicable_numbers_data, x.x, M_high, B);
 		}
+		// (EmptySlot: M = 0; N and the target sum stay, the sort of phase 2 puts the slot where the number was)
 		numbers[id].x = 0;
+		numbers[id].w = x.w & ~((ulong)((1U << 14) - 1) << 22);
 	}
 }
 
@@ -2917,7 +2934,7 @@ void CheckPairs(
 )
 {
 	const ulong4 cur_pair = pairsToCheck[get_global_id(0)];
-	if (cur_pair.x == 0)
+	if ((cur_pair.x == 0) && (cur_pair.y == 0))
 	{
 		return;
 	}

@@ -77,6 +77,93 @@ enum
 
 unsigned char* OpenCL::ourZeroBuf = nullptr;
 
+// a * b mod n for a, b < n < 2^127
+static num128 MulMod128(num128 a, num128 b, const num128& n)
+{
+	num128 r = 0;
+	while (b != 0)
+	{
+		if (LowWord(b) & 1)
+		{
+			r += a;
+			if (r >= n)
+			{
+				r -= n;
+			}
+		}
+		a += a;
+		if (a >= n)
+		{
+			a -= n;
+		}
+		b >>= 1;
+	}
+	return r;
+}
+
+// The cofactor B of a found number (kernel.cl: NumberFound, NumberFound128) must be prime; 0: there is none. B < 2^64: IsPrime. A larger
+// one (the 128-bit end of phase 3, sigma(N) = N + 1 = the target sum; N < 2^78) had no test at all: the strong probable prime test to
+// the bases 2 .. 37, which no composite below 3.18 * 10^23 passes (Sorenson, Webster, "Strong pseudoprimes to twelve prime bases").
+static bool FoundCofactorIsPrime(const num64 B, const num64 B_high)
+{
+	if (B_high == 0)
+	{
+		return (B == 0) || IsPrime(B);
+	}
+	if (B_high >> 14)
+	{
+		// not a value the kernels can report (they keep 78 bits): the number is printed
+		return true;
+	}
+	if ((B & 1) == 0)
+	{
+		return false;
+	}
+	const num128 n = CombineNum128(B, B_high);
+	const num128 n1 = n - 1;
+	num128 d = n1;
+	unsigned int s = 0;
+	while ((LowWord(d) & 1) == 0)
+	{
+		d >>= 1;
+		++s;
+	}
+	static const num64 bases[12] = { 2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37 };
+	for (const num64 base : bases)
+	{
+		// x = base^d mod n
+		num128 x = 1;
+		num128 a = base;
+		for (num128 e = d; e != 0; e >>= 1)
+		{
+			if (LowWord(e) & 1)
+			{
+				x = MulMod128(x, a, n);
+			}
+			a = MulMod128(a, a, n);
+		}
+		if ((x == 1) || (x == n1))
+		{
+			continue;
+		}
+		bool composite = true;
+		for (unsigned int i = 1; i < s; ++i)
+		{
+			x = MulMod128(x, x, n);
+			if (x == n1)
+			{
+				composite = false;
+				break;
+			}
+		}
+		if (composite)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
 OpenCL::OpenCL(const char* preferences)
 	: myLargestPrimePower(1)
 	, myGPUContext(nullptr)
@@ -1695,8 +1782,10 @@ bool OpenCL::SetPhase2KernelArguments()
 	return true;
 }
 
-// Checks the given pairs (M, sigma(M)) with the same kernels as all numbers (phases 1-3), all of them must be found
-bool OpenCL::TestPairs(std::vector<SPairToCheck>& pairs, const std::vector<num64>* bands)
+// Checks the given pairs (M, sigma(M)) with the same kernels as all numbers (phases 1-3), all of them must be found (allMustBeFound =
+// false: the caller looks at the pairs, the found ones have targetSum = NUM128_MAX). A report counts as in the search: only if its
+// cofactor is prime (FoundCofactorIsPrime).
+bool OpenCL::TestPairs(std::vector<SPairToCheck>& pairs, const std::vector<num64>* bands, bool allMustBeFound)
 {
 	const unsigned int total_numbers = static_cast<unsigned int>(pairs.size());
 	LOG(1, "Total numbers: " << total_numbers);
@@ -1881,6 +1970,10 @@ bool OpenCL::TestPairs(std::vector<SPairToCheck>& pairs, const std::vector<num64
 		CL_CHECKED_CALL(clEnqueueReadBuffer, P().myQueue, buf, CL_TRUE, 0, sizeof(num64) * 4 * amicable_numberscount, found_pairs.data(), 0, nullptr, nullptr);
 		for (const SFoundPair& pair : found_pairs)
 		{
+			if (!FoundCofactorIsPrime(pair.N, pair.N_high))
+			{
+				continue;
+			}
 			const num128 M = CombineNum128(pair.M, pair.M_high);
 			auto it = std::lower_bound(pairs.begin(), pairs.end(), M, [](const SPairToCheck& a, const num128 b) { return a.M < b; });
 			if ((it != pairs.end()) && (it->M == M))
@@ -1888,6 +1981,11 @@ bool OpenCL::TestPairs(std::vector<SPairToCheck>& pairs, const std::vector<num64
 				it->targetSum = NUM128_MAX;
 			}
 		}
+	}
+
+	if (!allMustBeFound)
+	{
+		return true;
 	}
 
 	num64 num_missed = 0;
@@ -1990,6 +2088,100 @@ bool OpenCL::TestBandPowerCofactor()
 		ok = ok && found;
 	}
 	return ok;
+}
+
+// Regression test of 2026-11-18 (part of /test), synthetic numbers through phases 1-3 (TestPairs):
+// 1. M = 2^64 k (low 64 bits zero; the ranges 2^64 .. 2^70 have such M): N = a q with a prime q >= 2^63, which no phase can decide
+//    before the trial division reaches the cube root of q, and sigma(N) - N = 2^64 k. The kernels of phases 2 and 3 took a zero low
+//    word of M for an empty slot of their buffers and dropped the number. All must be found. (q < 2^64: the 64-bit loops; q >= 2^64:
+//    the 128-bit loops, the report carries q for the host's test.)
+// 2. N = a c with c = r s >= 2^64, r and s primes above the cube root of c, and the target sum sigma(a) (c + 1), as if c were prime:
+//    the 128-bit end of phase 3 reported such M without a test of c. None may be found.
+bool OpenCL::TestZeroLowWordAndLargeCofactor()
+{
+	auto sumOfDivisors = [](num64 n)
+	{
+		num64 result = 1;
+		for (num64 p = 2; p <= n; ++p)
+		{
+			num64 t = 1;
+			num64 pk = 1;
+			while (n % p == 0)
+			{
+				n /= p;
+				pk *= p;
+				t += pk;
+			}
+			result *= t;
+		}
+		return result;
+	};
+
+	// a, k: q = (2^64 k - sigma(a)) / (sigma(a) - a) is prime (review_2026-11-17/t2/find_cases.py); the first has q < 2^64, M = 2^70
+	static const num64 zeroLowWord[][2] = {
+		{ 128, 64 }, { 2, 17 }, { 2, 97 }, { 2, 211 }, { 4, 124 }, { 8, 74 }, { 98, 268 }, { 116, 281 }, { 128, 191 }, { 328, 398 },
+	};
+	std::vector<SPairToCheck> pairs;
+	for (const auto& z : zeroLowWord)
+	{
+		const num64 a = z[0];
+		const num64 sigmaA = sumOfDivisors(a);
+		const num128 t = (num128(z[1]) << 64) - sigmaA;
+		const num128 q = t / (sigmaA - a);
+		const num128 N = q * a;
+		const num128 sigmaN = (q + 1) * sigmaA;
+		const num128 M = sigmaN - N;
+		if ((q * (sigmaA - a) != t) || (LowWord(M) != 0) || (HighWord(M) != z[1]) || (M >= N) || (N >= SearchLimit::value) || !FoundCofactorIsPrime(LowWord(q), HighWord(q)))
+		{
+			LOG_ERROR("Zero low word test: wrong test number (a = " << a << ", k = " << z[1] << ")");
+			return false;
+		}
+		pairs.emplace_back(M, sigmaN);
+	}
+	std::sort(pairs.begin(), pairs.end(), [](const SPairToCheck& x, const SPairToCheck& y) { return x.M < y.M; });
+	const size_t numZero = pairs.size();
+	const bool allFound = TestPairs(pairs);
+	std::cerr << "Zero low word test: " << numZero << " numbers M = 2^64 k with a prime cofactor of N of 2^63 or more: " << (allFound ? "all found" : "NOT all found") << std::endl;
+
+	// a, r, s
+	static const num64 compositeCofactor[][3] = {
+		{ 2, 3000000019ULL, 7000000001ULL }, { 4, 5000000029ULL, 20000000089ULL }, { 10, 2000000011ULL, 60000000029ULL },
+		{ 2, 4294967311ULL, 8589934609ULL }, { 2, 10000000019ULL, 100000000003ULL },
+	};
+	pairs.clear();
+	for (const auto& z : compositeCofactor)
+	{
+		const num64 a = z[0];
+		const num64 sigmaA = sumOfDivisors(a);
+		const num128 cofactor = num128(z[1]) * z[2];
+		const num128 N = cofactor * a;
+		const num128 target = (cofactor + 1) * sigmaA;
+		const num128 M = target - N;
+		if (!IsPrime(z[1]) || !IsPrime(z[2]) || (z[1] >= z[2]) || (num128(z[1]) * z[1] <= z[2]) || (HighWord(cofactor) == 0) || (M >= N) || (N >= SearchLimit::value))
+		{
+			LOG_ERROR("Composite cofactor test: wrong test number (a = " << a << ", r = " << z[1] << ", s = " << z[2] << ")");
+			return false;
+		}
+		pairs.emplace_back(M, target);
+	}
+	std::sort(pairs.begin(), pairs.end(), [](const SPairToCheck& x, const SPairToCheck& y) { return x.M < y.M; });
+	const size_t numComposite = pairs.size();
+	if (!TestPairs(pairs, nullptr, false))
+	{
+		return false;
+	}
+	size_t falseReports = 0;
+	for (const SPairToCheck& pair : pairs)
+	{
+		if (pair.targetSum == NUM128_MAX)
+		{
+			++falseReports;
+		}
+	}
+	std::cerr << "Composite cofactor test: " << numComposite << " numbers with sigma(N) = N + 1 for a composite N >= 2^64 without a factor up to its cube root: "
+		<< falseReports << " reported" << ((falseReports == 0) ? "" : " (FAILED)") << std::endl;
+
+	return allFound && (falseReports == 0);
 }
 
 // Regression test of OverAbundant (PrimeTables.h, 2026-11-08): (sum - value) (sigma(g) - g) >= value g is exact now (256-bit products); the
@@ -2813,7 +3005,7 @@ bool OpenCL::SaveFoundNumbers()
 		CL_CHECKED_CALL(clEnqueueReadBuffer, P().myQueue, P().myAmicable_numbers_data_buf, CL_TRUE, 0, sizeof(num64) * 4 * numbers_found, myFoundPairs.data(), 0, nullptr, nullptr);
 		for (const SFoundPair& k : myFoundPairs)
 		{
-			if ((k.N == 0) || IsPrime(k.N))
+			if (FoundCofactorIsPrime(k.N, k.N_high))
 			{
 				++myAmicableNumbersFound;
 				char buf[40];
@@ -2931,6 +3123,9 @@ bool OpenCL::SaveProgressForLargePrimes(num64 firstPrime, num64 lastPrime, num64
 // Arithmetic-progression sieve for the first stage (see SieveGPU.h)
 //-----------------------------------------------------------------------------------------------------------------------------------
 
+// The work-group size of SieveBand (kernel_sieve.cl; one work-item per prime, no local memory): this, or the sieve's if it is smaller
+static const unsigned int SieveBandMaxWorkGroupSize = 256;
+
 bool OpenCL::InitSieve(cl_device_id /*device*/, num64 localMemSize, num64 maxWorkGroupSize, std::string& options)
 {
 	SieveGPUConfig cfg = g_SieveConfig;
@@ -2980,7 +3175,7 @@ bool OpenCL::InitSieve(cl_device_id /*device*/, num64 localMemSize, num64 maxWor
 	auto makeOptions = [&](unsigned int survLocal, unsigned int killQMax, unsigned int maxSlots) -> std::string
 	{
 		char buf[512];
-		sprintf_s(buf, " -D SIEVE_WG_SIZE=%u -D SIEVE_SEG_J=%u -D SIEVE_SEG_SHIFT=%u -D SIEVE_MAX_SLOTS=%u -D SIEVE_MAX_ROW_MODULI=%u -D SIEVE_RANGE_STRIDE=%u -D SIEVE_MARGIN=%u -D SIEVE_SURV_LOCAL=%u -D SIEVE_KILL_QMAX=%u -D SIEVE_UNDO_CAP=%u -D SIEVE_CHUNK_SEGMENTS=%u -D SIEVE_DEFERRED_MAX=%u -D SIEVE_KILL_TIER=%u",
+		sprintf_s(buf, " -D SIEVE_WG_SIZE=%u -D SIEVE_SEG_J=%u -D SIEVE_SEG_SHIFT=%u -D SIEVE_MAX_SLOTS=%u -D SIEVE_MAX_ROW_MODULI=%u -D SIEVE_RANGE_STRIDE=%u -D SIEVE_MARGIN=%u -D SIEVE_SURV_LOCAL=%u -D SIEVE_KILL_QMAX=%u -D SIEVE_UNDO_CAP=%u -D SIEVE_CHUNK_SEGMENTS=%u -D SIEVE_DEFERRED_MAX=%u -D SIEVE_KILL_TIER=%u -D SIEVE_BAND_WG_SIZE=%u",
 			mySieve.cfg.wgSize,
 			mySieve.cfg.segJ,
 			static_cast<unsigned int>(shift),
@@ -2993,7 +3188,8 @@ bool OpenCL::InitSieve(cl_device_id /*device*/, num64 localMemSize, num64 maxWor
 			static_cast<unsigned int>(SieveUndoCap),
 			mySieve.cfg.chunkSegments,
 			mySurvivorCapacity,
-			mySieve.cfg.numTiers - 1
+			mySieve.cfg.numTiers - 1,
+			std::min(SieveBandMaxWorkGroupSize, mySieve.cfg.wgSize)
 		);
 		return buf;
 	};
@@ -4484,7 +4680,8 @@ bool OpenCL::RunSieveLaunches(unsigned int chunkBegin, unsigned int chunkEnd, un
 					// entries. t1 (RTX 5070, 48 MB L2): 16 MB 48.9 s, 32 MB 46.3 s, 48 MB 47.4 s, 64 MB 49.5 s, unsliced 55.9 s.
 					// (Development aid: AMICABLE_BAND_SLICE_MB=<n> sets the size of a slice.)
 					static const size_t bandSliceBytes = static_cast<size_t>(DevEnv("AMICABLE_BAND_SLICE_MB") ? StrToNumber(DevEnv("AMICABLE_BAND_SLICE_MB")) : 32) << 20;
-					const size_t bandLocal = 256;
+					// (the work-group size of the sieve follows the device, InitSieve; 256 was required of every device)
+					const size_t bandLocal = std::min(SieveBandMaxWorkGroupSize, mySieve.cfg.wgSize);
 					for (cl_uint first = 0; first < bl[1];)
 					{
 						const cl_uint* e0 = bandTable.data() + static_cast<size_t>(bl[0] + first) * SieveBandEntry;
@@ -5152,7 +5349,9 @@ bool OpenCL::RunSieveTests()
 	const bool bandPowerCofactorOk = TestBandPowerCofactor();
 	const bool overAbundantOk = TestOverAbundantExact();
 	const bool integerCbrtOk = TestIntegerCbrt();
-	ok = ok && bandPowerCofactorOk && overAbundantOk && integerCbrtOk;
+	// 2026-11-18: M with the low 64 bits zero through phases 2 and 3, and a composite cofactor of 2^64 or more
+	const bool zeroLowWordOk = TestZeroLowWordAndLargeCofactor();
+	ok = ok && bandPowerCofactorOk && overAbundantOk && integerCbrtOk && zeroLowWordOk;
 
 	if (myLargePrimesSieve)
 	{
@@ -5454,7 +5653,7 @@ bool OpenCL::TestSieveKnownPairs(const std::vector<KnownPair>& pairs, const std:
 		foundM.clear();
 		for (const SFoundPair& k : found)
 		{
-			if ((k.N == 0) || IsPrime(k.N))
+			if (FoundCofactorIsPrime(k.N, k.N_high))
 			{
 				const num128 M = CombineNum128(k.M, k.M_high);
 				if (verbose && !std::binary_search(allAmicable.begin(), allAmicable.end(), M))
@@ -5744,7 +5943,7 @@ bool OpenCL::TestSieveLargePrimesPair(const num128 m, num64 c, num64 sc, num64 p
 	bool ok = false;
 	for (const SFoundPair& k : found)
 	{
-		if ((k.N == 0) || IsPrime(k.N))
+		if (FoundCofactorIsPrime(k.N, k.N_high))
 		{
 			const num128 M = CombineNum128(k.M, k.M_high);
 			if (allAmicable && !std::binary_search(allAmicable->begin(), allAmicable->end(), M))

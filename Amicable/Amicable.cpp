@@ -365,14 +365,45 @@ int main(int argc, char* argv[])
 	// Remove all duplicates
 	found_numbers.erase(std::unique(found_numbers.begin(), found_numbers.end()), found_numbers.end());
 
-	// And write remaining sorted numbers back to the output file
-	g_outputFile = boinc_fopen(resolved_name.c_str(), "wb");
-	for (num128 m : found_numbers)
+	// And write remaining sorted numbers back to the output file.
+	// They go to a temporary file that then takes the place of the output file in one step: a process that is stopped here leaves
+	// either the old file or the new one. (The output file was truncated and written again. Stopped in between and started again,
+	// the app went on from the checkpoint, which is still there, and the numbers found before it were lost.)
+	const std::string tmp_name = resolved_name + ".tmp";
+	bool replaced = false;
+	FILE* tmp_file = boinc_fopen(tmp_name.c_str(), "wb");
+	if (tmp_file)
 	{
-		char buf[40];
-		fprintf(g_outputFile, "%s\n", itoa128(m, buf, sizeof(buf)));
+		bool written = true;
+		for (num128 m : found_numbers)
+		{
+			char buf[40];
+			if (fprintf(tmp_file, "%s\n", itoa128(m, buf, sizeof(buf))) < 0)
+			{
+				written = false;
+			}
+		}
+		if (fclose(tmp_file) != 0)
+		{
+			written = false;
+		}
+		replaced = written && (boinc_rename(tmp_name.c_str(), resolved_name.c_str()) == 0);
+		if (!replaced)
+		{
+			boinc_delete_file(tmp_name.c_str());
+		}
 	}
-	fclose(g_outputFile);
+	if (!replaced)
+	{
+		// The temporary file could not be written or could not take the place of the output file: the old way
+		g_outputFile = boinc_fopen(resolved_name.c_str(), "wb");
+		for (num128 m : found_numbers)
+		{
+			char buf[40];
+			fprintf(g_outputFile, "%s\n", itoa128(m, buf, sizeof(buf)));
+		}
+		fclose(g_outputFile);
+	}
 
 	boinc_finish(0);
 	return 0;

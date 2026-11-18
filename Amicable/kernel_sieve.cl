@@ -1454,7 +1454,7 @@ static uint BandPowMod(uint a, uint e, const uint r, const ulong m)
 #define SIEVE_BAND_GROUP 16
 
 __kernel
-__attribute__((reqd_work_group_size(256, 1, 1)))
+__attribute__((reqd_work_group_size(SIEVE_BAND_WG_SIZE, 1, 1)))
 void SieveBand(
 	__global const ulong* ranges,
 	__global const uint* bandTable,

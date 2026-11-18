@@ -238,8 +238,10 @@ public:
 		num128 targetSum;
 	};
 	// bands (optional): the band parameter of each pair (DecideByBand in phase 1), 0 by default
-	bool TestPairs(std::vector<SPairToCheck>& pairs, const std::vector<num64>* bands = nullptr);
+	// allMustBeFound = false: the pairs that are not found are not an error (the found ones have targetSum = NUM128_MAX afterwards)
+	bool TestPairs(std::vector<SPairToCheck>& pairs, const std::vector<num64>* bands = nullptr, bool allMustBeFound = true);
 	bool TestBandPowerCofactor();
+	bool TestZeroLowWordAndLargeCofactor();
 
 	bool AddRange(const RangeData& r, num64 offset, bool& added);
 
@@ -460,7 +462,7 @@ private:
 		num64 M;
 		num64 M_high;
 		num64 N;
-		num64 dummy;
+		num64 N_high;
 	};
 
 	std::vector<SFoundPair> myFoundPairs;
