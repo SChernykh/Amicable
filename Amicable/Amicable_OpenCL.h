@@ -227,6 +227,7 @@ public:
 	bool Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned int largestPrimePower, num64 startPrime, num64 primeLimit);
 
 	bool Test();
+	bool TestLargestPrimePower();
 
 	struct SPairToCheck
 	{
@@ -448,6 +449,7 @@ private:
 
 	const char* myPreferences;
 	std::string myBuildOptions;
+	std::string myCheckpointId;                // "/from /to /lpp" of the work unit: a checkpoint is used only if it has the same
 
 	std::vector<LookupDataGPU> myLookupTable;
 
@@ -501,5 +503,5 @@ FORCEINLINE cl_int setKernelArguments(cl_kernel kernel, const Arguments&... args
 }
 
 #else
-#include "OpenCL.inl"
+#include "Amicable_OpenCL.inl"
 #endif

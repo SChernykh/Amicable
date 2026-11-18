@@ -31,3 +31,15 @@ FORCEINLINE num64 ReadCycleCounter()
 	return static_cast<num64>(std::chrono::steady_clock::now().time_since_epoch().count());
 }
 #endif
+
+// Development aids are read from the environment (AMICABLE_... variables) only in builds with AMICABLE_DEV_ENV defined: the environment
+// of a volunteer's computer must not change what a release build checks
+FORCEINLINE const char* DevEnv(const char* name)
+{
+#ifdef AMICABLE_DEV_ENV
+	return getenv(name);
+#else
+	(void)name;
+	return nullptr;
+#endif
+}

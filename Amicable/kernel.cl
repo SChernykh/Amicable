@@ -101,6 +101,10 @@ static inline bool Divides128Fast32(const ulong N, const uint N_high, const uint
 // Returns number x such that x^3 <= n < (x+1)^3
 static ulong IntegerCubeRoot128(const ulong2 n)
 {
+	if ((n.x | n.y) == 0)
+	{
+		return 0;
+	}
 	ulong result = 1;
 	const uint highest_bit_index = n.y ? (127 - clz(n.y)) : (63 - clz(n.x));
 	result <<= (highest_bit_index * ((65536 / 3) + 1)) >> 16;
@@ -1720,7 +1724,9 @@ void CheckPairPhase2(
 		return;
 	}
 
-	const ulong root3_N_rounded_down = convert_ulong_rtn(cbrt(convert_float_rtn(N)));
+	// (exact: with a float cbrt, an error of 4 ulp upwards sent N = r^3, r >= 2^21, to the branch below, where it is rejected;
+	// the accuracy of cbrt is not specified with -cl-fast-relaxed-math)
+	const ulong root3_N_rounded_down = IntegerCubeRoot128((ulong2)(N, 0));
 
 	// The case when N can only have 2 factors
 	if (N >= targetSum - root3_N_rounded_down * (root3_N_rounded_down + 1))
@@ -2136,7 +2142,9 @@ void CheckPairPhase3(
 	}
 
 	// No more than 3 factors remain here
-	const ulong root3_N_rounded_up = convert_uint_rtp(cbrt(convert_float_rtp(N)));
+	// (exact: with a float cbrt, an error of 4 ulp downwards ended the loop below one prime too early for N >= 2^63, and N was
+	// then taken for a number of at most 2 prime factors; all primes up to the floor of the cube root are tested)
+	const ulong root3_N_rounded_up = IntegerCubeRoot128((ulong2)(N, 0));
 	const ulong MaximumSumOfDivisors3_target = targetSum - N - 1;
 
 	// The numbers that come from the 128-bit part above can have at most 2 prime factors (DecideAtMost2Factors; phase 2 checked the others)
@@ -2521,6 +2529,54 @@ static ulong GetNthPrime(uint n,
 	return base + (((offsets >> ((~n & 3) * 9)) & 511) << 1);
 }
 
+// The number M = M0 * p^k of /lpp k (k = 2 or 3) and its sum of divisors sigma(M0) * sigma(p^k): the low 128 bits of the products (both
+// numbers are below 2^128: M is below the search limit and sigma(M) < 8 M). p^k and sigma(p^k) need 128 bits: p^2 >= 2^64 for
+// p >= 2^32 and p^3 >= 2^64 for p >= 2642246, which the ranges with M0 <= 542 reach at the limit 10^22. The 64-bit products used
+// before wrapped around there, so that another number was checked instead of M0 * p^k. (k = 3: p < 2^32, so p^2 fits in 64 bits.)
+static void LargestPrimePowerNumber(const ulong2 M0, const ulong2 sumM0, const ulong p, const uint k, ulong2* M, ulong2* sumM)
+{
+	const ulong p2 = p * p;
+	ulong2 v, s;
+	if (k == 2)
+	{
+		v.x = p2;
+		v.y = mul_hi(p, p);
+		// sigma(p^2) = p^2 + (p + 1)
+		s.x = v.x + (p + 1);
+	}
+	else
+	{
+		v.x = p2 * p;
+		v.y = mul_hi(p2, p);
+		// sigma(p^3) = p^3 + (p^2 + p + 1)
+		s.x = v.x + (p2 + p + 1);
+	}
+	s.y = v.y + ((s.x < v.x) ? 1 : 0);
+
+	M->x = M0.x * v.x;
+	M->y = mul_hi(M0.x, v.x) + M0.x * v.y + M0.y * v.x;
+	sumM->x = sumM0.x * s.x;
+	sumM->y = mul_hi(sumM0.x, s.x) + sumM0.x * s.y + sumM0.y * s.x;
+}
+
+// Self-test of LargestPrimePowerNumber (OpenCL::TestLargestPrimePower): in[6 i .. 6 i + 5] = M0 (low, high), sigma(M0) (low, high), p, k;
+// out[4 i .. 4 i + 3] = M (low, high), sigma(M) (low, high)
+__kernel
+void TestLargestPrimePower(__global const ulong* in, __global ulong* out)
+{
+	const size_t i = get_global_id(0);
+	ulong2 M0, sumM0, M, sumM;
+	M0.x = in[i * 6];
+	M0.y = in[i * 6 + 1];
+	sumM0.x = in[i * 6 + 2];
+	sumM0.y = in[i * 6 + 3];
+	LargestPrimePowerNumber(M0, sumM0, in[i * 6 + 4], (uint)(in[i * 6 + 5]), &M, &sumM);
+	out[i * 4] = M.x;
+	out[i * 4 + 1] = M.y;
+	out[i * 4 + 2] = sumM.x;
+	out[i * 4 + 3] = sumM.y;
+}
+
 __kernel
 __attribute__((reqd_work_group_size(WORK_GROUP_SIZE, 1, 1)))
 void SearchMultipleRanges(
@@ -2613,15 +2669,16 @@ void SearchMultipleRanges(
 		rangeIndexAndOffset.y = 0;
 	}
 
+	// M = M0 * p^LPP and sigma(M) = sigma(M0) * sigma(p^LPP)
+	ulong2 M, sumM;
 #if LPP == 1
-	ulong value = p;
-	ulong value_sum = p + 1;
-#elif LPP == 2
-	const ulong value = p * p;
-	const ulong value_sum = p * (p + 1) + 1;
-#elif LPP == 3
-	const ulong value = p * p * p;
-	const ulong value_sum = p * (p * (p + 1) + 1) + 1;
+	const ulong value_sum = p + 1;
+	M.x = M0.x * p;
+	M.y = mul_hi(M0.x, p) + M0.y * p;
+	sumM.x = sumM0.x * value_sum;
+	sumM.y = mul_hi(sumM0.x, value_sum) + sumM0.y * value_sum;
+#else
+	LargestPrimePowerNumber(M0, sumM0, p, LPP, &M, &sumM);
 #endif
 
 	CheckPairPhase1(
@@ -2633,7 +2690,7 @@ void SearchMultipleRanges(
 		PowersOfP_128SumInverses,
 		PrimeInverses_128,
 		SumEstimates_128,
-		M0.x * value, mul_hi(M0.x, value) + M0.y * value, sumM0.x * value_sum, mul_hi(sumM0.x, value_sum) + sumM0.y * value_sum,
+		M.x, M.y, sumM.x, sumM.y,
 		global_offset,
 		phase1_offset_to_resume_after_overflow,
 		phase2_numbers_count,

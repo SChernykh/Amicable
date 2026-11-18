@@ -134,18 +134,25 @@ NOINLINE num128 num128::operator/(const num128& a) const
 
 	const num64 a1 = __shiftright128(a.lo, a.hi, static_cast<unsigned char>(index));
 	const num128 n = *this >> static_cast<unsigned char>(index);
-	const num64 q = udiv128_noremainder(n.lo, n.hi, a1);
-	const num128 n1 = a * q;
+	num64 q = udiv128_noremainder(n.lo, n.hi, a1);
 
-	if (*this < n1)
+	// q is the quotient or a little more, never less (a1 is "a" rounded down: for the quotient Q, Q * a1 * 2^index <= Q * a <= N, so
+	// Q <= n / a1). It is stepped down while a * q > N. The product is taken in 192 bits: for a quotient one too large it can be 2^128
+	// or more, and modulo 2^128 it is a small number then (the code that compared the 128-bit product returned q + 1 in that case, two
+	// more than the quotient, for N >= 2^128 - a).
+	for (;;)
 	{
-		return q - 1;
-	}
-	else if (UNLIKELY(*this - n1 >= a))
-	{
-		// I'm not sure if this is actually needed: I couldn't find a case where this line of code is executed
-		// TODO: prove that it never executes
-		return q + 1;
+		num64 h0, h1, mid;
+		num128 n1;
+		n1.lo = _umul128(a.lo, q, &h0);
+		const num64 m = _umul128(a.hi, q, &h1);
+		const unsigned char carry = _addcarry_u64(0, h0, m, &mid);
+		n1.hi = mid;
+		if ((h1 == 0) && (carry == 0) && !(*this < n1))
+		{
+			break;
+		}
+		--q;
 	}
 
 	return q;

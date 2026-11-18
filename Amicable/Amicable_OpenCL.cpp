@@ -50,11 +50,11 @@ static const unsigned int SieveW30Host[8] = { 1, 7, 11, 13, 17, 19, 23, 29 };
 bool g_SieveReduce = true;
 bool g_SieveKill = true;
 // band sieve for the ranges with W < 1e-4 (SetBandParameters); AMICABLE_NO_BAND=1 switches it off (for comparisons)
-static const bool g_SieveBand = (getenv("AMICABLE_NO_BAND") == nullptr);
+static const bool g_SieveBand = (DevEnv("AMICABLE_NO_BAND") == nullptr);
 // (Development aid: AMICABLE_BAND_MAX_W=<W> sets the largest window of the band ranges. 1e-3, with the band for W >= 1e-4 only in
 // dense ranges (SetBandParameters): 2^6*79*409*2287*3449.., 39% of its positions at W = 1e-4 - 1e-3, 11.7 -> 6.3 s, but the units of
 // the 3^10 subtree 10% slower, e.g. 3^10*5*7*11*661*29131.. 30.1 -> 33.7 s: not the default.)
-static const double SieveBandMaxW = getenv("AMICABLE_BAND_MAX_W") ? atof(getenv("AMICABLE_BAND_MAX_W")) : 1e-4;
+static const double SieveBandMaxW = DevEnv("AMICABLE_BAND_MAX_W") ? atof(DevEnv("AMICABLE_BAND_MAX_W")) : 1e-4;
 num64 g_ExploreNumbers = 0;
 bool g_TestReductionOnly = false;
 unsigned int g_TestStride = 16;
@@ -407,6 +407,12 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	}
 
 	myLargestPrimePower = largestPrimePower;
+	// The work unit, as it is written into the checkpoint of a range search and compared when one is read
+	{
+		std::stringstream id;
+		id << (startFrom ? startFrom : "") << ' ' << (stopAt ? stopAt : "") << ' ' << largestPrimePower;
+		myCheckpointId = id.str();
+	}
 
 	cl_context_properties cps[3] = { CL_CONTEXT_PLATFORM, (cl_context_properties) platform, 0 };
 	CL_CHECKED_CALL_WITH_RESULT(myGPUContext, clCreateContext, cps, 1, &device, nullptr, nullptr);
@@ -432,10 +438,10 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	// instead of 16 for k = 3 and of 11 for k = 2. (Development aids: AMICABLE_LPP_ALL_WINDOWS=1 walks all 16 windows, as before;
 	// AMICABLE_TEST_WINDOW_PRIME=<q> takes q as the bound, also for k = 1 with /nosieve: known first-stage pairs with their largest
 	// prime between 2^28-th prime (5.8e9) and q then test the kernel's prime lookup in a window with MAIN_BUFFER_MASK = 2^32 - 1.)
-	const char* testWindowPrime = getenv("AMICABLE_TEST_WINDOW_PRIME");
+	const char* testWindowPrime = DevEnv("AMICABLE_TEST_WINDOW_PRIME");
 	num64 mainBufferNeeded = myMainBufferTotalSize;
 	bool mainBufferWhole = false;
-	if (!IsLargePrimes && ((largestPrimePower >= 2) || testWindowPrime) && !getenv("AMICABLE_LPP_ALL_WINDOWS"))
+	if (!IsLargePrimes && ((largestPrimePower >= 2) || testWindowPrime) && !DevEnv("AMICABLE_LPP_ALL_WINDOWS"))
 	{
 		const double qMax = testWindowPrime ? atof(testWindowPrime) : (pow(Num128ToDouble(SearchLimit::value) / 2.0, 1.0 / largestPrimePower) * 1.001 + 16.0);
 		num64 a = 0;
@@ -556,7 +562,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 			sieve_compiler_options.c_str()
 		);
 		// Development aid: extra kernel build options (for example -D switches of experimental kernel variants)
-		if (const char* extra = getenv("AMICABLE_CL_OPTIONS"))
+		if (const char* extra = DevEnv("AMICABLE_CL_OPTIONS"))
 		{
 			strcat_s(kernel_options, " ");
 			strcat_s(kernel_options, extra);
@@ -768,7 +774,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 
 	CL_CHECKED_CALL(clFinish, P().myQueue);
 
-	if (Test() && (!myUseSieve || TestSieveStartup()))
+	if (Test() && TestLargestPrimePower() && (!myUseSieve || TestSieveStartup()))
 	{
 		LOG_ERROR("Self-test passed");
 	}
@@ -1003,7 +1009,7 @@ bool OpenCL::RunRanges(char* startFrom, char* stopAt, num64& offset, unsigned in
 	// Work unit with 75% GPU load
 	// /from 2*5*11*13*17*919*10861 /to 2*5*11*13*17*947*977*1973 /task_size 109093979525 
 
-	char checkpoint_buf[256];
+	char checkpoint_buf[1024];
 	std::string checkpoint_name;
 	boinc_resolve_filename_s(CHECKPOINT_LOGICAL_NAME, checkpoint_name);
 	FILE* checkpoint = boinc_fopen(checkpoint_name.c_str(), "r");
@@ -1012,6 +1018,20 @@ bool OpenCL::RunRanges(char* startFrom, char* stopAt, num64& offset, unsigned in
 		if (fgets(checkpoint_buf, sizeof(checkpoint_buf), checkpoint))
 		{
 			char* end_of_data = strchr(checkpoint_buf, '#');
+			if (end_of_data)
+			{
+				// The work unit follows the marker (SaveProgressForRanges): the checkpoint of another work unit (a file left in the
+				// folder), or one written by a version without it, is not used
+				std::string id(end_of_data + 1);
+				while (!id.empty() && ((id.back() == '\n') || (id.back() == '\r')))
+				{
+					id.pop_back();
+				}
+				if (id != myCheckpointId)
+				{
+					end_of_data = nullptr;
+				}
+			}
 			if (end_of_data)
 			{
 				*end_of_data = '\0';
@@ -1134,11 +1154,13 @@ bool OpenCL::RunLargePrimes(num64 startPrime, num64 primeLimit)
 			{
 				*end_of_data = '\0';
 				std::stringstream s;
-				num64 firstPrime, lastPrime, offset;
+				// (a checkpoint that can't be read is not used: the values were uninitialized then)
+				num64 numbersProcessed = 0, firstPrime = 0, lastPrime = 0, offset = 0;
 				s << checkpoint_buf;
-				s >> myNumbersProcessedTotal >> firstPrime >> lastPrime >> offset;
-				if ((startPrime <= firstPrime) && (lastPrime <= primeLimit) && (firstPrime <= lastPrime) && IsPrime(firstPrime) && IsPrime(lastPrime))
+				s >> numbersProcessed >> firstPrime >> lastPrime >> offset;
+				if (!s.fail() && (startPrime <= firstPrime) && (lastPrime <= primeLimit) && (firstPrime <= lastPrime) && IsPrime(firstPrime) && IsPrime(lastPrime))
 				{
+					myNumbersProcessedTotal = numbersProcessed;
 					myLargePrimesStartOffset = offset;
 					sieve.sieveTemplated(firstPrime, lastPrime, *this);
 					if (myLargePrimesCount > 0)
@@ -1430,8 +1452,15 @@ bool OpenCL::GetPlatformID(cl_platform_id* clSelectedPlatformID)
 	return true;
 }
 
+// Waits for the event (the last command given to the queue) and releases it
 bool OpenCL::WaitForQueue(cl_command_queue queue, cl_event event)
 {
+	struct ReleaseEvent
+	{
+		cl_event e;
+		~ReleaseEvent() { if (e) clReleaseEvent(e); }
+	} releaseEvent{ event };
+
 	CL_CHECKED_CALL(clFlush, queue);
 
 	cl_int event_status;
@@ -1440,6 +1469,12 @@ bool OpenCL::WaitForQueue(cl_command_queue queue, cl_event event)
 		// It's highly unlikely that the queue will be empty right after it's been sent to GPU, so start iterations with 0.5 ms sleep, not with clGetEventInfo
 		HiResSleep(0.5);
 		CL_CHECKED_CALL(clGetEventInfo, event, CL_EVENT_COMMAND_EXECUTION_STATUS, sizeof(event_status), &event_status, nullptr);
+		// (a negative status: the command ended with an error and will never be complete)
+		if (event_status < 0)
+		{
+			LOG_ERROR("OpenCL command failed with status " << event_status);
+			return false;
+		}
 	} while (event_status != CL_COMPLETE);
 
 	return true;
@@ -1542,6 +1577,101 @@ bool OpenCL::Test()
 	}
 
 	return TestPairs(pairs);
+}
+
+// Regression test of 2026-11-18 (part of the startup self-test): the numbers M0 * p^k of /lpp 2 and /lpp 3 and their sums of divisors,
+// as the kernel forms them (kernel.cl: LargestPrimePowerNumber, used by SearchMultipleRanges), against the host's 128-bit values.
+// p^k and sigma(p^k) were 64-bit products before: for p >= 2^32 (k = 2) and p >= 2642246 (k = 3), which the ranges with M0 <= 542
+// reach at the limit 10^22, another number was checked instead of M0 * p^k.
+bool OpenCL::TestLargestPrimePower()
+{
+	struct Case
+	{
+		const char* m;
+		const char* sum_m;
+		num64 p;
+		num64 k;
+	};
+	static const Case cases[] = {
+		{ "20", "42", 4294967291ULL, 2 }, // the largest prime below 2^32
+		{ "20", "42", 4294967311ULL, 2 }, // the first prime above 2^32 (the old code checked 2576980382100 instead of 368934884051171414420)
+		{ "20", "42", 22360679771ULL, 2 }, // M just below 10^22
+		{ "70", "144", 11952286091ULL, 2 },
+		{ "500", "1092", 4472135951ULL, 2 },
+		{ "295147905179352825856", "590295810358705651711", 5, 2 }, // M0 = 2^68
+		{ "10405827263267429760", "31217481789802301625", 31, 2 }, // M0 above 2^63
+		{ "20", "42", 2642239, 3 }, // the largest prime with p^3 < 2^64
+		{ "20", "42", 2642257, 3 }, // the first prime with p^3 > 2^64 (the old code checked 4628885115939540 instead of 368939510359306971860)
+		{ "20", "42", 7937003, 3 }, // M just below 10^22
+		{ "80", "186", 4999963, 3 },
+		{ "500", "1092", 2714411, 3 },
+		{ "73786976294838206464", "147573952589676412927", 5, 3 }, // M0 = 2^66
+	};
+	const size_t count = ARRAYSIZE(cases);
+
+	std::vector<num64> in(count * 6);
+	std::vector<num128> expected(count * 2);
+	for (size_t i = 0; i < count; ++i)
+	{
+		const Case& c = cases[i];
+		const num128 m = atoi128(c.m);
+		const num128 sum_m = atoi128(c.sum_m);
+		in[i * 6] = LowWord(m);
+		in[i * 6 + 1] = HighWord(m);
+		in[i * 6 + 2] = LowWord(sum_m);
+		in[i * 6 + 3] = HighWord(sum_m);
+		in[i * 6 + 4] = c.p;
+		in[i * 6 + 5] = c.k;
+
+		// p^k and sigma(p^k) = p^k + ... + p + 1 in 128 bits
+		num128 pk = 1;
+		num128 sigma = 1;
+		for (num64 j = 0; j < c.k; ++j)
+		{
+			pk *= c.p;
+			sigma += pk;
+		}
+		expected[i * 2] = m * pk;
+		expected[i * 2 + 1] = sum_m * sigma;
+	}
+
+	struct TmpBuf
+	{
+		FORCEINLINE ~TmpBuf() { if (mem) clReleaseMemObject(mem); }
+		FORCEINLINE operator cl_mem() { return mem; }
+
+		cl_mem mem = nullptr;
+	} inBuf, outBuf;
+	struct TmpKernel
+	{
+		FORCEINLINE ~TmpKernel() { if (kernel) clReleaseKernel(kernel); }
+		FORCEINLINE operator cl_kernel() { return kernel; }
+
+		cl_kernel kernel = nullptr;
+	} testKernel;
+
+	CL_CHECKED_CALL_WITH_RESULT(testKernel.kernel, clCreateKernel, myProgram, "TestLargestPrimePower");
+	CL_CHECKED_CALL_WITH_RESULT(inBuf.mem, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_ONLY, sizeof(num64) * in.size(), 0);
+	CL_CHECKED_CALL_WITH_RESULT(outBuf.mem, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(num64) * count * 4, 0);
+	CL_CHECKED_CALL(clEnqueueWriteBuffer, P().myQueue, inBuf, CL_TRUE, 0, sizeof(num64) * in.size(), in.data(), 0, nullptr, nullptr);
+	CL_CHECKED_CALL(setKernelArguments, testKernel, inBuf.mem, outBuf.mem);
+	CL_CHECKED_CALL(clEnqueueNDRangeKernel, P().myQueue, testKernel, 1, nullptr, &count, nullptr, 0, nullptr, nullptr);
+
+	std::vector<num64> out(count * 4);
+	CL_CHECKED_CALL(clEnqueueReadBuffer, P().myQueue, outBuf, CL_TRUE, 0, sizeof(num64) * out.size(), out.data(), 0, nullptr, nullptr);
+
+	bool ok = true;
+	for (size_t i = 0; i < count; ++i)
+	{
+		const bool sameM = (out[i * 4] == LowWord(expected[i * 2])) && (out[i * 4 + 1] == HighWord(expected[i * 2]));
+		const bool sameSum = (out[i * 4 + 2] == LowWord(expected[i * 2 + 1])) && (out[i * 4 + 3] == HighWord(expected[i * 2 + 1]));
+		if (!sameM || !sameSum)
+		{
+			LOG_ERROR("/lpp " << cases[i].k << " self-test failed: M0 = " << cases[i].m << ", p = " << cases[i].p << ": the kernel's M0 * p^k is " << (sameM ? "right" : "wrong") << ", its sum of divisors is " << (sameSum ? "right" : "wrong"));
+			ok = false;
+		}
+	}
+	return ok;
 }
 
 // The arguments of the phase 2 kernel for the search (TestPairs points them to its own buffers and restores them)
@@ -2007,6 +2137,61 @@ static bool TestIntegerCbrt()
 	return ok;
 }
 
+// The largest q <= limit for which r.value * q^k is abundant (/lpp k, k = 2 or 3, r.value deficient): sigma(q^k) / q^k decreases with q,
+// so the larger q give deficient numbers, which can't be the smaller member of a pair. Exact, with 128-bit integers (r.value * q^k is
+// below the search limit for q <= limit, its sum of divisors below 2^77). The estimate (the root of the equation in doubles) only
+// narrows the bisection: the limit taken from it directly could be one prime short (its rounding), and its conversion to an integer is
+// undefined for r.value = 2^k, k >= 63, where the root is 2^64 or more.
+static num64 LargestAbundantPrimePower(const RangeData& r, unsigned int k, num64 limit, double estimate)
+{
+	const auto abundant = [&r, k](num64 q)
+	{
+		num128 qk = q;
+		num128 sigma = qk + 1;
+		for (unsigned int i = 1; i < k; ++i)
+		{
+			qk *= q;
+			sigma += qk;
+		}
+		const num128 value = r.value * qk;
+		return value < r.sum * sigma - value;
+	};
+
+	if ((limit == 0) || abundant(limit))
+	{
+		return limit;
+	}
+
+	// the answer is in [lo, hi]
+	num64 lo = 0;
+	num64 hi = limit - 1;
+	if ((estimate > 8.0) && (estimate < static_cast<double>(limit)))
+	{
+		const num64 e = static_cast<num64>(estimate);
+		if (abundant(e - 4))
+		{
+			lo = e - 4;
+		}
+		if ((e + 4 < limit) && !abundant(e + 4))
+		{
+			hi = e + 3;
+		}
+	}
+	while (lo < hi)
+	{
+		const num64 mid = lo + (hi - lo + 1) / 2;
+		if (abundant(mid))
+		{
+			lo = mid;
+		}
+		else
+		{
+			hi = mid - 1;
+		}
+	}
+	return lo;
+}
+
 bool OpenCL::AddRange(const RangeData& r, num64 offset, bool& added)
 {
 	added = false;
@@ -2033,7 +2218,8 @@ bool OpenCL::AddRange(const RangeData& r, num64 offset, bool& added)
 		break;
 
 	case 2:
-		prime_limit = static_cast<num64>(sqrt(Num128ToDouble(SearchLimit::value) / Num128ToDouble(r.value)));
+		// (in integers: the square root of a quotient of rounded doubles was right only in round-up mode)
+		prime_limit = IntegerSquareRoot((SearchLimit::value - 1) / r.value);
 		if (r.sum - r.value < r.value)
 		{
 			// r.sum * (p^2 + p + 1) = r.value * p^2 * 2
@@ -2043,11 +2229,8 @@ bool OpenCL::AddRange(const RangeData& r, num64 offset, bool& added)
 			// (r.value * 2 - r.sum) / r.sum * p^2 - p - 1 = 0
 			// (r.value * 2 / r.sum - 1) * p^2 - p - 1 = 0
 			const double A = Num128ToDouble(r.value * 2 - r.sum) / Num128ToDouble(r.sum);
-			const double prime_limit2 = (1.0 + sqrt(1.0 + 4.0 * A)) / (2.0 * A) + 1.0;
-			if (prime_limit > prime_limit2)
-			{
-				prime_limit = static_cast<num64>(prime_limit2);
-			}
+			// (the root in doubles is only an estimate: the limit itself is found with integers)
+			prime_limit = LargestAbundantPrimePower(r, 2, LowWord(prime_limit), (1.0 + sqrt(1.0 + 4.0 * A)) / (2.0 * A));
 		}
 		break;
 
@@ -2082,7 +2265,8 @@ bool OpenCL::AddRange(const RangeData& r, num64 offset, bool& added)
 			for (;;)
 			{
 				x = (x1 + x2) * 0.5;
-				if ((static_cast<num64>(x1) == static_cast<num64>(x2)) || (x == x1) || (x == x2))
+				// (floor, not a conversion to an integer: x1 and x2 are 2^64 or more for r.value = 2^k, k >= 63)
+				if ((floor(x1) == floor(x2)) || (x == x1) || (x == x2))
 				{
 					break;
 				}
@@ -2096,11 +2280,8 @@ bool OpenCL::AddRange(const RangeData& r, num64 offset, bool& added)
 				}
 			}
 
-			const num64 prime_limit2 = static_cast<num64>(x2);
-			if (prime_limit > prime_limit2)
-			{
-				prime_limit = prime_limit2;
-			}
+			// (as for /lpp 2: the root in doubles is only an estimate)
+			prime_limit = LargestAbundantPrimePower(r, 3, LowWord(prime_limit), x2);
 		}
 		break;
 	}
@@ -2316,7 +2497,7 @@ bool OpenCL::ProcessNumbersPhases2_3(unsigned int numbers_in_phase2)
 		// debugging: AMICABLE_DUMP_PHASE2=<file> writes the numbers of the first phase 2 run with at least 2^20 numbers (32 bytes each,
 		// CheckPairPhase2 input)
 		static bool phase2Dumped = false;
-		const char* dump2Path = getenv("AMICABLE_DUMP_PHASE2");
+		const char* dump2Path = DevEnv("AMICABLE_DUMP_PHASE2");
 		if (dump2Path && !phase2Dumped && (numbers_in_phase2 >= (1U << 20)))
 		{
 			phase2Dumped = true;
@@ -2386,8 +2567,8 @@ bool OpenCL::ProcessNumbersPhases2_3(unsigned int numbers_in_phase2)
 		// debugging: AMICABLE_DUMP_PHASE3=<file> writes the first numbers that go to phase 3 (32 bytes each, CheckPairPhase3 input)
 		// (AMICABLE_DUMP_PHASE3_MIN=<n>: the first run with at least n numbers)
 		static bool phase3Dumped = false;
-		const char* dumpPath = getenv("AMICABLE_DUMP_PHASE3");
-		static const unsigned int dumpMin = getenv("AMICABLE_DUMP_PHASE3_MIN") ? static_cast<unsigned int>(atof(getenv("AMICABLE_DUMP_PHASE3_MIN"))) : 1;
+		const char* dumpPath = DevEnv("AMICABLE_DUMP_PHASE3");
+		static const unsigned int dumpMin = DevEnv("AMICABLE_DUMP_PHASE3_MIN") ? static_cast<unsigned int>(atof(DevEnv("AMICABLE_DUMP_PHASE3_MIN"))) : 1;
 		if (dumpPath && !phase3Dumped && (phase3_numbers_buf_count >= std::max(dumpMin, 1U)))
 		{
 			phase3Dumped = true;
@@ -2477,7 +2658,7 @@ bool OpenCL::RunPhase3(unsigned int phase3_numbers_buf_count, int firstIteration
 		// the late iterations (few numbers with many primes each): CheckPairPhase3Wide (one warp per number) finds the first round of
 		// 1024 primes where CheckPairPhase3 has something to do, CheckPairPhase3 continues there (kernel.cl)
 		// (k4: phase 3 3.91 -> 1.08 s with the wide kernel from iteration 2, 1.73 s from iteration 4; AMICABLE_P3_WIDE_FROM=0 disables it)
-		static const int wideFrom = getenv("AMICABLE_P3_WIDE_FROM") ? static_cast<int>(StrToNumber(getenv("AMICABLE_P3_WIDE_FROM"))) : 2;
+		static const int wideFrom = DevEnv("AMICABLE_P3_WIDE_FROM") ? static_cast<int>(StrToNumber(DevEnv("AMICABLE_P3_WIDE_FROM"))) : 2;
 		const cl_uint wideMode = ((wideFrom > 0) && (phase3_iteration >= wideFrom)) ? 1U : 0U;
 		if (wideMode)
 		{
@@ -2697,8 +2878,8 @@ bool OpenCL::SaveProgressForRanges(const SieveRangeKey& r, num64 offset, num64 n
 			}
 		}
 
-		// End of data marker
-		s << '#';
+		// End of data marker, then the work unit (RunRanges uses the checkpoint only if it is the same)
+		s << '#' << myCheckpointId;
 
 		data = s.str();
 
@@ -3465,7 +3646,7 @@ void OpenCL::PrepareSieveRange(SieveRangeBlock& block, SieveRangeBlock::Range& r
 		// band made k1 3.7 -> 99 s and its phase 2 numbers 26.7M -> 24.8M)
 		range.Wband = red.W;
 		// (development aid: AMICABLE_BAND_CLASS=<mask> chooses the classes: 1 the powers of 2, 2 the odd primes; default both)
-		static const unsigned int bandClasses = getenv("AMICABLE_BAND_CLASS") ? static_cast<unsigned int>(atoi(getenv("AMICABLE_BAND_CLASS"))) : 3U;
+		static const unsigned int bandClasses = DevEnv("AMICABLE_BAND_CLASS") ? static_cast<unsigned int>(atoi(DevEnv("AMICABLE_BAND_CLASS"))) : 3U;
 		if ((bandClasses & 1) && (red.W >= SieveBandMaxW) && !red.fixed2)
 		{
 			const long double base = logl(2.0L - ldexpl(1.0L, -static_cast<int>(red.v2)));
@@ -3643,7 +3824,7 @@ bool OpenCL::CommitSieveRange(const SieveRangeBlock& block, const SieveRangeBloc
 		myRedHistW[wi] += positions;
 
 		// Development aid: AMICABLE_DUMP_RANGES=<file> writes every range (factorization of M0, p_lo, p_hi, W) for analysis
-		static FILE* rangeDump = getenv("AMICABLE_DUMP_RANGES") ? fopen(getenv("AMICABLE_DUMP_RANGES"), "w") : nullptr;
+		static FILE* rangeDump = DevEnv("AMICABLE_DUMP_RANGES") ? fopen(DevEnv("AMICABLE_DUMP_RANGES"), "w") : nullptr;
 		if (rangeDump)
 		{
 			for (unsigned int i = 0; i < range.numFactors; ++i)
@@ -3661,7 +3842,8 @@ bool OpenCL::CommitSieveRange(const SieveRangeBlock& block, const SieveRangeBloc
 			_BitScanReverse64(&b, range.Lfull);
 			b += 1;
 		}
-		myRedHist[(range.Lfull == 0) ? 63 : b] += positions;
+		// (64 buckets: Lfull >= 2^63 would give b = 64)
+		myRedHist[((range.Lfull == 0) || (b > 63)) ? 63 : b] += positions;
 		myNumbersProcessedTotal += static_cast<num64>(range.numPrimes + 0.5);
 	}
 
@@ -4107,13 +4289,17 @@ bool OpenCL::RunSieveLaunches(unsigned int chunkBegin, unsigned int chunkEnd, un
 	const size_t localSize = mySieve.cfg.wgSize;
 	const size_t checkLocalSize = myWorkGroupSize;
 	// Development aid: AMICABLE_CHECK_SIZE overrides the global size of CheckSieveSurvivors
-	static const size_t checkSizeOverride = getenv("AMICABLE_CHECK_SIZE") ? static_cast<size_t>(StrToNumber(getenv("AMICABLE_CHECK_SIZE"))) : 0;
+	static const size_t checkSizeOverride = DevEnv("AMICABLE_CHECK_SIZE") ? static_cast<size_t>(StrToNumber(DevEnv("AMICABLE_CHECK_SIZE"))) : 0;
 	const size_t checkGlobalSize = checkSizeOverride ? checkSizeOverride : mySieveCheckGlobalSize;
 	std::vector<std::pair<unsigned int, unsigned int>> todo(1, std::make_pair(chunkBegin, chunkEnd));
 	std::vector<std::pair<unsigned int, unsigned int>> launches;
 	std::vector<cl_uint> stats;
 	std::vector<cl_event> sieveEvents, checkEvents, bandEvents, deferEvents, check2Events;
 	bool firstRound = true;
+	// The extra survivors go with the first launch of a round. They stay pending until that launch ends without a flag: a flagged
+	// launch is run again, and the numbers it dropped (phase 2 overflow) may include theirs; by then the start of the survivor
+	// buffer has been overwritten, so they are written again.
+	bool extraPending = (numExtra > 0);
 	// numbers in the phase 2 buffer (it is empty at the start of a batch: FinishSieveBatch processes it)
 	cl_uint phase2Fill = 0;
 	auto chunkPositions = [this, positionsPerChunk, batch](unsigned int c) -> num64
@@ -4198,9 +4384,9 @@ bool OpenCL::RunSieveLaunches(unsigned int chunkBegin, unsigned int chunkEnd, un
 				c += n;
 			}
 		}
-		if (launches.empty() && firstRound && numExtra)
+		if (launches.empty() && extraPending)
 		{
-			// only the extra survivors (p = 2, 3, 5)
+			// only the extra survivors (p = 2, 3, 5, 7)
 			launches.emplace_back(chunkBegin, chunkBegin);
 		}
 		todo.clear();
@@ -4259,7 +4445,11 @@ bool OpenCL::RunSieveLaunches(unsigned int chunkBegin, unsigned int chunkEnd, un
 
 		// statistics (survivors, overflow flags of the launches) and the survivor counter (which starts with the extra survivors)
 		stats.assign(SieveStatsHeader + launches.size(), 0);
-		const cl_uint startCount = firstRound ? numExtra : 0;
+		const cl_uint startCount = extraPending ? numExtra : 0;
+		if (extraPending && !firstRound)
+		{
+			CL_CHECKED_CALL(clEnqueueWriteBuffer, P().myQueue, P().mySurvivorsBuf, CL_FALSE, 0, numExtra * sizeof(num64), batch->extra.data(), 0, nullptr, nullptr);
+		}
 		CL_CHECKED_CALL(clEnqueueWriteBuffer, P().myQueue, P().mySieveStatsBuf, CL_FALSE, 0, stats.size() * sizeof(cl_uint), stats.data(), 0, nullptr, nullptr);
 		CL_CHECKED_CALL(clEnqueueWriteBuffer, P().myQueue, P().mySurvivorCountBuf, CL_TRUE, 0, sizeof(startCount), &startCount, 0, nullptr, nullptr);
 
@@ -4293,7 +4483,7 @@ bool OpenCL::RunSieveLaunches(unsigned int chunkBegin, unsigned int chunkEnd, un
 					// 3/4 of SieveBand was the hits (t1: SieveBand 36.8 s, 9.3 s without them). The prime range of a slice is that of its
 					// entries. t1 (RTX 5070, 48 MB L2): 16 MB 48.9 s, 32 MB 46.3 s, 48 MB 47.4 s, 64 MB 49.5 s, unsliced 55.9 s.
 					// (Development aid: AMICABLE_BAND_SLICE_MB=<n> sets the size of a slice.)
-					static const size_t bandSliceBytes = static_cast<size_t>(getenv("AMICABLE_BAND_SLICE_MB") ? StrToNumber(getenv("AMICABLE_BAND_SLICE_MB")) : 32) << 20;
+					static const size_t bandSliceBytes = static_cast<size_t>(DevEnv("AMICABLE_BAND_SLICE_MB") ? StrToNumber(DevEnv("AMICABLE_BAND_SLICE_MB")) : 32) << 20;
 					const size_t bandLocal = 256;
 					for (cl_uint first = 0; first < bl[1];)
 					{
@@ -4326,7 +4516,7 @@ bool OpenCL::RunSieveLaunches(unsigned int chunkBegin, unsigned int chunkEnd, un
 						first += count;
 					}
 					// Development aid: AMICABLE_TEST_BAND=<n> compares the bitmaps of the first n launches with band chunks with the host
-					static int bandTests = getenv("AMICABLE_TEST_BAND") ? static_cast<int>(StrToNumber(getenv("AMICABLE_TEST_BAND"))) : 0;
+					static int bandTests = DevEnv("AMICABLE_TEST_BAND") ? static_cast<int>(StrToNumber(DevEnv("AMICABLE_TEST_BAND"))) : 0;
 					if (bandTests > 0)
 					{
 						--bandTests;
@@ -4366,7 +4556,6 @@ bool OpenCL::RunSieveLaunches(unsigned int chunkBegin, unsigned int chunkEnd, un
 		{
 			return false;
 		}
-		clReleaseEvent(event);
 
 			// survivors of the launches that didn't overflow; the overflowed launches are run again (their survivors that were checked
 			// are checked again, found numbers are deduplicated at the end)
@@ -4391,6 +4580,11 @@ bool OpenCL::RunSieveLaunches(unsigned int chunkBegin, unsigned int chunkEnd, un
 			{
 				const cl_uint flag = stats[SieveStatsHeader + i] & 3;
 				const cl_uint launchSurvivors = stats[SieveStatsHeader + i] >> 2;
+				if (i == 0)
+				{
+					// (the launch that had the extra survivors)
+					extraPending = extraPending && (flag != 0);
+				}
 				num64 positions = 0;
 				double expected = 0.0;
 				for (unsigned int c = launches[i].first; c < launches[i].second; ++c)
@@ -4607,9 +4801,9 @@ bool OpenCL::ProcessSieveBatch(SieveBatch& batch)
 
 	// Development aid: AMICABLE_DUMP_BATCH=<file> writes the sieve tables and batch number AMICABLE_DUMP_BATCH_INDEX (default 0) to a
 	// file, for running the kernels outside the app (profilers without OpenCL support)
-	if (const char* dumpName = getenv("AMICABLE_DUMP_BATCH"))
+	if (const char* dumpName = DevEnv("AMICABLE_DUMP_BATCH"))
 	{
-		const char* idx = getenv("AMICABLE_DUMP_BATCH_INDEX");
+		const char* idx = DevEnv("AMICABLE_DUMP_BATCH_INDEX");
 		if (P().mySieveStatBatches == (idx ? StrToNumber(idx) : 0))
 		{
 			FILE* f = fopen(dumpName, "wb");
@@ -4828,6 +5022,16 @@ bool OpenCL::SubmitSieveBatch(bool checkpoint, num64 offset)
 		if (!WaitPipe(pipe))
 		{
 			return false;
+		}
+		// The found numbers of the finished batch are saved in any case (also without a checkpoint here: a range split between
+		// batches, or a batch that starts in the middle of a range). A later checkpoint, written after the wait for another
+		// pipeline, says that all ranges before it are done, and it saves the numbers of that pipeline only.
+		{
+			PipeScope scope(pipe);
+			if (!SaveFoundNumbers())
+			{
+				return false;
+			}
 		}
 		// All ranges before the first range of the oldest batch still on the GPU (or of the submitted batch) are done: the found numbers
 		// of the finished batch are saved, with a checkpoint at that range. (The batches are finished in the order they were submitted,

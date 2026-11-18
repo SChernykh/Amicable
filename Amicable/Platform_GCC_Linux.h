@@ -37,7 +37,8 @@ FORCEINLINE void _BitScanForward64(unsigned long* index, unsigned long long mask
 
 FORCEINLINE num64 _rotr64(num64 value, int shift)
 {
-	return (value >> shift) | (value << (64 - shift));
+	// (& 63: with shift = 0 the left shift would be by 64, which is undefined)
+	return (value >> (shift & 63)) | (value << ((64 - shift) & 63));
 }
 
 #include <pthread.h>
@@ -194,7 +195,14 @@ private:
 
 FORCEINLINE void* AllocateSystemMemory(num64 size, bool is_executable)
 {
-	return mmap(0, size, is_executable ? (PROT_READ | PROT_WRITE | PROT_EXEC) : (PROT_READ | PROT_WRITE), MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	void* p = mmap(0, size, is_executable ? (PROT_READ | PROT_WRITE | PROT_EXEC) : (PROT_READ | PROT_WRITE), MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	// (the callers use the memory without a check; some run before main, so no iostream here)
+	if (p == MAP_FAILED)
+	{
+		fprintf(stderr, "Failed to allocate %llu bytes of memory\n", static_cast<unsigned long long>(size));
+		abort();
+	}
+	return p;
 }
 
 FORCEINLINE void DisableAccessToMemory(void* ptr, num64 size)

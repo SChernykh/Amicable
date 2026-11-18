@@ -38,7 +38,8 @@ NOINLINE bool RangeGen::Iterate(RangeData& range)
 	num128 sum_q;
 
 #define RECURSE ++search_stack_depth; ++s; ++f; goto recurse_begin
-#define RETURN --search_stack_depth; --s; --f; goto recurse_begin
+// (at depth 0 the walk is over: s and f are not moved before the start of their arrays)
+#define RETURN do { --search_stack_depth; if (search_stack_depth < 0) { prev_search_stack_depth = search_stack_depth; return false; } --s; --f; goto recurse_begin; } while (0)
 
 recurse_begin:
 	const bool is_return = (search_stack_depth < prev_search_stack_depth);

@@ -72,9 +72,18 @@ static num64 GetRangesPrimeBound(const char* startFrom, const char* stopAt)
 	num128 prefix = 1;
 	for (size_t i = 0; (i < a.size()) && (i < b.size()) && (a[i] == b[i]); ++i)
 	{
+		// (not factorizations of ranges: the whole table. Without these checks an exponent like 128 made the prefix 0, a divisor below.)
+		if (a[i].first >= SearchLimit::MainPrimeTableBound)
+		{
+			return 0;
+		}
 		for (num64 k = 0; k < a[i].second; ++k)
 		{
 			prefix *= a[i].first;
+			if (prefix >= SearchLimit::value)
+			{
+				return 0;
+			}
 		}
 	}
 

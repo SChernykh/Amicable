@@ -11,11 +11,13 @@ enum PrimeTablesParams : num64
 {
 	// There are exactly 1362201 primes below 10^(22/3)
 	// We can use this table for factorization when p^3 <= N < 10^22
-	// Set it to 1362208 because it's divisible by 32 (the table starts from 3, so it needs 1362200 entries)
-	ReciprocalsTableSize128 = 1362208,
+	// The table starts from 3, so it needs 1362200 entries: 1362208 is divisible by 32, and 64 more entries because phase 3 on the GPU
+	// stops 64 entries before the end of the table (RunPhase3: phase3MaxI): with 1362208 entries the last 56 primes below
+	// 10^(22/3) were never tested, and a cofactor of 21543461^3 or more with no smaller prime factor made the work unit fail
+	ReciprocalsTableSize128 = 1362272,
 
 	// Exact number of entries for 10^22 (all p^k with sigma(p^k) <= 3 * 10^22 for the primes in the table above)
-	PowersOfP_128DivisibilityData_count = 4126457,
+	PowersOfP_128DivisibilityData_count = 4126649,
 
 	MainPrimeTableSize = 2857142862,
 };

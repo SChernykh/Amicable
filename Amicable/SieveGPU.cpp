@@ -222,6 +222,7 @@ bool SieveGPUTables::Init(const SieveGPUConfig& config)
 	// flag in bit 31)
 	if ((cfg.numTiers < 1) || (cfg.numTiers > SieveMaxTiers) || (cfg.segJ < 64) || (cfg.segJ > 4096) || (cfg.segJ & (cfg.segJ - 1)) || (cfg.wgSize < 32) || ((cfg.segJ * 8) % cfg.wgSize) || (cfg.chunkSegments < 1) ||
 		(cfg.chunkSegments > SieveMaxChunkSegments) ||
+		(cfg.hitsPerTask < 1) || (cfg.hitsPerTask > cfg.segJ) || // (a divisor below: /sieve_hits 0 divided by zero)
 		(cfg.segJ * 8 > cfg.wgSize * 32)) // the scan marks at most 32 positions per work-item
 	{
 		std::cerr << "Invalid sieve configuration" << std::endl;
@@ -621,7 +622,7 @@ bool SieveGPUTables::Init(const SieveGPUConfig& config)
 				lists[tm.mi].push_back((slot << 16) | lane);
 			}
 		}
-		if (getenv("AMICABLE_PRINT_WARP_FEATURES"))
+		if (DevEnv("AMICABLE_PRINT_WARP_FEATURES"))
 		{
 			std::cerr << "Warp features tier " << t << ":";
 			for (unsigned int w = 0; w < numWarps; ++w)
@@ -902,16 +903,21 @@ bool SieveGPUTables::PrepareRange(num128 M0, num128 sumM0, const num64* primes, 
 	const num128 Nmax = A * p_hi + B;
 	unsigned int L = BitLength128(Nmax);
 	{
-		double log2F = v2g + (twoAdic ? 1 : 0);
+		// (the exact product: it divides N <= Nmax, so it fits. The floor of a sum of doubles e * log2(q) could come out one too
+		// large for a product just below a power of 2, and L one too small.)
+		num128 F = num128(1) << (v2g + (twoAdic ? 1U : 0U));
 		for (unsigned int f = 0; f < ngf; ++f)
 		{
 			const unsigned int q = gf[f] & 0xFFFFFFU;
 			if (q <= cfg.tierQ[tier])
 			{
-				log2F += (gf[f] >> 24) * log2(static_cast<double>(q));
+				for (unsigned int e = gf[f] >> 24; e > 0; --e)
+				{
+					F *= q;
+				}
 			}
 		}
-		const unsigned int known = static_cast<unsigned int>(log2F);
+		const unsigned int known = BitLength128(F) - 1;
 		L = (L > known) ? (L - known) : 0;
 	}
 	if (L > 127)

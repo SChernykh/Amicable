@@ -156,7 +156,14 @@ FORCEINLINE void shr128(num64& lo, num64& hi, unsigned char count)
 
 FORCEINLINE void* AllocateSystemMemory(num64 size, bool is_executable)
 {
-	return VirtualAlloc(nullptr, size, MEM_COMMIT, static_cast<DWORD>(is_executable ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE));
+	void* p = VirtualAlloc(nullptr, size, MEM_COMMIT, static_cast<DWORD>(is_executable ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE));
+	// (the callers use the memory without a check; some run before main, so no iostream here)
+	if (!p)
+	{
+		fprintf(stderr, "Failed to allocate %llu bytes of memory\n", static_cast<unsigned long long>(size));
+		abort();
+	}
+	return p;
 }
 
 FORCEINLINE void DisableAccessToMemory(void* ptr, num64 size)
