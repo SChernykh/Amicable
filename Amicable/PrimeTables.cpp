@@ -69,6 +69,14 @@ namespace primesieve
 
 			if (m_leftOverLength > 0)
 			{
+				// (a segment shorter than the rest of the block of 7 bytes only adds to the leftover: the code below read past it)
+				if (sieveSize < 7 - m_leftOverLength)
+				{
+					memcpy(m_leftOver + m_leftOverLength, sieve, sieveSize);
+					m_leftOverLength += sieveSize;
+					return;
+				}
+
 				memcpy(m_leftOver + m_leftOverLength, sieve, 7 - m_leftOverLength);
 
 				const uint64_t inputData = *reinterpret_cast<const uint64_t*>(m_leftOver);
@@ -91,8 +99,9 @@ namespace primesieve
 				m_outputData += 6;
 			}
 
-			const uint64_t n = sieveSize - 6;
-			for (; i < n; i += 7, m_outputData += 6)
+			// (i + 7 <= sieveSize, not i < sieveSize - 6: that wrapped around for a segment of less than 6 bytes, the last segment of
+			// a chunk of the table for some table sizes and thread counts, and the loop ran over the end of both buffers)
+			for (; i + 7 <= sieveSize; i += 7, m_outputData += 6)
 			{
 				const uint64_t inputData = *reinterpret_cast<const uint64_t*>(sieve + i);
 
@@ -556,6 +565,10 @@ void PrimeTablesInit(num64 startPrime, num64 primeLimit, const char* stopAt)
 		privPrimeInverses3[index] = p_inv;
 		privPrimeInverses4[index] = p_inv;
 	}
+	// The gap from the last prime of the table to the next prime ("it" is that prime now). It was left 0: the loop of the 64-bit
+	// code over the primes up to the cube root of n2 (CheckPairInternal) then kept the last prime, 2642239, and read past the
+	// tables when the cube root was above it (n2 >= 2642239^3, within 1.5e14 of 2^64).
+	privNextPrimeShifts[ARRAYSIZE(privPrimeInverses3) - 1] = static_cast<byte>(it.Get() - prev_p);
 
 	num128 curPowerOf2 = 4;
 	for (num64 i = 1; i < 128; ++i, curPowerOf2 += curPowerOf2)

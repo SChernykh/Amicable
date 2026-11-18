@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include <new>
+#include <memory>
 #include "PrimeTables.h"
 #include "Engine.h"
 #include "RangeGen.h"
@@ -32,6 +33,10 @@ const char* const CHECKPOINT_LOGICAL_NAME = "amicable_checkpoint";
 
 bool g_LppGeneric = false;
 
+// The work unit ("/from /to /lpp"), written into the checkpoint of a range search after its end marker and compared when a
+// checkpoint is read: the checkpoint of another work unit (a file left in the folder) must not be used
+static std::string g_checkpointId;
+
 RangeGen RangeGen::RangeGen_instance;
 
 template<unsigned int largest_prime_power>
@@ -46,7 +51,8 @@ NOINLINE bool RangeGen::Iterate(RangeData& range)
 	num128 sum_q;
 
 #define RECURSE ++search_stack_depth; ++s; ++f; goto recurse_begin
-#define RETURN --search_stack_depth; --s; --f; goto recurse_begin
+// (at depth 0 the walk is over: s and f are not moved before the start of their arrays)
+#define RETURN do { --search_stack_depth; if (search_stack_depth < 0) { prev_search_stack_depth = search_stack_depth; return false; } --s; --f; goto recurse_begin; } while (0)
 
 recurse_begin:
 	const bool is_return = (search_stack_depth < prev_search_stack_depth);
@@ -495,7 +501,13 @@ NOINLINE void RangeGen::Run(num64 numThreads, char* startFrom, char* stopAt, uns
 	Factor stopAtFactors[MaxPrimeFactors + 1];
 	memset(stopAtFactors, 0, sizeof(stopAtFactors));
 
-	char checkpoint_buf[256];
+	{
+		std::stringstream id;
+		id << (startFrom ? startFrom : "") << ' ' << (stopAt ? stopAt : "") << ' ' << largestPrimePower;
+		g_checkpointId = id.str();
+	}
+
+	char checkpoint_buf[1024];
 	std::string checkpoint_name;
 	boinc_resolve_filename_s(CHECKPOINT_LOGICAL_NAME, checkpoint_name);
 	FILE* checkpoint = boinc_fopen(checkpoint_name.c_str(), "r");
@@ -506,11 +518,18 @@ NOINLINE void RangeGen::Run(num64 numThreads, char* startFrom, char* stopAt, uns
 			char* end_of_data = strchr(checkpoint_buf, '#');
 			if (end_of_data)
 			{
+				// (the work unit follows the marker)
+				std::string id(end_of_data + 1);
+				while (!id.empty() && ((id.back() == '\n') || (id.back() == '\r')))
+				{
+					id.pop_back();
+				}
 				*end_of_data = '\0';
 				if (startPrime && primeLimit)
 				{
 					std::stringstream s;
-					num64 minCounterValue, startPrimeCheck, primeLimitCheck;
+					// (0: a checkpoint that can't be read is not used; the values were uninitialized then)
+					num64 minCounterValue = 0, startPrimeCheck = 0, primeLimitCheck = 0;
 					s << checkpoint_buf;
 					s >> minCounterValue >> startPrimeCheck >> primeLimitCheck;
 					if ((0 < minCounterValue) && (minCounterValue < LargePrimesSplitSize) && (startPrimeCheck == startPrime) && (primeLimitCheck == primeLimit))
@@ -523,7 +542,8 @@ NOINLINE void RangeGen::Run(num64 numThreads, char* startFrom, char* stopAt, uns
 				}
 				else
 				{
-					char* first_token_end = strchr(checkpoint_buf, ' ');
+					// (only the checkpoint of this work unit: not one of another unit, or of a version that did not write the unit)
+					char* first_token_end = (id == g_checkpointId) ? strchr(checkpoint_buf, ' ') : nullptr;
 					if (first_token_end)
 					{
 						total_numbers_checked = StrToNumber(checkpoint_buf);
@@ -557,11 +577,12 @@ NOINLINE void RangeGen::Run(num64 numThreads, char* startFrom, char* stopAt, uns
 	numWorkerThreadsTotal = numThreads;
 	numIdleThreads = 0;
 
-	WorkerThreadParams* params = reinterpret_cast<WorkerThreadParams*>(alloca(sizeof(WorkerThreadParams) * numThreads));
+	// On the heap (it was alloca: about 1.5 KB per thread, which does not fit the stack for the largest thread counts allowed above).
+	// Value-initialized: stateToSave.curLargestPrimePower = 0 means that the thread has no range yet, see CheckpointThread.
+	std::unique_ptr<WorkerThreadParams[]> paramsHolder(new WorkerThreadParams[numThreads]());
+	WorkerThreadParams* params = paramsHolder.get();
 	for (num64 i = 0; i < numThreads; ++i)
 	{
-		// (value-initialized: stateToSave.curLargestPrimePower = 0 means that the thread has no range yet, see CheckpointThread)
-		new (&params[i]) WorkerThreadParams();
 		params[i].rangeToCheckFirst = (startFrom && (startFromRange.value != 0) && (i == 0)) ? &startFromRange : nullptr;
 		if (params[i].rangeToCheckFirst)
 		{
@@ -817,7 +838,9 @@ NOINLINE void RangeGen::CheckpointThread(WorkerThreadParams* params, num64 numWo
 
 				if (!anyState)
 				{
-					// (no thread has a range yet, or all are done: nothing to save)
+					// (no thread has a range yet, or all are done: nothing to save. boinc_time_to_checkpoint() has started a critical
+					// section, which only boinc_checkpoint_completed() ends: without it, suspend and quit requests were ignored from here on.)
+					boinc_checkpoint_completed();
 					continue;
 				}
 
@@ -840,8 +863,8 @@ NOINLINE void RangeGen::CheckpointThread(WorkerThreadParams* params, num64 numWo
 				}
 			}
 
-			// End of data marker
-			s << '#';
+			// End of data marker, then the work unit (Run uses the checkpoint of a range search only if it is the same)
+			s << '#' << g_checkpointId;
 
 			data = s.str();
 

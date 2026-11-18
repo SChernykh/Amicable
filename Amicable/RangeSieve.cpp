@@ -1642,8 +1642,9 @@ void SearchRangeSieve(num128 M0, num128 sumM0, const num64* M0_primes, const uns
 	long double logK2;
 	unsigned int v2K;
 	{
+		// (on the 128-bit number, as below: a shift of the low word alone by 64 or more would be undefined if g were a multiple of 2^64)
 		unsigned int v2g = 0;
-		while (((LowWord(g) >> v2g) & 1) == 0)
+		for (num128 x = g; (LowWord(x) & 1) == 0; x >>= 1)
 		{
 			++v2g;
 		}
@@ -1976,7 +1977,9 @@ void SearchRangeSieve(num128 M0, num128 sumM0, const num64* M0_primes, const uns
 			}
 			const double WQ = static_cast<double>(logHi - logKQ);
 			const double Nmax = Num128ToDouble(R.A * p_hi + R.B);
-			if ((WQ > 0.0) && (WQ < 1e-4))
+			// (WQ > 1e-15: L0 stays below 2^53. With 80-bit long doubles WQ can be far smaller, and L0 was converted to an integer and its
+			// bit length used as a divisor below; a range that close to W = 0 has no band then, which only costs time)
+			if ((WQ > 1e-15) && (WQ < 1e-4))
 			{
 				L0 = 0.999 / expm1(WQ);
 				// L > n2^(1/3) / 3 means D < 3 n2^(2/3): DecideAtMost2Factors decides those numbers without trial division (n2 <= Nmax / KQ)

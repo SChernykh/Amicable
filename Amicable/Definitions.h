@@ -64,7 +64,8 @@ FORCEINLINE bool IsPerfectSquareCandidate(const num64 n)
 		(num64(1) << 49) |
 		(num64(1) << 57)
 	};
-	return (((num64(1) << n) & Modulo64SquareCheck::value) != 0);
+	// (n & 63: N mod 64; a shift by 64 or more is undefined)
+	return (((num64(1) << (n & 63)) & Modulo64SquareCheck::value) != 0);
 }
 
 FORCEINLINE num64 StrToNumber(const char* s)
