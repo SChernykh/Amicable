@@ -1,5 +1,17 @@
 #pragma once
 
+// Also used for Windows with MinGW-w64 (GCC or Clang): the Windows API there, as in Platform_MSVC_Windows.h, and the same GCC
+// builtins and __int128 arithmetic as on Linux and macOS
+#ifdef _WIN32
+#include <windows.h>
+#include <intrin.h>
+#include <malloc.h>
+#include <stdio.h>
+#include <string.h>
+#undef min
+#undef max
+#endif
+
 #ifndef NOINLINE
 #define NOINLINE __attribute__ ((noinline))
 #endif
@@ -15,8 +27,10 @@
 #define THREAD_LOCAL thread_local
 
 template <typename T, num64 N> char(*ArraySizeHelper(T(&)[N]))[N];
+#undef ARRAYSIZE // (winnt.h has one)
 #define ARRAYSIZE(A) (sizeof(*ArraySizeHelper(A)))
 
+#ifndef _WIN32 // (MinGW-w64 has these)
 typedef unsigned long DWORD;
 typedef long long __int64;
 
@@ -41,25 +55,42 @@ FORCEINLINE void _BitScanForward64(unsigned long* index, unsigned long long mask
 	*index = static_cast<unsigned long>(__builtin_ctzll(mask));
 }
 
+#endif
+
+#ifdef _WIN32
+// (MinGW-w64 maps _rotr64 to an x86 builtin and has _umul128 only on x86-64: the portable versions below are used instead)
+#undef _rotr64
+#define _rotr64 AmicableRotr64
+#define _umul128 AmicableUmul128
+#endif
+
 FORCEINLINE num64 _rotr64(num64 value, int shift)
 {
 	// (& 63: with shift = 0 the left shift would be by 64, which is undefined)
 	return (value >> (shift & 63)) | (value << ((64 - shift) & 63));
 }
 
+#ifndef _WIN32
 #include <pthread.h>
+#endif
 #if defined(__x86_64__) || defined(__i386__)
 #include <x86intrin.h> // (__rdtsc and the other intrinsics, <intrin.h> on MSVC)
 #endif
 #include <string.h>
-#include <sys/mman.h>
 #include <fenv.h>
 #include <time.h>
+#include <limits.h>
+#ifndef _WIN32
+#include <sys/mman.h>
 #include <alloca.h>
 #include <sys/resource.h>
 #include <unistd.h>
-#include <limits.h>
+#endif
 
+#ifdef _WIN32
+// The Windows critical sections (InitializeCriticalSection is called for them, as with MSVC)
+#define CRITICAL_SECTION_INITIALIZER {}
+#else
 #define CRITICAL_SECTION pthread_mutex_t
 
 #ifdef PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP
@@ -85,6 +116,7 @@ FORCEINLINE int LeaveCriticalSection(CRITICAL_SECTION* lock)
 {
 	return (pthread_mutex_unlock(lock) == 0) ? 1 : 0;
 }
+#endif
 
 #define IF_CONSTEXPR(X) \
 	static_assert((X) || !(X), "Error: "#X" is not a constexpr"); \
@@ -102,6 +134,30 @@ FORCEINLINE int LeaveCriticalSection(CRITICAL_SECTION* lock)
 
 #define TRY
 #define EXCEPT(X)
+
+#ifdef _WIN32
+
+class Timer
+{
+public:
+	FORCEINLINE explicit Timer()
+	{
+		QueryPerformanceFrequency(&f);
+		QueryPerformanceCounter(&t1);
+	}
+
+	FORCEINLINE double getElapsedTime() const
+	{
+		LARGE_INTEGER t2;
+		QueryPerformanceCounter(&t2);
+		return static_cast<double>(t2.QuadPart - t1.QuadPart) / f.QuadPart;
+	}
+
+private:
+	LARGE_INTEGER f, t1;
+};
+
+#else
 
 #ifdef __MACH__
 #include <mach/clock.h>
@@ -160,6 +216,30 @@ FORCEINLINE void Sleep(DWORD ms)
 	}
 }
 
+#endif
+
+#ifdef _WIN32
+
+FORCEINLINE void* AllocateSystemMemory(num64 size, bool is_executable)
+{
+	void* p = VirtualAlloc(nullptr, size, MEM_COMMIT, static_cast<DWORD>(is_executable ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE));
+	// (the callers use the memory without a check; some run before main, so no iostream here)
+	if (!p)
+	{
+		fprintf(stderr, "Failed to allocate %llu bytes of memory\n", static_cast<unsigned long long>(size));
+		abort();
+	}
+	return p;
+}
+
+FORCEINLINE void DisableAccessToMemory(void* ptr, num64 size)
+{
+	DWORD oldProtect;
+	VirtualProtect(ptr, size, PAGE_NOACCESS, &oldProtect);
+}
+
+#else
+
 FORCEINLINE void* AllocateSystemMemory(num64 size, bool is_executable)
 {
 	if (size & 4095)
@@ -181,6 +261,8 @@ FORCEINLINE void DisableAccessToMemory(void* ptr, num64 size)
 	mprotect(ptr, size, PROT_NONE);
 }
 
+#endif
+
 FORCEINLINE void ForceRoundUpFloatingPoint()
 {
 	fesetround(FE_UPWARD);
@@ -188,9 +270,13 @@ FORCEINLINE void ForceRoundUpFloatingPoint()
 
 FORCEINLINE bool SetLowPriority()
 {
+#ifdef _WIN32
+	return SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_IDLE) ? true : false;
+#else
 	errno = 0;
 	const int result = nice(NZERO - 1);
 	return ((result != -1) || (errno == 0));
+#endif
 }
 
 // All code that doesn't pass "-Wpedantic" must be below this comment
