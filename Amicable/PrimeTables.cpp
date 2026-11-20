@@ -310,7 +310,7 @@ NOINLINE void GenerateCandidates()
 	}
 
 	std::sort(
-#ifndef __APPLE__
+#ifdef __cpp_lib_execution // (not in the libc++ of macOS and MinGW-w64)
 		std::execution::par_unseq,
 #endif
 		privCandidatesData.begin(), privCandidatesData.end()

@@ -44,6 +44,10 @@ num64(*udiv128)(num64 numhi, num64 numlo, num64 den, num64* rem) = (num64(*)(num
 num64(*udiv128_noremainder)(num64 numlo, num64 numhi, num64 den) = (num64(*)(num64, num64, num64))(((const unsigned char*)MachineCode) + 16);
 num64(*mulmod64)(num64 a, num64 b, num64 n) = (num64(*)(num64, num64, num64))(((const unsigned char*)MachineCode) + 32);
 
+#endif
+
+#ifdef _WIN32 // Windows (MSVC or MinGW-w64)
+
 typedef NTSTATUS (NTAPI *NtQueryTimerResolutionPtr)(OUT PULONG MinimumResolution, OUT PULONG MaximumResolution, OUT PULONG CurrentResolution);
 typedef NTSTATUS (NTAPI *NtSetTimerResolutionPtr)(IN ULONG DesiredResolution, IN BOOLEAN SetResolution, OUT PULONG CurrentResolution);
 typedef NTSTATUS (NTAPI *NtDelayExecutionPtr)(IN BOOLEAN Alertable, IN PLARGE_INTEGER DelayInterval);
