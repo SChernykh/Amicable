@@ -88,7 +88,6 @@ FORCEINLINE num64 _rotr64(num64 value, int shift)
 #include <fcntl.h>
 #ifndef _WIN32
 #include <sys/mman.h>
-#include <alloca.h>
 #include <sys/resource.h>
 #include <unistd.h>
 #include <semaphore.h>
@@ -100,7 +99,20 @@ FORCEINLINE num64 _rotr64(num64 value, int shift)
 #else
 #define CRITICAL_SECTION pthread_mutex_t
 
-#ifdef PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP
+#if defined(__FreeBSD__)
+// FreeBSD has no static initializer for a recursive mutex: made at startup instead (pthread_mutex_t is a pointer there)
+inline pthread_mutex_t MakeRecursiveMutex()
+{
+	pthread_mutexattr_t attr;
+	pthread_mutexattr_init(&attr);
+	pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+	pthread_mutex_t m;
+	pthread_mutex_init(&m, &attr);
+	pthread_mutexattr_destroy(&attr);
+	return m;
+}
+#define CRITICAL_SECTION_INITIALIZER MakeRecursiveMutex()
+#elif defined(PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP)
 #define CRITICAL_SECTION_INITIALIZER PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP
 #else
 #define CRITICAL_SECTION_INITIALIZER PTHREAD_RECURSIVE_MUTEX_INITIALIZER
@@ -318,8 +330,9 @@ FORCEINLINE bool SetLowPriority()
 #ifdef _WIN32
 	return SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_IDLE) ? true : false;
 #else
+	// the lowest priority: 19 (NZERO - 1 on Linux and macOS; FreeBSD's NZERO is 0, its nice values go up to 20)
 	errno = 0;
-	const int result = nice(NZERO - 1);
+	const int result = nice(19);
 	return ((result != -1) || (errno == 0));
 #endif
 }
