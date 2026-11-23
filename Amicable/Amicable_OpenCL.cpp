@@ -3578,7 +3578,7 @@ bool OpenCL::CreateSievePipeBuffers()
 				P().mySieveBandBitmapBuf
 			);
 		}
-		CL_CHECKED_CALL(setKernelArguments, P().mySieveBand, P().mySieveRangesBuf, P().mySieveBandTableBuf, 0U, 0U, 0U, 0U, mySmallPrimesBuf, P().mySieveBandBitmapBuf);
+		CL_CHECKED_CALL(setKernelArguments, P().mySieveBand, P().mySieveRangesBuf, P().mySieveBandTableBuf, 0U, 0U, 0U, 0U, mySmallPrimesBuf, P().mySieveBandBitmapBuf, myPrimeInversesBuf);
 		const cl_uint spsp2Count = static_cast<cl_uint>(sizeof(g_Spsp2Below2_32) / sizeof(g_Spsp2Below2_32[0]));
 		CL_CHECKED_CALL(setKernelArguments, P().mySieveTestDeferred,
 			P().mySieveDeferredCountBuf,

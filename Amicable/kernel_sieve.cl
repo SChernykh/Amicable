@@ -1471,7 +1471,8 @@ void SieveBand(
 	const uint primeBegin,
 	const uint primeEnd,
 	__global const uint* smallPrimes,
-	__global uint* bitmap)
+	__global uint* bitmap,
+	__global const ulong2* primeInverses)
 {
 	const uint pi = primeBegin + get_global_id(0);
 	if (pi >= primeEnd)
@@ -1479,7 +1480,11 @@ void SieveBand(
 		return;
 	}
 	const uint r = smallPrimes[pi];
-	const ulong m = 0xFFFFFFFFFFFFFFFFUL / r;
+	// m = floor((2^64 - 1) / r) from the host's table (PrimeInverses[pi].second, the same index as smallPrimes). AMD's OpenCL compiler on
+	// Windows computed 0xFFFFFFFFFFFFFFFFUL / r wrongly with optimizations (Radeon 760M; -cl-opt-disable fixed it, and hosts with a 780M
+	// or an RX 6600 failed the self-test the same way): every BandMod64 was wrong, SieveBand found almost no band factors, and the
+	// self-test missed pairs.
+	const ulong m = primeInverses[pi].y;
 	// 2^64 mod r
 	uint c64 = (uint)(0xFFFFFFFFFFFFFFFFUL - m * r) + 1;
 	c64 = (c64 == r) ? 0 : c64;
