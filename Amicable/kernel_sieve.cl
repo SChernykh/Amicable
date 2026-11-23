@@ -458,6 +458,7 @@ static inline uint SieveScan(__local int* S, __local const int* TBC, __local con
 }
 )==="
 R"===(
+#ifndef SIEVE_LARGE_PRIMES
 // p with a prime factor 11 <= q <= 127 (q | p <=> p * q^-1 mod 2^64 <= (2^64 - 1) / q; the positions are prime to 210): p is composite,
 // the position is not a number of the range. CheckSieveSurvivors rejects these positions before it reads their band word (the first pass,
 // p not known to be prime), so SieveBand skips their hits (v73: half of its atomic_min; a wrong word of a composite p could only reject
@@ -476,6 +477,7 @@ static inline bool BandSmallFactor(const ulong p)
 	}
 	return f && (p > 127);
 }
+#endif
 
 // One work-group sieves one chunk (up to SIEVE_CHUNK_SEGMENTS segments) of one range: all p = Pchunk + 210 * j + w(c) coprime to 210
 // with 0 <= j < nseg * SIEVE_SEG_J, in the 6 sub-sieves one after the other, and records the positions whose sum is inside the window
@@ -706,9 +708,11 @@ void SieveRanges(
 		TBC[i] = BASE[SIEVE_ROWS] + BASE[c] + T2[v];
 	}
 	const uint numOverrides = min(OVR[0], (uint)SIEVE_MAX_OVERRIDES);
+#if SIEVE_KILL_QMAX > 0
 	// the kill needs the complete undo list
 	const uint numUndo = UNDON[0];
 	const bool killEnabled = killTier && (numUndo <= SIEVE_UNDO_CAP);
+#endif
 
 )==="
 R"===(
@@ -744,13 +748,17 @@ R"===(
 					const uint mi = td.x & 0xFFFu;
 					const uint xr = STW[mi];
 					int v = (int)(td.y >> 14);
+#if SIEVE_KILL_QMAX > 0
 					bool overridden = false;
+#endif
 					for (uint o = 0; o < numOverrides; ++o)
 					{
 						if (OVR[1 + o * 2] == mi)
 						{
 							v = (int)OVR[2 + o * 2];
+#if SIEVE_KILL_QMAX > 0
 							overridden = true;
+#endif
 						}
 					}
 					// kill (SieveKillD): mode 0, 7 does not divide D(q): D = D(q); mode 1, 7 | D(q) >= 49: D = D(q) / 7; mode 2, 7 | D(q) < 49:

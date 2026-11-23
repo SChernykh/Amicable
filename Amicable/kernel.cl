@@ -87,18 +87,8 @@ static ulong IntegerSquareRoot128(const ulong2 n)
 	return result;
 }
 
-// p | N for N = N_high * 2^64 + N with N_high < p (so N / p < 2^64), an odd prime p < 2^32 and inv = p^-1 mod 2^64: with q = N * inv mod 2^64,
-// q * p = N mod 2^64 always, so p | N <=> q * p = N <=> the high 64 bits of q * p are N_high. Two 32x32-bit products and one 64-bit product
-// instead of the three 64-bit products (one of them a high part) of the test with the 128-bit inverse.
-static inline bool Divides128Fast(const ulong N, const uint N_high, const ulong inv, const uint p)
-{
-	const ulong q = N * inv;
-	const ulong t = (ulong)((uint)q) * p;
-	const ulong u = (ulong)((uint)(q >> 32)) * p + (t >> 32);
-	return (uint)(u >> 32) == N_high;
-}
-
-// The same test with 32-bit products (exact division from the low end), pinv = p^-1 mod 2^32: q0 = n0 / p mod 2^32 makes N - q0 p a
+// p | N for N = N_high * 2^64 + N with N_high < p (so N / p < 2^64) and an odd prime p < 2^32, with 32-bit products (exact division
+// from the low end), pinv = p^-1 mod 2^32: q0 = n0 / p mod 2^32 makes N - q0 p a
 // multiple of 2^32, N1 = (N - q0 p) / 2^32 = (N >> 32) - hi(q0 p), and p | N <=> N1 = q1 p with q1 = N1 / p mod 2^32 (N / p < 2^64
 // because N_high < p) <=> hi(N1) = hi(q1 p) (lo(q1 p) = lo(N1) by construction; N1 < 0 gives hi(N1) = 2^32 - 1 > hi(q1 p)).
 // Two products and two high halves of 32x32 bits instead of two 32x32->64-bit products and a 64-bit product: phase 2 was limited by the
@@ -217,6 +207,7 @@ static bool SieveIsPrime32(const uint n)
 	return true;
 }
 
+#if defined(SIEVE_WG_SIZE) && !defined(SIEVE_LARGE_PRIMES)
 // The same for the survivors of the sieve (SieveTestDeferred): base 2, then the list of the base-2 strong pseudoprimes below 2^32 (spsp2,
 // sorted; tools/cuharness --spsp2 finds them with SieveSprp32 and SieveIsPrime32, which agrees with a sieve for all n < 2^32). With three
 // bases almost every warp ran all three (about half of the numbers are prime), with the list one base and a binary search.
@@ -243,6 +234,7 @@ static bool SieveIsPrime32List(const uint n, __global const uint* spsp2, const u
 	}
 	return (lo == spsp2Count) || (spsp2[lo] != n);
 }
+#endif
 
 )==="
 R"===(
@@ -341,6 +333,7 @@ static bool SieveIsPrime(const ulong n)
 
 )==="
 R"===(
+#if defined(SIEVE_WG_SIZE) && !defined(SIEVE_LARGE_PRIMES)
 // SieveIsPrime with the list of base-2 strong pseudoprimes for n < 2^32 (SieveIsPrime32List; SieveTestDeferred)
 static bool SieveIsPrimeList(const ulong n, __global const uint* spsp2, const uint spsp2Count)
 {
@@ -359,6 +352,7 @@ static bool SieveIsPrimeList(const ulong n, __global const uint* spsp2, const ui
 	}
 	return SieveIsPrime(n);
 }
+#endif
 
 // Miller-Rabin test without false negatives (false only for a composite n): deterministic for n < 2^63 (the 7 bases of Jim Sinclair
 // are deterministic below 2^64); n >= 2^63 returns true (SieveMontMul needs n < 2^63, the host tests these)
