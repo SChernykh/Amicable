@@ -494,6 +494,46 @@ NOINLINE bool TestCheckPairPowerCofactor()
 	return ok;
 }
 
+// Regression test of FinalCheck128 (2026-11-23): the cofactor n2 >= 2^64 - 1 that it takes for a prime ("targetSum == n2 + 1") had no
+// primality test, so a composite n2 was reported (a false positive; the GPU app tests it, so the output files of such a work unit
+// differed). Through CheckPair128: the known pair M = 5706529949209326741736 (N = 2^3*29*26176742886281315327, the only known pair below
+// 10^22 that is found this way) and a synthetic N = 2^4 q with the same prime q must be reported; the example of the old comment
+// M = 467915168733863040016 (n2 = 1908062567*16348701097) and a synthetic N = 2^4 r s (the primes r = 2^32 + 15, s = 2^32 + 61) must not.
+NOINLINE bool TestCheckPairLargePrimeCofactor()
+{
+	struct Case
+	{
+		const char* n1;
+		const char* targetSum;
+		bool expected;
+	};
+	const Case cases[] = {
+		{ "5706529949209326741736", "11779534298826591897600", true },
+		{ "392651143294219729936", "811479029474720775168", true },
+		{ "467915168733863040016", "967024682049983616000", false },
+		{ "276701166001906005436", "571849076403939077868", false },
+	};
+
+	std::vector<num128> found;
+	std::vector<num128>* oldLog = g_FoundNumbersLog;
+	g_FoundNumbersLog = &found;
+	bool ok = true;
+	for (const Case& c : cases)
+	{
+		const num128 n1 = atoi128(c.n1);
+		found.clear();
+		CheckPair128NoInline(n1, atoi128(c.targetSum));
+		if ((found.size() != (c.expected ? 1U : 0U)) || (c.expected && (found[0] != n1)))
+		{
+			std::cerr << "CheckPair128: n1 = " << c.n1 << ", target sum " << c.targetSum << ": " << found.size() << " numbers reported, expected "
+				<< (c.expected ? 1 : 0) << std::endl;
+			ok = false;
+		}
+	}
+	g_FoundNumbersLog = oldLog;
+	return ok;
+}
+
 // Regression test of OverAbundant (2026-11-08): the comparison (sum - value) (sigma(g) - g) >= value g is exact now (256-bit products); the
 // 128-bit products wrapped around from value g >= 2^128 (m >= ~3e18 with a large g), and a wrapped "true" made the walk skip a range.
 // Synthetic factorizations and sums (OverAbundant only uses the sum's divisibility by the prime powers of m); the expected results come from

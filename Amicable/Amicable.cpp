@@ -115,6 +115,13 @@ int main(int argc, char* argv[])
 				std::cerr << "OverAbundant() test failed" << std::endl;
 				return 7;
 			}
+			std::cout << "done" << std::endl << "Testing CheckPair() with a cofactor of 2^64 or more that must be prime...";
+			flush(std::cout);
+			if (!TestCheckPairLargePrimeCofactor())
+			{
+				std::cerr << "CheckPair() large prime cofactor test failed" << std::endl;
+				return 8;
+			}
 			if (linear)
 			{
 				std::cout << "done" << std::endl << "Testing amicable candidates...";

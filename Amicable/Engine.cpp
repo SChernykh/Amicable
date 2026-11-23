@@ -725,6 +725,87 @@ NOINLINE static void CheckPairInternalNoInline(const num128& n1, const num64 tar
 	CheckPairInternal(n1, targetSum, n2TargetSum, n2, sum);
 }
 
+// a * b mod n for a, b < n < 2^127
+static num128 MulMod128(num128 a, num128 b, const num128& n)
+{
+	num128 r = 0;
+	while (b != 0)
+	{
+		if (LowWord(b) & 1)
+		{
+			r += a;
+			if (r >= n)
+			{
+				r -= n;
+			}
+		}
+		a += a;
+		if (a >= n)
+		{
+			a -= n;
+		}
+		b >>= 1;
+	}
+	return r;
+}
+
+// The cofactor n2 of FinalCheck128 when it must be prime (n2 >= 2^64 - 1 there; N < 2^75): below 2^64 IsPrime, above it the strong
+// probable prime test to the bases 2 .. 37, which no composite below 3.18 * 10^23 passes (Sorenson, Webster, "Strong pseudoprimes to
+// twelve prime bases"). The same test as FoundCofactorIsPrime of the GPU app, which checks its cofactors of 2^64 or more this way.
+NOINLINE bool IsPrime128(const num128& n)
+{
+	if (HighWord(n) == 0)
+	{
+		return IsPrime(LowWord(n));
+	}
+	if ((LowWord(n) & 1) == 0)
+	{
+		return false;
+	}
+	const num128 n1 = n - 1;
+	num128 d = n1;
+	unsigned int s = 0;
+	while ((LowWord(d) & 1) == 0)
+	{
+		d >>= 1;
+		++s;
+	}
+	static const num64 bases[12] = { 2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37 };
+	for (const num64 base : bases)
+	{
+		// x = base^d mod n
+		num128 x = 1;
+		num128 a = base;
+		for (num128 e = d; e != 0; e >>= 1)
+		{
+			if (LowWord(e) & 1)
+			{
+				x = MulMod128(x, a, n);
+			}
+			a = MulMod128(a, a, n);
+		}
+		if ((x == 1) || (x == n1))
+		{
+			continue;
+		}
+		bool composite = true;
+		for (unsigned int i = 1; i < s; ++i)
+		{
+			x = MulMod128(x, x, n);
+			if (x == n1)
+			{
+				composite = false;
+				break;
+			}
+		}
+		if (composite)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
 // n2 is either a prime, squared prime, or has two distinct prime factors
 NOINLINE void FinalCheck128(const num128& n1, const num128& targetSum, const num128& n2)
 {
@@ -743,17 +824,18 @@ NOINLINE void FinalCheck128(const num128& n1, const num128& targetSum, const num
 		// targetSum is even, n2 is either p or p * q
 		if (targetSum == n2 + 1)
 		{
-			/* May give some false positives if n2 is composite
-			   TODO: check that n2 is prime
-
-			   Example:
+			/* n2 must be prime. Without the test a composite n2 was a false positive, and the output of the work unit differed from the GPU
+			   app's (which tests it: FoundCofactorIsPrime), so the two could not validate each other. Example:
 
 			   M = 467915168733863040016 = 2^4*17*199*431*19973*1004210069
 			   N = 499109513316120575984 = 2^4*1908062567*16348701097
 			   targetSum = 31194344582257536000
 			   n2 = 31194344582257535999 = 1908062567*16348701097
 			*/
-			NumberFound(n1);
+			if (IsPrime128(n2))
+			{
+				NumberFound(n1);
+			}
 		}
 		else
 		{
@@ -1958,8 +2040,8 @@ static bool FinalCheck128Decide(const num128& targetSum, const num128& n2)
 	}
 	if (targetSum == n2 + 1)
 	{
-		// (as in FinalCheck128: no test of the primality of n2 >= 2^64)
-		return (HighWord(n2) != 0) || IsPrime(LowWord(n2));
+		// n2 must be prime, also above 2^64 (as in FinalCheck128; without the test the range sieve reported the example there)
+		return IsPrime128(n2);
 	}
 	const num128 B = (targetSum - n2 - 1) >> 1;
 	num128 D = B * B;

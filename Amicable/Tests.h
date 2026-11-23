@@ -6,4 +6,5 @@ bool TestMaximumSumOfDivisors3();
 bool TestPrimeSieve();
 bool TestNum128Division();
 bool TestCheckPairPowerCofactor();
+bool TestCheckPairLargePrimeCofactor();
 bool TestOverAbundantExact();

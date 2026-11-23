@@ -2737,6 +2737,44 @@ bool TestRangeSieve()
 		}
 	}
 
+	// 4) a number that is not amicable must not be reported (2026-11-23): M = 2^4*17*199*431*19973*1004210069 has N = 2^4*1908062567*16348701097
+	//    and sigma(M) = sigma(2^4) (n2 + 1) for its cofactor n2 = 1908062567*16348701097 >= 2^64: FinalCheck128Decide took n2 for a prime
+	//    without a test, the CPU app reported M and its output differed from the GPU app's. A sieve run around p must report no unknown number.
+	{
+		const num64 fpPrimes[5] = { 2, 17, 199, 431, 19973 };
+		const unsigned int fpExps[5] = { 4, 1, 1, 1, 1 };
+		const num64 fpP = 1004210069;
+		const num64 W = 1 << 14;
+		num128 M0 = 1;
+		num128 sumM0 = 1;
+		for (unsigned int i = 0; i < 5; ++i)
+		{
+			num128 pk = 1;
+			num128 sp = 1;
+			for (unsigned int k = 0; k < fpExps[i]; ++k)
+			{
+				pk *= fpPrimes[i];
+				sp += pk;
+			}
+			M0 *= pk;
+			sumM0 *= sp;
+		}
+		found.clear();
+		g_FoundNumbersLog = &found;
+		SearchRangeSieve(M0, sumM0, fpPrimes, fpExps, 5, fpP - W, fpP + W, 0, RangeSieveCountPrimes(fpP - W, fpP + W));
+		g_FoundNumbersLog = nullptr;
+		for (const num128& x : found)
+		{
+			if (!std::binary_search(known.begin(), known.end(), x))
+			{
+				char buf[64];
+				std::cerr << "TestRangeSieve: the sieve run around 2^4*17*199*431*19973*1004210069 reported " << itoa128(x, buf, sizeof(buf)) << ", which is not amicable" << std::endl;
+				return false;
+			}
+		}
+		++numSieveRuns;
+	}
+
 	std::cout << numFiles << " files, " << numAll << " pairs below the search limit, " << numPairs << " first-stage pairs: " << numWindowChecks << " window checks, " << numSurvivorChecks << " survivor checks, " << numMaskChecks << " with the mask of the range (" << numMaskSkipped << " pairs without), " << numBandChecks << " with a band, " << numSieveRuns << " sieve runs (" << numBandRuns << " through the band), " << numUnknown << " unknown numbers found...";
 	return (numPairs > 0);
 }
