@@ -635,68 +635,71 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	{
 		char kernel_options[2048];
 		char cBuildLog[10240];
-		sprintf_s(kernel_options,
-			"%s-cl-fast-relaxed-math -D PQ_STRIDE_SIZE=%u -D WORK_GROUP_SIZE=%u -D PHASE2_MAX_COUNT=%u -D LPP=%u -D NUM_DATA_CHUNKS=%u -D CHUNK_SIZE_SHIFT=%u -D SUM_ESTIMATES_128_SHIFT=%u -D MAIN_BUFFER_MASK=%u%s -Werror",
-			vendor_specific_compiler_options.c_str(),
-			SumEstimatesSize2_GPU,
-			static_cast<unsigned int>(myWorkGroupSize),
-			myPhase2MaxNumbersCount,
-			myLargestPrimePower,
-			static_cast<unsigned int>(NumMainBufferChunks),
-			ChunkSizeShift,
-			64 - SumEstimates128Shift,
-			mainBufferWhole ? 0xFFFFFFFFU : static_cast<unsigned int>((MaxMainBufferSize / 2) - 1),
-			sieve_compiler_options.c_str()
-		);
-		// Development aid: extra kernel build options (for example -D switches of experimental kernel variants)
-		if (const char* extra = DevEnv("AMICABLE_CL_OPTIONS"))
+		// A compiler can fail on the sieve kernels with the largest work-groups.
+		// Then the sieve is set up again with half the work-group size and the programs are built again, down to 256
+		const unsigned int sieveMinRetryWorkGroupSize = 256;
+		for (;;)
 		{
-			strcat_s(kernel_options, " ");
-			strcat_s(kernel_options, extra);
-		}
-		myBuildOptions = kernel_options;
-		cl_int build_result = clBuildProgram(myProgram, 0, nullptr, kernel_options, nullptr, nullptr);
-		if (build_result != CL_SUCCESS)
-		{
-			LOG_ERROR("clBuildProgram returned error " << build_result);
-			LOG_ERROR("Build options: " << kernel_options);
-
-			const cl_int get_info_result = clGetProgramBuildInfo(myProgram, device, CL_PROGRAM_BUILD_LOG, sizeof(cBuildLog), cBuildLog, nullptr);
-			if (get_info_result == CL_SUCCESS)
+			sprintf_s(kernel_options,
+				"%s-cl-fast-relaxed-math -D PQ_STRIDE_SIZE=%u -D WORK_GROUP_SIZE=%u -D PHASE2_MAX_COUNT=%u -D LPP=%u -D NUM_DATA_CHUNKS=%u -D CHUNK_SIZE_SHIFT=%u -D SUM_ESTIMATES_128_SHIFT=%u -D MAIN_BUFFER_MASK=%u%s -Werror",
+				vendor_specific_compiler_options.c_str(),
+				SumEstimatesSize2_GPU,
+				static_cast<unsigned int>(myWorkGroupSize),
+				myPhase2MaxNumbersCount,
+				myLargestPrimePower,
+				static_cast<unsigned int>(NumMainBufferChunks),
+				ChunkSizeShift,
+				64 - SumEstimates128Shift,
+				mainBufferWhole ? 0xFFFFFFFFU : static_cast<unsigned int>((MaxMainBufferSize / 2) - 1),
+				sieve_compiler_options.c_str()
+			);
+			// Development aid: extra kernel build options (for example -D switches of experimental kernel variants)
+			if (const char* extra = DevEnv("AMICABLE_CL_OPTIONS"))
 			{
-				LOG_ERROR("Build log:\n" << cBuildLog);
+				strcat_s(kernel_options, " ");
+				strcat_s(kernel_options, extra);
 			}
-			else
-			{
-				LOG_ERROR("Failed to get build log, clGetProgramBuildInfo returned error " << get_info_result);
-			}
-
-			LOG_ERROR("Trying to disable 'goto' and build again");
-
-			strcat_s(kernel_options, " -D DISABLE_GOTO");
 			myBuildOptions = kernel_options;
-			build_result = clBuildProgram(myProgram, 0, nullptr, kernel_options, nullptr, nullptr);
-		}
+			cl_int build_result = clBuildProgram(myProgram, 0, nullptr, kernel_options, nullptr, nullptr);
+			if (build_result != CL_SUCCESS)
+			{
+				LOG_ERROR("clBuildProgram returned error " << build_result);
+				LOG_ERROR("Build options: " << kernel_options);
 
-		const cl_int get_info_result2 = clGetProgramBuildInfo(myProgram, device, CL_PROGRAM_BUILD_LOG, sizeof(cBuildLog), cBuildLog, nullptr);
-		if (get_info_result2 != CL_SUCCESS)
-		{
-			LOG_ERROR("Failed to get build log, clGetProgramBuildInfo returned error " << get_info_result2);
-			cBuildLog[0] = '\0';
-		}
+				const cl_int get_info_result = clGetProgramBuildInfo(myProgram, device, CL_PROGRAM_BUILD_LOG, sizeof(cBuildLog), cBuildLog, nullptr);
+				if (get_info_result == CL_SUCCESS)
+				{
+					LOG_ERROR("Build log:\n" << cBuildLog);
+				}
+				else
+				{
+					LOG_ERROR("Failed to get build log, clGetProgramBuildInfo returned error " << get_info_result);
+				}
 
-		LOG(2, cBuildLog);
+				LOG_ERROR("Trying to disable 'goto' and build again");
+
+				strcat_s(kernel_options, " -D DISABLE_GOTO");
+				myBuildOptions = kernel_options;
+				build_result = clBuildProgram(myProgram, 0, nullptr, kernel_options, nullptr, nullptr);
+			}
+
+			const cl_int get_info_result2 = clGetProgramBuildInfo(myProgram, device, CL_PROGRAM_BUILD_LOG, sizeof(cBuildLog), cBuildLog, nullptr);
+			if (get_info_result2 != CL_SUCCESS)
+			{
+				LOG_ERROR("Failed to get build log, clGetProgramBuildInfo returned error " << get_info_result2);
+				cBuildLog[0] = '\0';
+			}
+
+			LOG(2, cBuildLog);
 
 			if (build_result != CL_SUCCESS)
 			{
 				LOG_ERROR("clBuildProgram returned error " << build_result);
 				LOG_ERROR("Build options: " << kernel_options);
 				LOG_ERROR("Build log:\n" << cBuildLog);
-				return false;
 			}
-
 			// the sieve with the divisibility kill (chunks of the last tier)
-			if (!mySieveKillOptions.empty())
+			else if (!mySieveKillOptions.empty())
 			{
 				std::string killOptions = kernel_options;
 				const size_t pos = killOptions.find(mySieveOptions);
@@ -706,17 +709,44 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 					return false;
 				}
 				killOptions.replace(pos, mySieveOptions.size(), mySieveKillOptions);
+				// (a program of an earlier attempt)
+				if (myProgramKill)
+				{
+					clReleaseProgram(myProgramKill);
+					myProgramKill = nullptr;
+				}
 				CL_CHECKED_CALL_WITH_RESULT(myProgramKill, clCreateProgramWithSource, myGPUContext, 2, kernel_sources, nullptr);
-				const cl_int killBuild = clBuildProgram(myProgramKill, 0, nullptr, killOptions.c_str(), nullptr, nullptr);
-				if (killBuild != CL_SUCCESS)
+				build_result = clBuildProgram(myProgramKill, 0, nullptr, killOptions.c_str(), nullptr, nullptr);
+				if (build_result != CL_SUCCESS)
 				{
 					clGetProgramBuildInfo(myProgramKill, device, CL_PROGRAM_BUILD_LOG, sizeof(cBuildLog), cBuildLog, nullptr);
-					LOG_ERROR("clBuildProgram (sieve with the kill) returned error " << killBuild << "\nBuild options: " << killOptions << "\nBuild log:\n" << cBuildLog);
-					return false;
+					LOG_ERROR("clBuildProgram (sieve with the kill) returned error " << build_result << "\nBuild options: " << killOptions << "\nBuild log:\n" << cBuildLog);
 				}
-				myBuildOptionsKill = killOptions;
+				else
+				{
+					myBuildOptionsKill = killOptions;
+				}
+			}
+
+			if (build_result == CL_SUCCESS)
+			{
+				break;
+			}
+			if (!myUseSieve || (mySieve.cfg.wgSize <= sieveMinRetryWorkGroupSize))
+			{
+				return false;
+			}
+			LOG_ERROR("Trying the sieve with work-group size " << (mySieve.cfg.wgSize / 2) << " and building again");
+			if (!InitSieve(device, std::min<num64>(deviceLocalMemSize, 65536), mySieve.cfg.wgSize / 2, sieve_compiler_options))
+			{
+				return false;
+			}
+			if (myLargePrimesSieve)
+			{
+				sieve_compiler_options += " -D SIEVE_LARGE_PRIMES";
 			}
 		}
+	}
 
 	CL_CHECKED_CALL_WITH_RESULT(mySaveCounter, clCreateKernel, myProgram, "SaveCounter");
 
@@ -2662,8 +2692,24 @@ bool OpenCL::ProcessNumbers()
 	return true;
 }
 
+// A count read back from the GPU that is larger than the buffer it counts: the memory of the GPU was corrupted, so nothing computed since then can be trusted.
+static bool CheckCountFromGPU(const char* what, unsigned int count, unsigned int capacity)
+{
+	if (count > capacity)
+	{
+		LOG_ERROR(what << ": the GPU reported " << count << " numbers, but the buffer holds " << capacity << ". The GPU's memory is corrupted (was the GPU reset by its driver?)");
+		return false;
+	}
+	return true;
+}
+
 bool OpenCL::ProcessNumbersPhases2_3(unsigned int numbers_in_phase2)
 {
+	if (!CheckCountFromGPU("Phase 2", numbers_in_phase2, myPhase2MaxNumbersCount))
+	{
+		return false;
+	}
+
 	cl_event event = nullptr;
 
 	//
@@ -2809,6 +2855,10 @@ bool OpenCL::RunPhase3(unsigned int phase3_numbers_buf_count, int firstIteration
 		double& total;
 		~Phase3Time() { total += t.getElapsedTime(); }
 	} phase3TotalTime{ Timer(), P().mySieveStatPhase3Wall };
+	if (!CheckCountFromGPU("Phase 3", phase3_numbers_buf_count, myPhase2MaxNumbersCount))
+	{
+		return false;
+	}
 	if (firstIteration == 1)
 	{
 		P().mySieveStatPhase3Numbers += phase3_numbers_buf_count;
@@ -2900,6 +2950,10 @@ bool OpenCL::RunPhase3(unsigned int phase3_numbers_buf_count, int firstIteration
 		// ~1 ms more than its kernels (k4: ~1600 iterations, most of them with ~0.1 ms of GPU work).
 		CL_CHECKED_CALL(clEnqueueReadBuffer, P().myQueue, P().myPhase3_numbers_count_buf, CL_TRUE, 0, sizeof(phase3_numbers_buf_count2), &phase3_numbers_buf_count2, 0, nullptr, nullptr);
 		CL_CHECKED_CALL(clEnqueueWriteBuffer, P().myQueue, P().myPhase3_numbers_count_buf, CL_FALSE, 0, sizeof(phase3_numbers_buf_count2), ourZeroBuf, 0, nullptr, nullptr);
+		if (!CheckCountFromGPU("Phase 3", phase3_numbers_buf_count2, myPhase2MaxNumbersCount))
+		{
+			return false;
+		}
 
 		const double phase3Time = t1.getElapsedTime();
 		{
@@ -5933,6 +5987,11 @@ bool OpenCL::TestSieveLargePrimesPair(const num128 m, num64 c, num64 sc, num64 p
 	unsigned int numbers_found = 0;
 	if (!GetAndResetCounter(P().myQueue, P().myAmicable_numbers_count_buf, numbers_found))
 	{
+		return false;
+	}
+	if (numbers_found > AmicableFoundMax)
+	{
+		LOG_ERROR("Too many numbers found (" << numbers_found << "), the buffer holds " << AmicableFoundMax);
 		return false;
 	}
 	std::vector<SFoundPair> found(numbers_found);
