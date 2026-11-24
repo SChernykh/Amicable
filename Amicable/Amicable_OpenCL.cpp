@@ -1646,6 +1646,20 @@ bool OpenCL::ResetCounter(cl_command_queue queue, cl_mem buf)
 	return true;
 }
 
+// Sets the first count uints of buf to value, on the queue of pipeline P() (kernel.cl: FillUint)
+bool OpenCL::FillUint(cl_mem buf, cl_uint value, cl_uint count)
+{
+	if (count == 0)
+	{
+		return true;
+	}
+	// (a multiple of 256, so that the runtime can choose a usual work-group size for any count; the kernel loops up to count)
+	const size_t globalSize = std::min<size_t>((static_cast<size_t>(count) + 255) / 256 * 256, size_t(1) << 20);
+	CL_CHECKED_CALL(setKernelArguments, P().myFillUint, buf, value, count);
+	CL_CHECKED_CALL(clEnqueueNDRangeKernel, P().myQueue, P().myFillUint, 1, nullptr, &globalSize, nullptr, 0, nullptr, nullptr);
+	return true;
+}
+
 bool OpenCL::GetAndResetCounter(cl_command_queue queue, cl_mem buf, unsigned int &counter)
 {
 	CL_CHECKED_CALL(clEnqueueReadBuffer, queue, buf, CL_TRUE, 0, sizeof(counter), &counter, 0, nullptr, nullptr);
@@ -2934,8 +2948,10 @@ bool OpenCL::RunPhase3(unsigned int phase3_numbers_buf_count, int firstIteration
 		const cl_uint wideMode = ((wideFrom > 0) && (phase3_iteration >= wideFrom)) ? 1U : 0U;
 		if (wideMode)
 		{
-			const cl_uint ones = 0xFFFFFFFFU;
-			CL_CHECKED_CALL(clEnqueueFillBuffer, P().myQueue, P().myPhase3WideStatusBuf, &ones, sizeof(ones), 0, sizeof(cl_uint) * static_cast<size_t>(phase3_numbers_buf_count2), 0, nullptr, nullptr);
+			if (!FillUint(P().myPhase3WideStatusBuf, 0xFFFFFFFFU, phase3_numbers_buf_count2))
+			{
+				return false;
+			}
 			const cl_uint wideCount = phase3_numbers_buf_count2;
 			const cl_int tableLimit = static_cast<cl_int>(ReciprocalsTableSize128 - 64);
 			CL_CHECKED_CALL(setKernelArguments, P().myCheckPairPhase3Wide, phase3_buffers[phase3_iteration & 1], wideCount, phase3MaxI, tableLimit, mySmallPrimesBuf, myPrimeInversesBuf, myPrimeInverses_128_Buf, P().myPhase3WideStatusBuf);
@@ -3323,6 +3339,7 @@ bool OpenCL::CreatePipeKernels()
 	CL_CHECKED_CALL_WITH_RESULT(P().myPhase2BucketCount, clCreateKernel, myProgram, "Phase2BucketCount");
 	CL_CHECKED_CALL_WITH_RESULT(P().myPhase2BucketScatter, clCreateKernel, myProgram, "Phase2BucketScatter");
 	CL_CHECKED_CALL_WITH_RESULT(P().myPhase2Prefilter, clCreateKernel, myProgram, "Phase2Prefilter");
+	CL_CHECKED_CALL_WITH_RESULT(P().myFillUint, clCreateKernel, myProgram, "FillUint");
 	CL_CHECKED_CALL_WITH_RESULT(P().myPhase2BucketsBuf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(cl_uint) * Phase2Buckets, 0);
 	return true;
 }
@@ -3378,7 +3395,7 @@ void OpenCL::ReleasePipe()
 	SievePipe& p = P();
 	const cl_kernel kernels[] = { p.mySieveRanges, p.mySieveRangesKill, p.myCheckSieveSurvivors, p.mySieveLaunchDone, p.mySieveTestDeferred,
 		p.myCheckSieveSurvivorsPrime, p.mySieveBand, p.myCheckPairPhase2, p.myCheckPairPhase3, p.myCheckPairPhase3Wide, p.myPhase2BucketCount,
-		p.myPhase2BucketScatter, p.myPhase2Prefilter };
+		p.myPhase2BucketScatter, p.myPhase2Prefilter, p.myFillUint };
 	for (cl_kernel k : kernels)
 	{
 		if (k) clReleaseKernel(k);
@@ -4756,8 +4773,10 @@ bool OpenCL::RunSieveLaunches(unsigned int chunkBegin, unsigned int chunkEnd, un
 				const std::array<cl_uint, 5>& bl = bandLaunch[i];
 				if (bl[1] > 0)
 				{
-					const cl_uint none = 0xFFFFFFFFU;
-					CL_CHECKED_CALL(clEnqueueFillBuffer, P().myQueue, P().mySieveBandBitmapBuf, &none, sizeof(none), 0, static_cast<size_t>(bl[4]) * sizeof(cl_uint), 0, nullptr, nullptr);
+					if (!FillUint(P().mySieveBandBitmapBuf, 0xFFFFFFFFU, bl[4]))
+					{
+						return false;
+					}
 					// SieveBand over slices of the entries of the launch, each with at most bandSliceBytes of the bitmap: its hits (atomic_min,
 					// scattered) then mostly stay in the L2 cache. With all entries at once (up to 64 band chunks, ~180 MB of bitmap in "t1")
 					// 3/4 of SieveBand was the hits (t1: SieveBand 36.8 s, 9.3 s without them). The prime range of a slice is that of its
