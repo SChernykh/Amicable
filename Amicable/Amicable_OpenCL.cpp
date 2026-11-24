@@ -394,6 +394,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	num64 MaxMemAllocSize = 0;
 	num64 deviceLocalMemSize = 0;
 	num64 deviceMaxWorkGroupSize = 0;
+	num64 sieveMaxWorkGroupSize = 0;
 	{
 		char platformName[1024] = {};
 		CL_CHECKED_CALL(clGetPlatformInfo, platform, CL_PLATFORM_NAME, sizeof(platformName), &platformName, nullptr);
@@ -413,6 +414,8 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 		num64 max_work_group_size = 0;
 		char deviceName[1024] = {};
 		CL_CHECKED_CALL(clGetDeviceInfo, device, CL_DEVICE_NAME, sizeof(deviceName), deviceName, nullptr);
+		char deviceVendor[1024] = {};
+		CL_CHECKED_CALL(clGetDeviceInfo, device, CL_DEVICE_VENDOR, sizeof(deviceVendor), deviceVendor, nullptr);
 		CL_CHECKED_CALL(clGetDeviceInfo, device, CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(global_memory_size), &global_memory_size, nullptr);
 		CL_CHECKED_CALL(clGetDeviceInfo, device, CL_DEVICE_GLOBAL_MEM_CACHE_SIZE, sizeof(global_memory_cache_size), &global_memory_cache_size, nullptr);
 		CL_CHECKED_CALL(clGetDeviceInfo, device, CL_DEVICE_LOCAL_MEM_SIZE, sizeof(local_memory_size), &local_memory_size, nullptr);
@@ -432,6 +435,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 		global_memory_size >>= 20;
 		deviceLocalMemSize = local_memory_size;
 		deviceMaxWorkGroupSize = max_work_group_size;
+		sieveMaxWorkGroupSize = (strstr(deviceVendor, "Intel") || strstr(platformName, "Intel")) ? std::min<num64>(max_work_group_size, 256) : max_work_group_size;
 
 		LOG(2,
 			"Device " << 0 << ": " << deviceName << std::endl <<
@@ -552,7 +556,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	std::string sieve_compiler_options;
 	if (myUseSieve)
 	{
-		if (!InitSieve(device, std::min<num64>(deviceLocalMemSize, 65536), deviceMaxWorkGroupSize, sieve_compiler_options))
+		if (!InitSieve(device, std::min<num64>(deviceLocalMemSize, 65536), sieveMaxWorkGroupSize, sieve_compiler_options))
 		{
 			return false;
 		}
@@ -638,10 +642,11 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 		// A compiler can fail on the sieve kernels with the largest work-groups.
 		// Then the sieve is set up again with half the work-group size and the programs are built again, down to 256
 		const unsigned int sieveMinRetryWorkGroupSize = 256;
+		bool useWerror = true;
 		for (;;)
 		{
 			sprintf_s(kernel_options,
-				"%s-cl-fast-relaxed-math -D PQ_STRIDE_SIZE=%u -D WORK_GROUP_SIZE=%u -D PHASE2_MAX_COUNT=%u -D LPP=%u -D NUM_DATA_CHUNKS=%u -D CHUNK_SIZE_SHIFT=%u -D SUM_ESTIMATES_128_SHIFT=%u -D MAIN_BUFFER_MASK=%u%s -Werror",
+				"%s-cl-fast-relaxed-math -D PQ_STRIDE_SIZE=%u -D WORK_GROUP_SIZE=%u -D PHASE2_MAX_COUNT=%u -D LPP=%u -D NUM_DATA_CHUNKS=%u -D CHUNK_SIZE_SHIFT=%u -D SUM_ESTIMATES_128_SHIFT=%u -D MAIN_BUFFER_MASK=%u%s%s",
 				vendor_specific_compiler_options.c_str(),
 				SumEstimatesSize2_GPU,
 				static_cast<unsigned int>(myWorkGroupSize),
@@ -651,7 +656,8 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 				ChunkSizeShift,
 				64 - SumEstimates128Shift,
 				mainBufferWhole ? 0xFFFFFFFFU : static_cast<unsigned int>((MaxMainBufferSize / 2) - 1),
-				sieve_compiler_options.c_str()
+				sieve_compiler_options.c_str(),
+				useWerror ? " -Werror" : ""
 			);
 			// Development aid: extra kernel build options (for example -D switches of experimental kernel variants)
 			if (const char* extra = DevEnv("AMICABLE_CL_OPTIONS"))
@@ -676,6 +682,13 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 					LOG_ERROR("Failed to get build log, clGetProgramBuildInfo returned error " << get_info_result);
 				}
 
+				if (useWerror && (get_info_result == CL_SUCCESS) && strstr(cBuildLog, "-Werror"))
+				{
+					LOG_ERROR("Trying without -Werror and build again");
+					useWerror = false;
+					continue;
+				}
+
 				LOG_ERROR("Trying to disable 'goto' and build again");
 
 				strcat_s(kernel_options, " -D DISABLE_GOTO");
@@ -697,6 +710,13 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 				LOG_ERROR("clBuildProgram returned error " << build_result);
 				LOG_ERROR("Build options: " << kernel_options);
 				LOG_ERROR("Build log:\n" << cBuildLog);
+				// (the build without 'goto' failed because of -Werror)
+				if (useWerror && strstr(cBuildLog, "-Werror"))
+				{
+					LOG_ERROR("Trying without -Werror and build again");
+					useWerror = false;
+					continue;
+				}
 			}
 			// the sieve with the divisibility kill (chunks of the last tier)
 			else if (!mySieveKillOptions.empty())
@@ -719,8 +739,18 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 				build_result = clBuildProgram(myProgramKill, 0, nullptr, killOptions.c_str(), nullptr, nullptr);
 				if (build_result != CL_SUCCESS)
 				{
-					clGetProgramBuildInfo(myProgramKill, device, CL_PROGRAM_BUILD_LOG, sizeof(cBuildLog), cBuildLog, nullptr);
+					if (clGetProgramBuildInfo(myProgramKill, device, CL_PROGRAM_BUILD_LOG, sizeof(cBuildLog), cBuildLog, nullptr) != CL_SUCCESS)
+					{
+						cBuildLog[0] = '\0';
+					}
 					LOG_ERROR("clBuildProgram (sieve with the kill) returned error " << build_result << "\nBuild options: " << killOptions << "\nBuild log:\n" << cBuildLog);
+					// (both programs again without -Werror: they have the same options)
+					if (useWerror && strstr(cBuildLog, "-Werror"))
+					{
+						LOG_ERROR("Trying without -Werror and build again");
+						useWerror = false;
+						continue;
+					}
 				}
 				else
 				{
