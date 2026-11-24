@@ -142,6 +142,7 @@ struct SievePipe
 	cl_kernel myPhase2BucketScatter = nullptr;
 	cl_kernel myPhase2Prefilter = nullptr;
 	cl_kernel myFillUint = nullptr;                  // kernel.cl: FillUint (instead of clEnqueueFillBuffer)
+	cl_kernel myCopyNumbers = nullptr;               // kernel.cl: CopyNumbers (instead of clEnqueueCopyBuffer)
 
 	// buffers of a batch
 	cl_mem myPhase2BucketsBuf = nullptr;
@@ -263,6 +264,7 @@ private:
 	bool GetCounter(cl_command_queue queue, cl_mem buf, unsigned int &counter);
 	bool ResetCounter(cl_command_queue queue, cl_mem buf);
 	bool FillUint(cl_mem buf, cl_uint value, cl_uint count);
+	bool CopyNumbers(cl_mem src, cl_uint srcOffset, cl_mem dst, cl_uint dstOffset, cl_uint count, cl_event* event = nullptr);
 	bool GetAndResetCounter(cl_command_queue queue, cl_mem buf, unsigned int &counter);
 	bool GetAndResetCounter(cl_command_queue queue, cl_mem buf, num64 &counter);
 	unsigned int GetMaxPhaseSize(num64 total_size, unsigned int max_size);

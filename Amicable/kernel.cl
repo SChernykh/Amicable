@@ -2368,6 +2368,15 @@ __kernel void FillUint(__global uint* buf, const uint value, const uint count)
 	}
 }
 
+// Copies count numbers of phases 2 and 3 (4 ulongs each) from src + srcOffset to dst + dstOffset (OpenCL::CopyNumbers)
+__kernel void CopyNumbers(__global const ulong4* src, const uint srcOffset, __global ulong4* dst, const uint dstOffset, const uint count)
+{
+	for (uint i = get_global_id(0); i < count; i += get_global_size(0))
+	{
+		dst[dstOffset + i] = src[srcOffset + i];
+	}
+}
+
 // The numbers of phase 2 sorted by the primes they need (the host: SortPhase2Numbers). The primes of phases 2 and 3 start below N / D
 // (FirstUsefulPrimeIndex), and the work of a number grows with N / D: in the ranges with W ~ 0, the N / D of the numbers in a warp
 // differed by 4x - 30x (the warps of phase 2 took ~2.5x the average). Buckets: 64-bit and 128-bit numbers (different loops) x 32 classes

@@ -1660,6 +1660,20 @@ bool OpenCL::FillUint(cl_mem buf, cl_uint value, cl_uint count)
 	return true;
 }
 
+// Copies count numbers of phases 2 and 3 (4 num64 each) from src, starting at number srcOffset, to dst at number dstOffset, on the queue
+// of pipeline P() (kernel.cl: CopyNumbers). src and dst must be different buffers.
+bool OpenCL::CopyNumbers(cl_mem src, cl_uint srcOffset, cl_mem dst, cl_uint dstOffset, cl_uint count, cl_event* event)
+{
+	if (count == 0)
+	{
+		return true;
+	}
+	const size_t globalSize = std::min<size_t>((static_cast<size_t>(count) + 255) / 256 * 256, size_t(1) << 20);
+	CL_CHECKED_CALL(setKernelArguments, P().myCopyNumbers, src, srcOffset, dst, dstOffset, count);
+	CL_CHECKED_CALL(clEnqueueNDRangeKernel, P().myQueue, P().myCopyNumbers, 1, nullptr, &globalSize, nullptr, 0, nullptr, event);
+	return true;
+}
+
 bool OpenCL::GetAndResetCounter(cl_command_queue queue, cl_mem buf, unsigned int &counter)
 {
 	CL_CHECKED_CALL(clEnqueueReadBuffer, queue, buf, CL_TRUE, 0, sizeof(counter), &counter, 0, nullptr, nullptr);
@@ -2916,7 +2930,10 @@ bool OpenCL::RunPhase3(unsigned int phase3_numbers_buf_count, int firstIteration
 		if (P().myPhase3BacklogEnabled && (phase3_iteration > firstIteration) && (phase3_numbers_buf_count2 < Phase3BacklogMinCount) &&
 			(P().myPhase3BacklogCount + phase3_numbers_buf_count2 <= Phase3BacklogCapacity()))
 		{
-			CL_CHECKED_CALL(clEnqueueCopyBuffer, P().myQueue, phase3_buffers[phase3_iteration & 1], P().myPhase3BacklogBuf, 0, P().myPhase3BacklogCount * sizeof(num64) * 4, phase3_numbers_buf_count2 * sizeof(num64) * 4, 0, nullptr, nullptr);
+			if (!CopyNumbers(phase3_buffers[phase3_iteration & 1], 0, P().myPhase3BacklogBuf, P().myPhase3BacklogCount, phase3_numbers_buf_count2))
+			{
+				return false;
+			}
 			P().myPhase3BacklogIteration = (P().myPhase3BacklogCount == 0) ? phase3_iteration : std::min(P().myPhase3BacklogIteration, phase3_iteration);
 			P().myPhase3BacklogCount += phase3_numbers_buf_count2;
 			LOG(2, "Phase 3, iteration " << phase3_iteration << ": " << phase3_numbers_buf_count2 << " numbers moved to the backlog (" << P().myPhase3BacklogCount << " numbers)");
@@ -3051,7 +3068,10 @@ bool OpenCL::SortPhase2Numbers(unsigned int count)
 	cl_event es = nullptr;
 	cl_event ey = nullptr;
 	CL_CHECKED_CALL(clEnqueueNDRangeKernel, P().myQueue, P().myPhase2BucketScatter, 1, nullptr, &globalSize, &myWorkGroupSize, 0, nullptr, g_SieveProfile ? &es : nullptr);
-	CL_CHECKED_CALL(clEnqueueCopyBuffer, P().myQueue, P().myPhase3_numbers_buf, P().myPhase2_numbers_buf, 0, 0, static_cast<size_t>(count) * sizeof(num64) * 4, 0, nullptr, g_SieveProfile ? &ey : nullptr);
+	if (!CopyNumbers(P().myPhase3_numbers_buf, 0, P().myPhase2_numbers_buf, 0, count, g_SieveProfile ? &ey : nullptr))
+	{
+		return false;
+	}
 	if (es) P().myPhase2ProfileEvents.emplace_back(2, es);
 	if (ey) P().myPhase2ProfileEvents.emplace_back(2, ey);
 	++P().mySieveStatPhase2Sorts;
@@ -3069,7 +3089,10 @@ bool OpenCL::FlushPhase3Backlog()
 	const int iteration = P().myPhase3BacklogIteration;
 	P().myPhase3BacklogCount = 0;
 	// (the numbers start at the first iteration of the backlog: the others continue at their own primes, kernel.cl: CheckPairPhase3)
-	CL_CHECKED_CALL(clEnqueueCopyBuffer, P().myQueue, P().myPhase3BacklogBuf, (iteration & 1) ? P().myPhase3_numbers_buf : P().myPhase2_numbers_buf, 0, 0, count * sizeof(num64) * 4, 0, nullptr, nullptr);
+	if (!CopyNumbers(P().myPhase3BacklogBuf, 0, (iteration & 1) ? P().myPhase3_numbers_buf : P().myPhase2_numbers_buf, 0, count))
+	{
+		return false;
+	}
 	LOG(2, "Phase 3 backlog: " << count << " numbers from iteration " << iteration);
 	const bool enabled = P().myPhase3BacklogEnabled;
 	P().myPhase3BacklogEnabled = false;
@@ -3340,6 +3363,7 @@ bool OpenCL::CreatePipeKernels()
 	CL_CHECKED_CALL_WITH_RESULT(P().myPhase2BucketScatter, clCreateKernel, myProgram, "Phase2BucketScatter");
 	CL_CHECKED_CALL_WITH_RESULT(P().myPhase2Prefilter, clCreateKernel, myProgram, "Phase2Prefilter");
 	CL_CHECKED_CALL_WITH_RESULT(P().myFillUint, clCreateKernel, myProgram, "FillUint");
+	CL_CHECKED_CALL_WITH_RESULT(P().myCopyNumbers, clCreateKernel, myProgram, "CopyNumbers");
 	CL_CHECKED_CALL_WITH_RESULT(P().myPhase2BucketsBuf, clCreateBufferLogged, __LINE__, myGPUContext, CL_MEM_READ_WRITE, sizeof(cl_uint) * Phase2Buckets, 0);
 	return true;
 }
@@ -3395,7 +3419,7 @@ void OpenCL::ReleasePipe()
 	SievePipe& p = P();
 	const cl_kernel kernels[] = { p.mySieveRanges, p.mySieveRangesKill, p.myCheckSieveSurvivors, p.mySieveLaunchDone, p.mySieveTestDeferred,
 		p.myCheckSieveSurvivorsPrime, p.mySieveBand, p.myCheckPairPhase2, p.myCheckPairPhase3, p.myCheckPairPhase3Wide, p.myPhase2BucketCount,
-		p.myPhase2BucketScatter, p.myPhase2Prefilter, p.myFillUint };
+		p.myPhase2BucketScatter, p.myPhase2Prefilter, p.myFillUint, p.myCopyNumbers };
 	for (cl_kernel k : kernels)
 	{
 		if (k) clReleaseKernel(k);
