@@ -4943,6 +4943,14 @@ bool OpenCL::RunSieveLaunches(unsigned int chunkBegin, unsigned int chunkEnd, un
 					++numOverflows[flag];
 					if (flag == 1)
 					{
+						// A launch can't have more survivors than positions (plus the extra survivors, which go with the first launch).
+						// More than the survivor buffer holds then means that the GPU's memory is corrupted, and the launch would overflow
+						// again every time it runs (one chunk ran again and again for an hour, until the client stopped the task).
+						if (positions + ((i == 0) ? startCount : 0) <= mySurvivorCapacity)
+						{
+							LOG_ERROR("Sieve: the GPU reported " << launchSurvivors << " survivors of a launch with " << positions << " positions, but the survivor buffer holds " << mySurvivorCapacity << ". The GPU's memory is corrupted (was the GPU reset by its driver?)");
+							return false;
+						}
 						minOverflowPositions = std::min(minOverflowPositions, std::max<num64>(positions, 1));
 						groupOverflowScale[group] = std::max(groupOverflowScale[group], 2.0 * static_cast<double>(launchSurvivors) / std::max(expected, 1.0));
 					}
@@ -4996,6 +5004,13 @@ bool OpenCL::RunSieveLaunches(unsigned int chunkBegin, unsigned int chunkEnd, un
 			// overflowed launches run again)
 			cl_uint phase2Count = 0;
 			CL_CHECKED_CALL(clEnqueueReadBuffer, P().myQueue, P().myPhase2_numbers_count_buf, CL_TRUE, 0, sizeof(phase2Count), &phase2Count, 0, nullptr, nullptr);
+			// The counter only grows during a round, so after a launch that overflowed the phase 2 buffer it can't be below the limit.
+			// If it is, the GPU's memory is corrupted (with 0, phase 2 would be launched with nothing to do: CL_INVALID_GLOBAL_WORK_SIZE).
+			if (numOverflows[2] && (phase2Count <= myPhase2MaxNumbersCount))
+			{
+				LOG_ERROR("Sieve: a launch overflowed the phase 2 buffer, but the GPU reported " << phase2Count << " numbers in it, and it holds " << myPhase2MaxNumbersCount << ". The GPU's memory is corrupted (was the GPU reset by its driver?)");
+				return false;
+			}
 			const cl_uint phase2New = std::min<cl_uint>(phase2Count, myPhase2MaxNumbersCount) - std::min<cl_uint>(phase2Fill, myPhase2MaxNumbersCount);
 			if ((roundPositions >= 16777216.0) || ((roundPositions > 0.0) && (roundPositions * P().mySievePhase2Rate >= 1e5)))
 			{
