@@ -331,8 +331,18 @@ int main(int argc, char* argv[])
 	g_outputFile = boinc_fopen(resolved_name.c_str(), "ab+");
 
 	bool cl_result;
+	bool retry = false;
 	{
 		OpenCL cl(aid.project_preferences);
+		cl_result = cl.Run(argc, argv, startFrom, stopAt, largestPrimePower, startPrime, primeLimit);
+		retry = !cl_result && cl.SieveFlushRetry();
+	}
+	if (retry)
+	{
+		// AMD GCN: the sieve self-test failed, once more with SieveFlushSurvivors without optimizations (see kernel_sieve.cl)
+		std::cerr << "Building the programs again with SieveFlushSurvivors without optimizations (AMD GCN)" << std::endl;
+		OpenCL cl(aid.project_preferences);
+		cl.SetSieveFlushOptnone();
 		cl_result = cl.Run(argc, argv, startFrom, stopAt, largestPrimePower, startPrime, primeLimit);
 	}
 

@@ -133,6 +133,10 @@ static inline uint SieveKillD(const uint q, const ulong sumM0lo, const ulong sum
 }
 
 // Writes the n survivors of a segment (positions c << SIEVE_SEG_SHIFT | j in sb, row offsets w) to the global list at index base
+// Old AMD GCN with the Windows driver: optimized and inlined into SieveRanges, this function loses survivors. Without optimizations it is right
+#ifdef SIEVE_FLUSH_OPTNONE
+#pragma clang optimize off
+#endif
 static inline void SieveFlushSurvivors(__local const uint* sb, const uint n, const uint base, const ulong Pseg, __local const uint* w, const uint rangeIndex, __global ulong* survivors, const uint survivorCapacity, const uint lid)
 {
 	for (uint i = lid; i < n; i += SIEVE_WG_SIZE)
@@ -151,6 +155,9 @@ static inline void SieveFlushSurvivors(__local const uint* sb, const uint n, con
 		}
 	}
 }
+#ifdef SIEVE_FLUSH_OPTNONE
+#pragma clang optimize on
+#endif
 
 // Exponent of the sieving prime q in g = gcd(A, B): from the factorization of g (ranges), or by division (large primes, g < 2^40)
 static uint SieveExponentInG(const uint q, const uint Rq, const uint ngf, __local const uint* GF, const ulong gOdd)

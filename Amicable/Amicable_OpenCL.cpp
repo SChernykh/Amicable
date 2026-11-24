@@ -294,6 +294,11 @@ OpenCL::~OpenCL()
 	clReleaseContext(myGPUContext);
 }
 
+// (cl_amd_device_attribute_query; not in every cl_ext.h)
+#ifndef CL_DEVICE_WAVEFRONT_WIDTH_AMD
+#define CL_DEVICE_WAVEFRONT_WIDTH_AMD 0x4043
+#endif
+
 static bool PlatformSupported(const char* platformName)
 {
 	return true;
@@ -494,6 +499,17 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 		{
 			// NVIDIA
 			vendor_specific_compiler_options += "-cl-nv-verbose ";
+		}
+
+		// AMD GCN (64-wide wavefronts: Polaris, Vega, ...), see SieveFlushRetry
+		if ((strstr(platformName, "AMD") || strstr(platformName, "ATI")) && strstr(extensions.data(), "cl_amd_device_attribute_query"))
+		{
+			cl_uint wavefront = 0;
+			myAMDWave64 = (clGetDeviceInfo(device, CL_DEVICE_WAVEFRONT_WIDTH_AMD, sizeof(wavefront), &wavefront, nullptr) == CL_SUCCESS) && (wavefront == 64);
+		}
+		if (mySieveFlushOptnone)
+		{
+			vendor_specific_compiler_options += "-D SIEVE_FLUSH_OPTNONE ";
 		}
 	}
 
@@ -928,6 +944,8 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	else
 	{
 		LOG_ERROR("Self-test failed");
+		// (AMD GCN: the work unit again with SieveFlushSurvivors without optimizations, see SieveFlushRetry)
+		mySieveFlushRetry = mySieveTestFailed && myAMDWave64 && !mySieveFlushOptnone;
 		return false;
 	}
 
@@ -6140,6 +6158,7 @@ bool OpenCL::TestSieveStartup()
 		ok = TestSieveKnownPairs(pairs, none, false);
 		LOG(1, "Sieve self-test: " << pairs.size() << " pairs, " << mySieveStatBandTestRanges << " of them through the band");
 	}
+	mySieveTestFailed = !ok;
 
 	// (the statistics of the work unit)
 	P().mySieveStatPositions = 0;

@@ -228,6 +228,11 @@ public:
 
 	bool Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned int largestPrimePower, num64 startPrime, num64 primeLimit);
 
+	// AMD GCN: SieveFlushSurvivors without optimizations (kernel_sieve.cl). Run failed and SieveFlushRetry is true: the sieve self-test
+	// failed on an AMD GPU with 64-wide wavefronts, and the caller runs the work unit again with a new object, after SetSieveFlushOptnone
+	void SetSieveFlushOptnone() { mySieveFlushOptnone = true; }
+	bool SieveFlushRetry() const { return mySieveFlushRetry; }
+
 	bool Test();
 	bool TestLargestPrimePower();
 
@@ -366,6 +371,10 @@ private:
 	// Sieve (first stage and large primes)
 	bool myUseSieve;
 	bool myLargePrimesSieve;
+	bool myAMDWave64 = false;                  // an AMD GPU with 64-wide wavefronts (GCN)
+	bool mySieveFlushOptnone = false;          // SetSieveFlushOptnone
+	bool mySieveTestFailed = false;            // the sieve self-test ran and failed
+	bool mySieveFlushRetry = false;            // SieveFlushRetry
 	cl_uint mySieveChunkOffsetArg;
 	unsigned int mySieveMaxCandidates;
 	SieveGPUTables mySieve;
