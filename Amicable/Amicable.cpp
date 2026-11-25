@@ -339,8 +339,8 @@ int main(int argc, char* argv[])
 	}
 	if (retry)
 	{
-		// AMD GCN: the sieve self-test failed, once more with SieveFlushSurvivors without optimizations (see kernel_sieve.cl)
-		std::cerr << "Building the programs again with SieveFlushSurvivors without optimizations (AMD GCN)" << std::endl;
+		// AMD GCN, Apple M5/M6: the sieve self-test failed, once more with SieveFlushSurvivors without optimizations (see kernel_sieve.cl)
+		std::cerr << "Building the programs again with SieveFlushSurvivors without optimizations (AMD GCN, Apple M5/M6)" << std::endl;
 		OpenCL cl(aid.project_preferences);
 		cl.SetSieveFlushOptnone();
 		cl_result = cl.Run(argc, argv, startFrom, stopAt, largestPrimePower, startPrime, primeLimit);

@@ -501,12 +501,13 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 			vendor_specific_compiler_options += "-cl-nv-verbose ";
 		}
 
-		// AMD GCN (64-wide wavefronts: Polaris, Vega, ...), see SieveFlushRetry
+		// AMD GCN (64-wide wavefronts: Polaris, Vega, ...) and Apple GPUs (M5, M6), see SieveFlushRetry
 		if ((strstr(platformName, "AMD") || strstr(platformName, "ATI")) && strstr(extensions.data(), "cl_amd_device_attribute_query"))
 		{
 			cl_uint wavefront = 0;
 			myAMDWave64 = (clGetDeviceInfo(device, CL_DEVICE_WAVEFRONT_WIDTH_AMD, sizeof(wavefront), &wavefront, nullptr) == CL_SUCCESS) && (wavefront == 64);
 		}
+		myAppleGPU = (strstr(deviceVendor, "Apple") != nullptr);
 		if (mySieveFlushOptnone)
 		{
 			vendor_specific_compiler_options += "-D SIEVE_FLUSH_OPTNONE ";
@@ -944,8 +945,8 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 	else
 	{
 		LOG_ERROR("Self-test failed");
-		// (AMD GCN: the work unit again with SieveFlushSurvivors without optimizations, see SieveFlushRetry)
-		mySieveFlushRetry = mySieveTestFailed && myAMDWave64 && !mySieveFlushOptnone;
+		// (AMD GCN, Apple M5/M6: the work unit again with SieveFlushSurvivors without optimizations, see SieveFlushRetry)
+		mySieveFlushRetry = mySieveTestFailed && (myAMDWave64 || myAppleGPU) && !mySieveFlushOptnone;
 		return false;
 	}
 
