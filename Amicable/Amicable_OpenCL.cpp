@@ -727,8 +727,9 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 					LOG_ERROR("Failed to get build log, clGetProgramBuildInfo returned error " << get_info_result);
 				}
 
-				// (a log that can't be read may be the log of a -Werror failure as well)
-				if (useWerror && ((get_info_result != CL_SUCCESS) || strstr(cBuildLog, "-Werror")))
+				// Any failure with -Werror: first once more without it, before the other fallbacks. (Not every compiler names
+				// -Werror in its log, or in the part of the log that we can read, when a warning made the build fail.)
+				if (useWerror)
 				{
 					LOG_ERROR("Trying without -Werror and build again");
 					useWerror = false;
@@ -756,13 +757,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 				LOG_ERROR("clBuildProgram returned error " << build_result);
 				LOG_ERROR("Build options: " << kernel_options);
 				LOG_ERROR("Build log:\n" << cBuildLog);
-				// (the build without 'goto' failed because of -Werror)
-				if (useWerror && ((get_info_result2 != CL_SUCCESS) || strstr(cBuildLog, "-Werror")))
-				{
-					LOG_ERROR("Trying without -Werror and build again");
-					useWerror = false;
-					continue;
-				}
+				// (no -Werror retry here: the build without 'goto' runs only after the one without -Werror failed)
 			}
 			// the sieve with the divisibility kill (chunks of the last tier)
 			else if (!mySieveKillOptions.empty())
@@ -785,10 +780,10 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 				build_result = clBuildProgram(myProgramKill, 0, nullptr, killOptions.c_str(), nullptr, nullptr);
 				if (build_result != CL_SUCCESS)
 				{
-					const cl_int get_info_result3 = GetBuildLog(myProgramKill, device, cBuildLog, sizeof(cBuildLog));
+					GetBuildLog(myProgramKill, device, cBuildLog, sizeof(cBuildLog));
 					LOG_ERROR("clBuildProgram (sieve with the kill) returned error " << build_result << "\nBuild options: " << killOptions << "\nBuild log:\n" << cBuildLog);
-					// (both programs again without -Werror: they have the same options)
-					if (useWerror && ((get_info_result3 != CL_SUCCESS) || strstr(cBuildLog, "-Werror")))
+					// (any failure with -Werror: both programs again without -Werror, they have the same options)
+					if (useWerror)
 					{
 						LOG_ERROR("Trying without -Werror and build again");
 						useWerror = false;
