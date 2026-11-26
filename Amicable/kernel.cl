@@ -7,6 +7,31 @@ static const char* kernel_cl = R"===(
 #pragma OPENCL EXTENSION cl_clang_storage_class_specifiers : enable
 #endif
 
+#ifdef INTEL_MULHI64
+// Intel GPUs (Intel's compiler): IGC 2.41 and later (Linux compute-runtime 26.35 and later) crash in clBuildProgram (SIGSEGV in a
+// code generation pass right after the 64-bit integer emulation) on the 64-bit mul_hi of CheckPairs, CheckSieveSurvivors and
+// SieveBand. With this 64-bit mul_hi made of 32-bit products, every IGC from 2.28 to 2.43 builds the programs.
+static inline uint __attribute__((overloadable)) AmicableMulHi(const uint a, const uint b)
+{
+	return mul_hi(a, b);
+}
+
+static inline ulong __attribute__((overloadable)) AmicableMulHi(const ulong a, const ulong b)
+{
+	const ulong a0 = (uint)a;
+	const ulong a1 = a >> 32;
+	const ulong b0 = (uint)b;
+	const ulong b1 = b >> 32;
+	const ulong p0 = a0 * b0;
+	const ulong p1 = a0 * b1;
+	const ulong p2 = a1 * b0;
+	const ulong mid = (p0 >> 32) + (uint)p1 + (uint)p2;
+	return a1 * b1 + (p1 >> 32) + (p2 >> 32) + (mid >> 32);
+}
+
+#define mul_hi AmicableMulHi
+#endif
+
 #define PHASE1_DEPTH 256
 
 //-----------------------------------------------------------------------------------------------------------------------------------------------------------

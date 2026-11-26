@@ -508,6 +508,12 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 			myAMDWave64 = (clGetDeviceInfo(device, CL_DEVICE_WAVEFRONT_WIDTH_AMD, sizeof(wavefront), &wavefront, nullptr) == CL_SUCCESS) && (wavefront == 64);
 		}
 		myAppleGPU = (strstr(deviceVendor, "Apple") != nullptr);
+		// Intel GPUs with Intel's compiler (Windows, Linux; not Apple's OpenCL on Macs): a 64-bit mul_hi that IGC 2.41 and later
+		// can compile, see INTEL_MULHI64 in kernel.cl
+		if (strstr(deviceVendor, "Intel") && !strstr(platformName, "Apple"))
+		{
+			vendor_specific_compiler_options += "-D INTEL_MULHI64 ";
+		}
 		if (mySieveFlushOptnone)
 		{
 			vendor_specific_compiler_options += "-D SIEVE_FLUSH_OPTNONE ";
