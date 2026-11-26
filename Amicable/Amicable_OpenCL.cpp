@@ -358,6 +358,28 @@ static cl_mem clCreateBufferLogged(int line, cl_context context, cl_mem_flags fl
 	return clCreateBuffer(context, flags, size, host_ptr, errcode_ret);
 }
 
+// The build log of a program in "log", cut after capacity - 1 characters. (clGetProgramBuildInfo fails with CL_INVALID_VALUE when its
+// buffer is smaller than the log, so a log longer than the buffer was not shown at all.)
+static cl_int GetBuildLog(cl_program program, cl_device_id device, char* log, size_t capacity)
+{
+	log[0] = '\0';
+	size_t size = 0;
+	cl_int result = clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, 0, nullptr, &size);
+	if ((result != CL_SUCCESS) || (size == 0))
+	{
+		return result;
+	}
+	std::vector<char> buf(size + 1, '\0');
+	result = clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, size, buf.data(), nullptr);
+	if (result == CL_SUCCESS)
+	{
+		const size_t n = std::min(strlen(buf.data()), capacity - 1);
+		memcpy(log, buf.data(), n);
+		log[n] = '\0';
+	}
+	return result;
+}
+
 bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned int largestPrimePower, num64 startPrime, num64 primeLimit)
 {
 	cl_platform_id platform = nullptr;
@@ -661,7 +683,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 
 	{
 		char kernel_options[2048];
-		char cBuildLog[10240];
+		char cBuildLog[16384];
 		// A compiler can fail on the sieve kernels with the largest work-groups.
 		// Then the sieve is set up again with half the work-group size and the programs are built again, down to 256
 		const unsigned int sieveMinRetryWorkGroupSize = 256;
@@ -695,7 +717,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 				LOG_ERROR("clBuildProgram returned error " << build_result);
 				LOG_ERROR("Build options: " << kernel_options);
 
-				const cl_int get_info_result = clGetProgramBuildInfo(myProgram, device, CL_PROGRAM_BUILD_LOG, sizeof(cBuildLog), cBuildLog, nullptr);
+				const cl_int get_info_result = GetBuildLog(myProgram, device, cBuildLog, sizeof(cBuildLog));
 				if (get_info_result == CL_SUCCESS)
 				{
 					LOG_ERROR("Build log:\n" << cBuildLog);
@@ -705,7 +727,8 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 					LOG_ERROR("Failed to get build log, clGetProgramBuildInfo returned error " << get_info_result);
 				}
 
-				if (useWerror && (get_info_result == CL_SUCCESS) && strstr(cBuildLog, "-Werror"))
+				// (a log that can't be read may be the log of a -Werror failure as well)
+				if (useWerror && ((get_info_result != CL_SUCCESS) || strstr(cBuildLog, "-Werror")))
 				{
 					LOG_ERROR("Trying without -Werror and build again");
 					useWerror = false;
@@ -719,7 +742,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 				build_result = clBuildProgram(myProgram, 0, nullptr, kernel_options, nullptr, nullptr);
 			}
 
-			const cl_int get_info_result2 = clGetProgramBuildInfo(myProgram, device, CL_PROGRAM_BUILD_LOG, sizeof(cBuildLog), cBuildLog, nullptr);
+			const cl_int get_info_result2 = GetBuildLog(myProgram, device, cBuildLog, sizeof(cBuildLog));
 			if (get_info_result2 != CL_SUCCESS)
 			{
 				LOG_ERROR("Failed to get build log, clGetProgramBuildInfo returned error " << get_info_result2);
@@ -734,7 +757,7 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 				LOG_ERROR("Build options: " << kernel_options);
 				LOG_ERROR("Build log:\n" << cBuildLog);
 				// (the build without 'goto' failed because of -Werror)
-				if (useWerror && strstr(cBuildLog, "-Werror"))
+				if (useWerror && ((get_info_result2 != CL_SUCCESS) || strstr(cBuildLog, "-Werror")))
 				{
 					LOG_ERROR("Trying without -Werror and build again");
 					useWerror = false;
@@ -762,13 +785,10 @@ bool OpenCL::Run(int argc, char* argv[], char* startFrom, char* stopAt, unsigned
 				build_result = clBuildProgram(myProgramKill, 0, nullptr, killOptions.c_str(), nullptr, nullptr);
 				if (build_result != CL_SUCCESS)
 				{
-					if (clGetProgramBuildInfo(myProgramKill, device, CL_PROGRAM_BUILD_LOG, sizeof(cBuildLog), cBuildLog, nullptr) != CL_SUCCESS)
-					{
-						cBuildLog[0] = '\0';
-					}
+					const cl_int get_info_result3 = GetBuildLog(myProgramKill, device, cBuildLog, sizeof(cBuildLog));
 					LOG_ERROR("clBuildProgram (sieve with the kill) returned error " << build_result << "\nBuild options: " << killOptions << "\nBuild log:\n" << cBuildLog);
 					// (both programs again without -Werror: they have the same options)
-					if (useWerror && strstr(cBuildLog, "-Werror"))
+					if (useWerror && ((get_info_result3 != CL_SUCCESS) || strstr(cBuildLog, "-Werror")))
 					{
 						LOG_ERROR("Trying without -Werror and build again");
 						useWerror = false;
